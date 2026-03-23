@@ -1,24 +1,8 @@
-import { Link } from 'react-router-dom';
-import {
-  Bot,
-  Calendar,
-  CreditCard,
-  Mic,
-  Zap,
-  Shield,
-  BarChart3,
-  CheckCircle,
-  XCircle,
-  ArrowRight,
-  MessageSquare,
-  Clock,
-  Star,
-  Github,
-  Linkedin,
-  Facebook,
-  Globe,
-  Code2,
-} from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+import { Bot, Calendar, CreditCard, Mic, Zap, Shield, BarChart3, CheckCircle, XCircle, ArrowRight, MessageSquare, Clock, Star, Github, Linkedin, Facebook, Globe, Code2 } from 'lucide-react';
 
 // ── Componentes auxiliares ───────────────────────────────────
 function NavBar() {
@@ -27,26 +11,15 @@ function NavBar() {
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot className="text-green-400" size={24} />
-          <span className="font-bold text-lg text-white">
-            Akira <span className="text-green-400">Cloud</span>
-          </span>
+          <span className="font-bold text-lg text-white">Akira <span className="text-green-400">Cloud</span></span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm text-gray-400">
-          <a href="#beneficios" className="hover:text-white transition-colors">
-            Beneficios
-          </a>
-          <a href="#comparativa" className="hover:text-white transition-colors">
-            Comparativa
-          </a>
-          <a href="#precios" className="hover:text-white transition-colors">
-            Precios
-          </a>
+          <a href="#beneficios" className="hover:text-white transition-colors">Beneficios</a>
+          <a href="#comparativa" className="hover:text-white transition-colors">Comparativa</a>
+          <a href="#precios" className="hover:text-white transition-colors">Precios</a>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            to="/login"
-            className="text-sm text-gray-400 hover:text-white transition-colors px-4 py-2"
-          >
+          <Link to="/login" className="text-sm text-gray-400 hover:text-white transition-colors px-4 py-2">
             Iniciar sesión
           </Link>
           <Link to="/register" className="btn-primary text-sm py-2 px-5">
@@ -71,14 +44,13 @@ function HeroSection() {
         </div>
 
         <h1 className="text-5xl md:text-7xl font-extrabold text-white leading-tight mb-6">
-          Tu negocio funciona
-          <br />
+          Tu negocio funciona<br />
           <span className="text-green-400">mientras dormís</span>
         </h1>
 
         <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Akira es la asistente de WhatsApp con IA que agenda turnos, cobra con MercadoPago y
-          atiende a tus clientes las 24 horas. Sin código, sin servidores, sin complicaciones.
+          Akira es la asistente de WhatsApp con IA que agenda turnos, cobra con MercadoPago
+          y atiende a tus clientes las 24 horas. Sin código, sin servidores, sin complicaciones.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
@@ -104,31 +76,14 @@ function HeroSection() {
             </div>
             {[
               { from: 'client', text: 'Hola, ¿tienen turno el martes?', time: '10:02' },
-              {
-                from: 'bot',
-                text: '¡Hola Lucía! 😊 Sí, el martes tenemos disponible: 10:00, 14:00 y 16:00. ¿Cuál te queda mejor?',
-                time: '10:02',
-              },
+              { from: 'bot',    text: '¡Hola Lucía! 😊 Sí, el martes tenemos disponible: 10:00, 14:00 y 16:00. ¿Cuál te queda mejor?', time: '10:02' },
               { from: 'client', text: 'Las 14:00 perfecto', time: '10:03' },
-              {
-                from: 'bot',
-                text: '¡Genial! 🎉 Tu turno del martes a las 14:00 quedó confirmado.\n\n💳 Pagá aquí para reservarlo:\nhttps://mp.com/tu-turno\n\n⏳ El link vence en 30 min.',
-                time: '10:03',
-              },
+              { from: 'bot',    text: '¡Genial! 🎉 Tu turno del martes a las 14:00 quedó confirmado.\n\n💳 Pagá aquí para reservarlo:\nhttps://mp.com/tu-turno\n\n⏳ El link vence en 30 min.', time: '10:03' },
             ].map((m, i) => (
-              <div
-                key={i}
-                className={`flex mb-3 ${m.from === 'client' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line ${m.from === 'client' ? 'bg-green-600 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}
-                >
+              <div key={i} className={`flex mb-3 ${m.from === 'client' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line ${m.from === 'client' ? 'bg-green-600 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}>
                   {m.text}
-                  <p
-                    className={`text-right mt-1 opacity-60 text-[10px] ${m.from === 'client' ? 'text-green-200' : 'text-gray-500'}`}
-                  >
-                    {m.time}
-                  </p>
+                  <p className={`text-right mt-1 opacity-60 text-[10px] ${m.from === 'client' ? 'text-green-200' : 'text-gray-500'}`}>{m.time}</p>
                 </div>
               </div>
             ))}
@@ -144,36 +99,12 @@ function HeroSection() {
 }
 
 const beneficios = [
-  {
-    icon: <Bot size={22} />,
-    title: 'IA con LLaMA 3.3 70B',
-    desc: 'El modelo de lenguaje más potente disponible. Entiende contexto, tono y responde como una persona real.',
-  },
-  {
-    icon: <Calendar size={22} />,
-    title: 'Agenda en tiempo real',
-    desc: 'Se conecta a tu Google Calendar. Consulta disponibilidad, agenda y reagenda sin que vos intervengas.',
-  },
-  {
-    icon: <CreditCard size={22} />,
-    title: 'Cobros con MercadoPago',
-    desc: 'Genera links de pago automáticamente. El turno se confirma solo cuando el cliente paga.',
-  },
-  {
-    icon: <Mic size={22} />,
-    title: 'Responde audios',
-    desc: 'Transcribe mensajes de voz con Whisper y puede responder también con voz usando RIME AI.',
-  },
-  {
-    icon: <Clock size={22} />,
-    title: 'Recordatorios automáticos',
-    desc: 'Envía recordatorios 24 hs, 4 hs y 30 min antes del turno. Reducís ausencias sin hacer nada.',
-  },
-  {
-    icon: <Shield size={22} />,
-    title: 'Control total',
-    desc: 'Silenciás el bot cuando querés tomar el control de una conversación. Vos siempre tenés la última palabra.',
-  },
+  { icon: <Bot size={22} />, title: 'IA con LLaMA 3.3 70B', desc: 'El modelo de lenguaje más potente disponible. Entiende contexto, tono y responde como una persona real.' },
+  { icon: <Calendar size={22} />, title: 'Agenda en tiempo real', desc: 'Se conecta a tu Google Calendar. Consulta disponibilidad, agenda y reagenda sin que vos intervengas.' },
+  { icon: <CreditCard size={22} />, title: 'Cobros con MercadoPago', desc: 'Genera links de pago automáticamente. El turno se confirma solo cuando el cliente paga.' },
+  { icon: <Mic size={22} />, title: 'Responde audios', desc: 'Transcribe mensajes de voz con Whisper y puede responder también con voz usando RIME AI.' },
+  { icon: <Clock size={22} />, title: 'Recordatorios automáticos', desc: 'Envía recordatorios 24 hs, 4 hs y 30 min antes del turno. Reducís ausencias sin hacer nada.' },
+  { icon: <Shield size={22} />, title: 'Control total', desc: 'Silenciás el bot cuando querés tomar el control de una conversación. Vos siempre tenés la última palabra.' },
 ];
 
 function BeneficiosSection() {
@@ -182,10 +113,7 @@ function BeneficiosSection() {
       <div className="max-w-6xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-white mb-4">Todo lo que necesitás, integrado</h2>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            No es un bot de respuestas automáticas. Es un asistente que piensa, agenda y cobra por
-            vos.
-          </p>
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto">No es un bot de respuestas automáticas. Es un asistente que piensa, agenda y cobra por vos.</p>
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {beneficios.map((b, i) => (
@@ -204,15 +132,15 @@ function BeneficiosSection() {
 }
 
 const comparativa = [
-  { feature: 'Modelo de IA', akira: 'LLaMA 3.3 70B', trad: 'Respuestas fijas' },
-  { feature: 'Agenda real', akira: 'Google Calendar', trad: '❌ No incluye' },
-  { feature: 'Cobros integrados', akira: 'MercadoPago', trad: '❌ No incluye' },
-  { feature: 'Responde audios', akira: '✓ Whisper + RIME', trad: '❌ Solo texto' },
-  { feature: 'Recordatorios', akira: '24h / 4h / 30min', trad: '❌ Manual' },
+  { feature: 'Modelo de IA',          akira: 'LLaMA 3.3 70B',    trad: 'Respuestas fijas' },
+  { feature: 'Agenda real',           akira: 'Google Calendar',   trad: '❌ No incluye' },
+  { feature: 'Cobros integrados',     akira: 'MercadoPago',       trad: '❌ No incluye' },
+  { feature: 'Responde audios',       akira: '✓ Whisper + RIME',  trad: '❌ Solo texto' },
+  { feature: 'Recordatorios',         akira: '24h / 4h / 30min',  trad: '❌ Manual' },
   { feature: 'Contexto de conversación', akira: '✓ Multi-turno', trad: 'Limitado' },
-  { feature: 'Cancelar / reagendar', akira: '✓ Automático', trad: '❌ Manual' },
-  { feature: 'Control del dueño', akira: '✓ Silenciar/activar', trad: 'Básico' },
-  { feature: 'Multi-negocio', akira: '✓ Un número x cliente', trad: 'Varía' },
+  { feature: 'Cancelar / reagendar',  akira: '✓ Automático',      trad: '❌ Manual' },
+  { feature: 'Control del dueño',     akira: '✓ Silenciar/activar', trad: 'Básico' },
+  { feature: 'Multi-negocio',         akira: '✓ Un número x cliente', trad: 'Varía' },
 ];
 
 function ComparativaSection() {
@@ -221,9 +149,7 @@ function ComparativaSection() {
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-white mb-4">Akira vs Bots tradicionales</h2>
-          <p className="text-gray-400 text-lg">
-            No es solo un bot. Es la diferencia entre un negocio que crece y uno que se queda atrás.
-          </p>
+          <p className="text-gray-400 text-lg">No es solo un bot. Es la diferencia entre un negocio que crece y uno que se queda atrás.</p>
         </div>
         <div className="overflow-hidden rounded-2xl border border-gray-800">
           <table className="w-full text-sm">
@@ -233,17 +159,12 @@ function ComparativaSection() {
                 <th className="px-6 py-4 text-center">
                   <span className="text-green-400 font-bold text-base">Akira Cloud</span>
                 </th>
-                <th className="px-6 py-4 text-center text-gray-500 font-medium">
-                  Bots tradicionales
-                </th>
+                <th className="px-6 py-4 text-center text-gray-500 font-medium">Bots tradicionales</th>
               </tr>
             </thead>
             <tbody>
               {comparativa.map((row, i) => (
-                <tr
-                  key={i}
-                  className={`border-t border-gray-800 ${i % 2 === 0 ? 'bg-black' : 'bg-gray-950'}`}
-                >
+                <tr key={i} className={`border-t border-gray-800 ${i % 2 === 0 ? 'bg-black' : 'bg-gray-950'}`}>
                   <td className="px-6 py-3.5 text-gray-300">{row.feature}</td>
                   <td className="px-6 py-3.5 text-center">
                     <span className="inline-flex items-center gap-1.5 text-green-400 font-medium">
@@ -263,70 +184,76 @@ function ComparativaSection() {
 
 const planes = [
   {
-    nombre: 'Básico',
-    precio: '$15',
-    periodo: '/mes',
-    desc: 'Para negocios que empiezan',
-    features: [
-      '1 número de WhatsApp',
-      'IA con LLaMA 3.3 70B',
-      'Hasta 500 mensajes/mes',
-      'Recordatorios automáticos',
-      'Soporte por email',
-    ],
-    cta: 'Empezar gratis',
+    planKey:  'basico',
+    nombre:   'Básico',
+    precio:   '$15',
+    periodo:  '/mes',
+    desc:     'Para negocios que empiezan',
+    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 mensajes/mes', 'Recordatorios automáticos', 'Soporte por email'],
+    cta:      'Empezar gratis',
     destacado: false,
   },
   {
-    nombre: 'Pro',
-    precio: '$35',
-    periodo: '/mes',
-    desc: 'El más popular',
-    features: [
-      '1 número de WhatsApp',
-      'IA + Google Calendar',
-      'MercadoPago integrado',
-      'Mensajes ilimitados',
-      'Respuesta por audio (TTS)',
-      'Soporte prioritario',
-    ],
-    cta: 'Empezar gratis',
+    planKey:  'pro',
+    nombre:   'Pro',
+    precio:   '$35',
+    periodo:  '/mes',
+    desc:     'El más popular',
+    features: ['1 número de WhatsApp', 'IA + Google Calendar', 'MercadoPago integrado', 'Mensajes ilimitados', 'Respuesta por audio (TTS)', 'Soporte prioritario'],
+    cta:      'Empezar gratis',
     destacado: true,
   },
   {
-    nombre: 'Agencia',
-    precio: '$80',
-    periodo: '/mes',
-    desc: 'Para agencias y revendedores',
-    features: [
-      'Hasta 5 números de WhatsApp',
-      'Todo el plan Pro',
-      'Panel multi-cliente',
-      'Marca blanca disponible',
-      'Soporte dedicado',
-      'API access',
-    ],
-    cta: 'Contactar ventas',
+    planKey:  'agencia',
+    nombre:   'Agencia',
+    precio:   '$80',
+    periodo:  '/mes',
+    desc:     'Para agencias y revendedores',
+    features: ['Hasta 5 números de WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca disponible', 'Soporte dedicado', 'API access'],
+    cta:      'Contactar ventas',
     destacado: false,
   },
 ];
 
 function PreciosSection() {
+  const navigate = useNavigate();
+  const [loadingPlan, setLoadingPlan] = useState(null);
+
+  const handleElegirPlan = async (planKey) => {
+    // Verificar si el usuario está logueado
+    const token = localStorage.getItem('akira_token');
+    if (!token) {
+      // No está logueado → ir a registro con el plan seleccionado
+      navigate(`/register?plan=${planKey}`);
+      return;
+    }
+
+    // Está logueado → generar checkout directo
+    setLoadingPlan(planKey);
+    try {
+      const r = await api.post('/subscriptions/checkout', { plan: planKey });
+      if (r.data.init_point) {
+        // Redirigir a MercadoPago
+        window.location.href = r.data.init_point;
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Error al procesar el pago';
+      toast.error(msg);
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <section id="precios" className="py-24 bg-black">
       <div className="max-w-6xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-white mb-4">Precios simples, sin sorpresas</h2>
-          <p className="text-gray-400 text-lg">
-            7 días gratis en todos los planes. Cancelá cuando quieras.
-          </p>
+          <p className="text-gray-400 text-lg">7 días gratis en todos los planes. Cancelá cuando quieras.</p>
         </div>
         <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {planes.map((p, i) => (
-            <div
-              key={i}
-              className={`relative rounded-2xl p-6 border transition-all ${p.destacado ? 'bg-green-500/5 border-green-500/40 shadow-lg shadow-green-500/10' : 'bg-gray-900 border-gray-800'}`}
-            >
+            <div key={i} className={`relative rounded-2xl p-6 border transition-all ${p.destacado ? 'bg-green-500/5 border-green-500/40 shadow-lg shadow-green-500/10' : 'bg-gray-900 border-gray-800'}`}>
               {p.destacado && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-black text-xs font-bold px-4 py-1 rounded-full flex items-center gap-1">
                   <Star size={11} /> Más popular
@@ -335,11 +262,7 @@ function PreciosSection() {
               <div className="mb-6">
                 <p className="text-gray-400 text-sm mb-1">{p.nombre}</p>
                 <div className="flex items-baseline gap-1">
-                  <span
-                    className={`text-4xl font-extrabold ${p.destacado ? 'text-green-400' : 'text-white'}`}
-                  >
-                    {p.precio}
-                  </span>
+                  <span className={`text-4xl font-extrabold ${p.destacado ? 'text-green-400' : 'text-white'}`}>{p.precio}</span>
                   <span className="text-gray-500 text-sm">{p.periodo}</span>
                 </div>
                 <p className="text-gray-500 text-xs mt-1">{p.desc}</p>
@@ -351,14 +274,22 @@ function PreciosSection() {
                   </li>
                 ))}
               </ul>
-              <Link
-                to="/register"
-                className={`block text-center py-2.5 rounded-lg text-sm font-semibold transition-colors ${p.destacado ? 'bg-green-500 hover:bg-green-400 text-black' : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700'}`}
+              <button
+                onClick={() => handleElegirPlan(p.planKey)}
+                disabled={loadingPlan === p.planKey}
+                className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${p.destacado ? 'bg-green-500 hover:bg-green-400 text-black disabled:opacity-60' : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 disabled:opacity-60'}`}
               >
-                {p.cta}
-              </Link>
+                {loadingPlan === p.planKey ? (
+                  <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Procesando...</>
+                ) : p.cta}
+              </button>
             </div>
           ))}
+        </div>
+        {/* Garantía */}
+        <div className="text-center mt-10 flex items-center justify-center gap-2 text-gray-600 text-sm">
+          <CheckCircle size={14} className="text-green-500" />
+          7 días gratis · Sin tarjeta de crédito · Cancelá cuando quieras
         </div>
       </div>
     </section>
@@ -370,9 +301,7 @@ function CTASection() {
     <section className="py-24 bg-gray-950 border-t border-gray-800">
       <div className="max-w-3xl mx-auto px-6 text-center">
         <h2 className="text-4xl font-bold text-white mb-4">Empezá hoy. Es gratis por 7 días.</h2>
-        <p className="text-gray-400 text-lg mb-10">
-          Sin tarjeta de crédito. Sin instalaciones. Conectás tu WhatsApp en menos de 2 minutos.
-        </p>
+        <p className="text-gray-400 text-lg mb-10">Sin tarjeta de crédito. Sin instalaciones. Conectás tu WhatsApp en menos de 2 minutos.</p>
         <Link to="/register" className="btn-primary text-base py-4 px-10 inline-flex">
           Crear cuenta gratis <ArrowRight size={18} />
         </Link>
@@ -383,23 +312,15 @@ function CTASection() {
 
 function CreadorSection() {
   const stack = [
-    'React',
-    'Node.js',
-    'MongoDB',
-    'TypeScript',
-    'Python',
-    'Arduino',
-    'IoT',
-    'React Native',
-    'PostgreSQL',
-    'Google Cloud',
-    'C++',
-    'Linux',
+    'React', 'Node.js', 'MongoDB', 'TypeScript',
+    'Python', 'Arduino', 'IoT', 'React Native',
+    'PostgreSQL', 'Google Cloud', 'C++', 'Linux',
   ];
 
   return (
     <section className="py-24 bg-black border-t border-gray-900">
       <div className="max-w-5xl mx-auto px-6">
+
         {/* Título */}
         <div className="text-center mb-16">
           <span className="text-green-400 text-sm font-semibold uppercase tracking-widest">
@@ -409,14 +330,15 @@ function CreadorSection() {
             Construido por alguien que entiende tu realidad
           </h2>
           <p className="text-gray-500 text-lg max-w-2xl mx-auto">
-            Akira Cloud no nació en una oficina de Silicon Valley. Nació en Argentina, entendiendo
-            cómo trabajan los negocios reales de acá.
+            Akira Cloud no nació en una oficina de Silicon Valley. Nació en Argentina,
+            entendiendo cómo trabajan los negocios reales de acá.
           </p>
         </div>
 
         {/* Card principal */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
           <div className="flex flex-col md:flex-row">
+
             {/* Columna izquierda — foto y datos */}
             <div className="md:w-72 bg-gray-950 border-b md:border-b-0 md:border-r border-gray-800 p-8 flex flex-col items-center text-center gap-5">
               {/* Avatar con foto de GitHub */}
@@ -442,9 +364,7 @@ function CreadorSection() {
               <div>
                 <h3 className="text-xl font-bold text-white">Juan Martín Arrayago</h3>
                 <p className="text-green-400 text-sm font-medium mt-0.5">TinchoDev</p>
-                <p className="text-gray-500 text-xs mt-1">
-                  Full Stack Developer · Buenos Aires, AR 🇦🇷
-                </p>
+                <p className="text-gray-500 text-xs mt-1">Full Stack Developer · Buenos Aires, AR 🇦🇷</p>
               </div>
 
               {/* Redes sociales */}
@@ -477,7 +397,7 @@ function CreadorSection() {
                   <Facebook size={16} />
                 </a>
                 <a
-                  href="https://new-protfolio-xi.vercel.app/"
+                  href="https://martin-arrayago.com"
                   target="_blank"
                   rel="noreferrer"
                   className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-green-400 transition-all"
@@ -502,35 +422,24 @@ function CreadorSection() {
 
             {/* Columna derecha — historia y stack */}
             <div className="flex-1 p-8 flex flex-col justify-between gap-7">
+
               {/* Historia */}
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-1 h-14 bg-green-500 rounded-full flex-shrink-0" />
                   <blockquote className="text-gray-300 text-lg leading-relaxed italic">
                     "Vengo de una familia humilde. Me recibí en programación, robótica,
-                    automatización e impresión 3D por esfuerzo propio. Construí Akira Cloud porque
-                    vi cómo los negocios locales pierden clientes por no responder a tiempo — y supe
-                    que podía resolverlo."
+                    automatización e impresión 3D por esfuerzo propio. Construí Akira Cloud
+                    porque vi cómo los negocios locales pierden clientes por no responder
+                    a tiempo — y supe que podía resolverlo."
                   </blockquote>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
                   {[
-                    {
-                      icon: '🤖',
-                      titulo: 'Full Stack Dev',
-                      desc: 'React, Node.js, MongoDB y más de 15 tecnologías dominadas.',
-                    },
-                    {
-                      icon: '⚡',
-                      titulo: 'IoT & Robótica',
-                      desc: 'Arduino, ESP32, C++. Desde software hasta hardware.',
-                    },
-                    {
-                      icon: '🇦🇷',
-                      titulo: 'Hecho en Argentina',
-                      desc: 'Pensado para pymes locales, precios y pagos argentinos.',
-                    },
+                    { icon: '🤖', titulo: 'Full Stack Dev', desc: 'React, Node.js, MongoDB y más de 15 tecnologías dominadas.' },
+                    { icon: '⚡', titulo: 'IoT & Robótica', desc: 'Arduino, ESP32, C++. Desde software hasta hardware.' },
+                    { icon: '🇦🇷', titulo: 'Hecho en Argentina', desc: 'Pensado para pymes locales, precios y pagos argentinos.' },
                   ].map((item, i) => (
                     <div key={i} className="bg-black/40 border border-gray-800 rounded-xl p-4">
                       <div className="text-2xl mb-2">{item.icon}</div>
@@ -557,6 +466,7 @@ function CreadorSection() {
                   ))}
                 </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -565,7 +475,7 @@ function CreadorSection() {
         <p className="text-center text-gray-600 text-sm mt-8">
           ¿Tenés un proyecto? →{' '}
           <a
-            href="https://new-protfolio-xi.vercel.app/"
+            href="https://martin-arrayago.com"
             target="_blank"
             rel="noreferrer"
             className="text-green-400 hover:text-green-300 transition-colors"
@@ -573,10 +483,12 @@ function CreadorSection() {
             martin-arrayago.com
           </a>
         </p>
+
       </div>
     </section>
   );
 }
+
 
 function Footer() {
   return (
@@ -588,15 +500,9 @@ function Footer() {
         </div>
         <p className="text-gray-600 text-sm">© 2024 Akira Cloud. Todos los derechos reservados.</p>
         <div className="flex gap-6 text-sm text-gray-600">
-          <a href="#" className="hover:text-gray-400 transition-colors">
-            Privacidad
-          </a>
-          <a href="#" className="hover:text-gray-400 transition-colors">
-            Términos
-          </a>
-          <a href="#" className="hover:text-gray-400 transition-colors">
-            Contacto
-          </a>
+          <a href="#" className="hover:text-gray-400 transition-colors">Privacidad</a>
+          <a href="#" className="hover:text-gray-400 transition-colors">Términos</a>
+          <a href="#" className="hover:text-gray-400 transition-colors">Contacto</a>
         </div>
       </div>
     </footer>

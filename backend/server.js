@@ -1,6 +1,9 @@
 // server.js — Akira Cloud Backend
 'use strict';
 
+// Suprimir warning de punycode (viene de dependencias internas de Node 18+)
+process.noDeprecation = process.env.NODE_ENV === 'production';
+
 require('dotenv').config();
 
 const express      = require('express');
@@ -23,7 +26,8 @@ const botManager   = require('./services/bot.manager');
 const authRoutes   = require('./routes/auth.routes');
 const adminRoutes  = require('./routes/admin.routes');
 const configRoutes = require('./routes/config.routes');
-const botRoutes    = require('./routes/bot.routes');
+const botRoutes          = require('./routes/bot.routes');
+const subscriptionRoutes = require('./routes/subscription.routes');
 
 // ── Passport config ─────────────────────────────────────────
 require('./config/passport')(passport);
@@ -96,7 +100,8 @@ app.use(passport.initialize());
 app.use('/api/auth',   authLimiter, authRoutes);
 app.use('/api/admin',  adminRoutes);
 app.use('/api/config', configRoutes);
-app.use('/api/bot',    botRoutes);
+app.use('/api/bot',          botRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

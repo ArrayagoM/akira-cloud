@@ -53,13 +53,17 @@ export default function Dashboard() {
     const removeStop  = on('bot:stopped', () => { setBotStatus({ activo: false, conectado: false }); setQrData(null); });
     const removeErr   = on('bot:error',  ({ msg }) => toast.error(msg));
     const removeBlock = on('bot:blocked', ({ motivo }) => { toast.error('Cuenta bloqueada: ' + motivo); });
+    const removeSub   = on('suscripcion:activada', ({ plan }) => {
+      toast.success(`✅ Plan ${plan} activado. ¡Gracias por suscribirte!`);
+      refreshUser();
+    });
     const removeLog   = on('bot:log',   ({ msg, ts }) => {
       setLogs(prev => {
         const next = [...prev, { mensaje: msg, ts, _id: Date.now() }];
         return next.slice(-100);
       });
     });
-    return () => { removeQR(); removeReady(); removeDis(); removeStop(); removeErr(); removeBlock(); removeLog(); };
+    return () => { removeQR(); removeReady(); removeDis(); removeStop(); removeErr(); removeBlock(); removeSub(); removeLog(); };
   }, [on]);
 
   // Auto-scroll logs

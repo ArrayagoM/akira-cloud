@@ -9,6 +9,7 @@ import OAuthCallback from './pages/OAuthCallback';
 import Dashboard     from './pages/Dashboard';
 import ConfigPage    from './pages/ConfigPage';
 import AdminPanel    from './pages/AdminPanel';
+import PlanesPage    from './pages/PlanesPage';
 import NotFound      from './pages/NotFound';
 
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -43,6 +44,7 @@ export default function App() {
         {/* Usuario autenticado */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/config"    element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
+        <Route path="/planes"    element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />
