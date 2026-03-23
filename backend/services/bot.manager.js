@@ -1,0 +1,254 @@
+// services/bot.manager.js
+// Gestor de instancias de bots — multi-tenant
+'use strict';
+
+const path    = require('path');
+const fs      = require('fs');
+const User    = require('../models/User');
+const Config  = require('../models/Config');
+const Log     = require('../models/Log');
+const logger  = require('../config/logger');
+const crearAkiraBot = require('./akira.bot');
+
+// ── Mapa de instancias activas ───────────────────────────────
+// clave: userId (string), valor: instancia del bot
+const instancias = new Map();
+
+// ── Locks para evitar arrancar dos veces el mismo bot ────────
+const arranqueEnProceso = new Set();
+
+const SESSIONS_PATH = process.env.WA_SESSIONS_PATH || './sessions';
+
+// ────────────────────────────────────────────────────────────
+//  ARRANCAR BOT
+// ────────────────────────────────────────────────────────────
+async function startBot(userId) {
+  const uid = String(userId);
+
+  if (instancias.has(uid)) {
+    logger.warn(`[BotMgr] Bot ${uid} ya está corriendo`);
+    return { ok: false, msg: 'El bot ya está activo' };
+  }
+
+  if (arranqueEnProceso.has(uid)) {
+    return { ok: false, msg: 'El bot ya está iniciando' };
+  }
+
+  arranqueEnProceso.add(uid);
+
+  try {
+    const [user, config] = await Promise.all([
+      User.findById(uid),
+      Config.findOne({ userId: uid }),
+    ]);
+
+    if (!user)  throw new Error('Usuario no encontrado');
+    if (user.status === 'bloqueado') throw new Error('Cuenta bloqueada — bot no puede iniciarse');
+    if (!config || !config.estaCompleta()) throw new Error('Configuración incompleta. Cargá tu Groq API Key primero.');
+    if (!user.planVigente()) throw new Error('Plan vencido. Renová tu suscripción.');
+
+    // Desencriptar credenciales
+    const credenciales = {
+      GROQ_API_KEY:            config.getKey('keyGroq'),
+      MP_ACCESS_TOKEN:         config.getKey('keyMP')     || '',
+      CALENDAR_ID:             config.getKey('idCalendar') || '',
+      RIME_API_KEY:            config.getKey('keyRime')   || '',
+      NGROK_AUTH_TOKEN:        config.getKey('keyNgrok')  || '',
+      NGROK_DOMAIN:            config.dominioNgrok        || '',
+      MI_NOMBRE:               config.miNombre,
+      NEGOCIO:                 config.negocio,
+      SERVICIOS:               config.servicios,
+      PRECIO_TURNO:            String(config.precioTurno),
+      HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
+      PROMPT_PERSONALIZADO:    config.promptPersonalizado || '',
+      PORT:                    String(3100 + Math.floor(Math.random() * 1000)), // puerto dinámico
+    };
+
+    if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada o inválida');
+
+    // Directorio de sesión aislado por usuario
+    const sessionDir = path.resolve(SESSIONS_PATH, uid);
+    if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+
+    // Directorio de memoria del bot
+    const dataDir = path.resolve(SESSIONS_PATH, uid, 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    // Credenciales de Google Calendar
+    const credGoogleEncriptado = config.credentialsGoogleB64?.encrypted
+      ? config.getKey('credentialsGoogleB64')
+      : null;
+
+    if (credGoogleEncriptado) {
+      const credPath = path.join(dataDir, 'credentials.json');
+      fs.writeFileSync(credPath, credGoogleEncriptado, 'utf8');
+    }
+
+    // Crear instancia del bot
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir);
+    instancias.set(uid, bot);
+
+    // ── Eventos del bot → Socket.io + DB ────────────────────
+    bot.on('log', (msg) => {
+      emitirAlUsuario(uid, 'bot:log', { msg, ts: new Date().toLocaleTimeString('es-AR') });
+    });
+
+    bot.on('qr', async (qr) => {
+      logger.info(`[BotMgr] QR generado para user ${uid}`);
+      emitirAlUsuario(uid, 'bot:qr', { qr });
+      await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: 'QR generado — esperando escaneo' });
+    });
+
+    bot.on('ready', async () => {
+      logger.info(`[BotMgr] Bot listo para user ${uid}`);
+      await User.findByIdAndUpdate(uid, { botActivo: true, botConectado: true });
+      emitirAlUsuario(uid, 'bot:ready', {});
+      await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: 'WhatsApp conectado y listo' });
+    });
+
+    bot.on('disconnected', async (reason) => {
+      logger.warn(`[BotMgr] Bot desconectado para user ${uid}: ${reason}`);
+      await User.findByIdAndUpdate(uid, { botConectado: false });
+      emitirAlUsuario(uid, 'bot:disconnected', { reason });
+      await Log.registrar({ userId: uid, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Desconectado: ${reason}` });
+      // Limpiar instancia
+      instancias.delete(uid);
+    });
+
+    bot.on('error', async (err) => {
+      logger.error(`[BotMgr] Error en bot de user ${uid}: ${err.message}`);
+      emitirAlUsuario(uid, 'bot:error', { msg: err.message });
+      await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: err.message });
+    });
+
+    // ── Iniciar ──────────────────────────────────────────────
+    await bot.iniciar();
+    await User.findByIdAndUpdate(uid, { botActivo: true });
+    await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: 'Bot iniciado' });
+
+    logger.info(`[BotMgr] ✅ Bot iniciado para user ${uid}`);
+    return { ok: true, msg: 'Bot iniciando — esperá el QR' };
+
+  } catch (err) {
+    logger.error(`[BotMgr] Error iniciando bot ${uid}: ${err.message}`);
+    instancias.delete(uid);
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
+    await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Error al iniciar: ${err.message}` }).catch(() => {});
+    return { ok: false, msg: err.message };
+  } finally {
+    arranqueEnProceso.delete(uid);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  DETENER BOT
+// ────────────────────────────────────────────────────────────
+async function stopBot(userId) {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+
+  if (!bot) return { ok: false, msg: 'El bot no está activo' };
+
+  try {
+    await bot.detener();
+    instancias.delete(uid);
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false });
+    await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: 'Bot detenido' });
+    logger.info(`[BotMgr] Bot detenido para user ${uid}`);
+    emitirAlUsuario(uid, 'bot:stopped', {});
+    return { ok: true, msg: 'Bot detenido' };
+  } catch (err) {
+    logger.error(`[BotMgr] Error deteniendo bot ${uid}: ${err.message}`);
+    instancias.delete(uid);
+    return { ok: false, msg: err.message };
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  BOTÓN DE PÁNICO ADMIN — detener Y bloquear usuario
+// ────────────────────────────────────────────────────────────
+async function panicStop(userId, motivo = 'Bloqueado por administrador') {
+  const uid = String(userId);
+  await stopBot(uid).catch(() => {});
+
+  await User.findByIdAndUpdate(uid, {
+    status: 'bloqueado',
+    botActivo: false,
+    botConectado: false,
+    bloqueadoPor: motivo,
+  });
+
+  // Forzar desconexión del socket del usuario
+  if (global.io) {
+    global.io.to(`user:${uid}`).emit('bot:blocked', { motivo });
+    global.io.in(`user:${uid}`).disconnectSockets(true);
+  }
+
+  await Log.registrar({ userId: uid, tipo: 'security_block', nivel: 'critical', mensaje: `Pánico activado: ${motivo}` });
+  logger.warn(`[BotMgr] 🚨 PÁNICO activado para user ${uid}: ${motivo}`);
+  return { ok: true };
+}
+
+// ────────────────────────────────────────────────────────────
+//  RESTAURAR BOTS AL REINICIAR SERVIDOR
+// ────────────────────────────────────────────────────────────
+async function restoreActiveBots() {
+  try {
+    const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id');
+    if (!usuarios.length) return;
+
+    logger.info(`[BotMgr] Restaurando ${usuarios.length} bot(s)...`);
+    for (const u of usuarios) {
+      try {
+        await startBot(u._id.toString());
+      } catch (e) {
+        logger.error(`[BotMgr] Error restaurando bot ${u._id}: ${e.message}`);
+      }
+    }
+  } catch (err) {
+    logger.error('[BotMgr] Error en restoreActiveBots:', err.message);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+//  HELPERS
+// ────────────────────────────────────────────────────────────
+function getBotStatus(userId) {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+  return {
+    activo: !!bot,
+    instancias: instancias.size,
+  };
+}
+
+function getActiveCount() {
+  return instancias.size;
+}
+
+function getActiveUserIds() {
+  return Array.from(instancias.keys());
+}
+
+async function stopAllBots() {
+  const uids = Array.from(instancias.keys());
+  logger.info(`[BotMgr] Deteniendo ${uids.length} bot(s)...`);
+  await Promise.allSettled(uids.map(uid => stopBot(uid)));
+}
+
+function emitirAlUsuario(userId, evento, datos) {
+  if (global.io) {
+    global.io.to(`user:${userId}`).emit(evento, datos);
+  }
+}
+
+module.exports = {
+  startBot,
+  stopBot,
+  panicStop,
+  restoreActiveBots,
+  stopAllBots,
+  getBotStatus,
+  getActiveCount,
+  getActiveUserIds,
+};

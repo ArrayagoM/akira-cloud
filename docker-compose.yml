@@ -1,0 +1,59 @@
+version: '3.9'
+
+services:
+  # ── MongoDB ────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: akira-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: akira-cloud
+    networks:
+      - akira-net
+
+  # ── Backend ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: akira-backend
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    depends_on:
+      - mongo
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/akira-cloud
+      NODE_ENV: production
+    volumes:
+      - ./backend/sessions:/app/sessions
+      - ./backend/logs:/app/logs
+    networks:
+      - akira-net
+
+  # ── Frontend (producción) ──────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: akira-frontend
+    restart: unless-stopped
+    ports:
+      - '3000:80'
+    depends_on:
+      - backend
+    networks:
+      - akira-net
+
+volumes:
+  mongo_data:
+
+networks:
+  akira-net:
+    driver: bridge
