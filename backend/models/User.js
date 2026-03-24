@@ -49,7 +49,7 @@ const UserSchema = new mongoose.Schema(
     // Suscripción
     plan: {
       type: String,
-      enum: ['trial', 'basico', 'pro', 'agencia'],
+      enum: ['trial', 'basico', 'pro', 'agencia', 'admin'],
       default: 'trial',
     },
     trialExpira: { type: Date, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
@@ -79,9 +79,11 @@ const UserSchema = new mongoose.Schema(
 );
 
 // ── Índices ──────────────────────────────────────────────────
-UserSchema.index({ email: 1 });
+// email ya tiene unique:true en el schema — no duplicar índice aquí
 UserSchema.index({ rol: 1, status: 1 });
 UserSchema.index({ createdAt: -1 });
+UserSchema.index({ plan: 1, status: 1 });
+UserSchema.index({ botActivo: 1 });
 
 // ── Hooks ────────────────────────────────────────────────────
 UserSchema.pre('save', async function (next) {
@@ -97,6 +99,7 @@ UserSchema.methods.compararPassword = async function (candidato) {
 };
 
 UserSchema.methods.planVigente = function () {
+  if (this.rol === 'admin' || this.plan === 'admin') return true; // admin: siempre activo
   if (this.plan === 'trial') return this.trialExpira > new Date();
   if (this.planExpira) return this.planExpira > new Date();
   return false;

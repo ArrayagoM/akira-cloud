@@ -137,13 +137,20 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Alerta trial */}
-        {user?.plan === 'trial' && (
+        {/* Alerta trial — no mostrar para admins */}
+        {user?.plan === 'trial' && user?.rol !== 'admin' && (
           <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border text-sm ${diasTrial <= 2 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`}>
             <Clock size={16} />
             {diasTrial > 0
               ? `Tu prueba gratuita vence en ${diasTrial} día${diasTrial !== 1 ? 's' : ''}. Elegí un plan para no perder el acceso.`
               : 'Tu prueba gratuita venció. Elegí un plan para reactivar el bot.'}
+          </div>
+        )}
+        {/* Badge admin */}
+        {user?.rol === 'admin' && (
+          <div className="flex items-center gap-3 rounded-xl px-4 py-3 border border-yellow-500/30 bg-yellow-500/5 text-sm text-yellow-400">
+            <span>👑</span>
+            Acceso administrador — todas las funciones activas sin límite.
           </div>
         )}
 

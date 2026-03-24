@@ -186,62 +186,56 @@ const planes = [
   {
     planKey:  'basico',
     nombre:   'Básico',
-    precio:   '$15',
-    periodo:  '/mes',
+    mensual:  15000,
+    anual:    144000,
     desc:     'Para negocios que empiezan',
-    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 mensajes/mes', 'Recordatorios automáticos', 'Soporte por email'],
+    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 msgs/mes', 'Recordatorios automáticos'],
     cta:      'Empezar gratis',
     destacado: false,
   },
   {
     planKey:  'pro',
     nombre:   'Pro',
-    precio:   '$35',
-    periodo:  '/mes',
+    mensual:  35000,
+    anual:    336000,
     desc:     'El más popular',
-    features: ['1 número de WhatsApp', 'IA + Google Calendar', 'MercadoPago integrado', 'Mensajes ilimitados', 'Respuesta por audio (TTS)', 'Soporte prioritario'],
+    features: ['1 número de WhatsApp', 'Mensajes ilimitados', 'Google Calendar + MercadoPago', 'Respuesta por audio', 'Soporte prioritario'],
     cta:      'Empezar gratis',
     destacado: true,
   },
   {
     planKey:  'agencia',
     nombre:   'Agencia',
-    precio:   '$80',
-    periodo:  '/mes',
-    desc:     'Para agencias y revendedores',
-    features: ['Hasta 5 números de WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca disponible', 'Soporte dedicado', 'API access'],
-    cta:      'Contactar ventas',
+    mensual:  80000,
+    anual:    768000,
+    desc:     'Para agencias',
+    features: ['Hasta 5 WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca', 'Soporte dedicado'],
+    cta:      'Elegir Agencia',
     destacado: false,
   },
 ];
 
 function PreciosSection() {
-  const navigate = useNavigate();
+  const navigate       = useNavigate();
   const [loadingPlan, setLoadingPlan] = useState(null);
+  const [periodo, setPeriodo]         = useState('mensual');
+
+  const formatP = (n) => '$' + n.toLocaleString('es-AR');
 
   const handleElegirPlan = async (planKey) => {
-    // Verificar si el usuario está logueado
+    const periodoActual = periodo || 'mensual';
+    const fullKey = `${planKey}_${periodoActual}`;
     const token = localStorage.getItem('akira_token');
+
     if (!token) {
-      // No está logueado → ir a registro con el plan seleccionado
-      navigate(`/register?plan=${planKey}`);
+      // No logueado → registrarse primero
+      navigate(`/register?plan=${fullKey}`);
       return;
     }
 
-    // Está logueado → generar checkout directo
-    setLoadingPlan(planKey);
-    try {
-      const r = await api.post('/subscriptions/checkout', { plan: planKey });
-      if (r.data.init_point) {
-        // Redirigir a MercadoPago
-        window.location.href = r.data.init_point;
-      }
-    } catch (err) {
-      const msg = err.response?.data?.error || 'Error al procesar el pago';
-      toast.error(msg);
-    } finally {
-      setLoadingPlan(null);
-    }
+    // Logueado → ir a /planes con el plan preseleccionado
+    // Más seguro que hacer el checkout desde la landing
+    navigate(`/planes?plan=${fullKey}`);
   };
 
   return (
@@ -250,6 +244,15 @@ function PreciosSection() {
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-white mb-4">Precios simples, sin sorpresas</h2>
           <p className="text-gray-400 text-lg">7 días gratis en todos los planes. Cancelá cuando quieras.</p>
+        </div>
+        {/* Toggle mensual/anual */}
+        <div className="flex justify-center mb-8">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-1 flex gap-1">
+            <button onClick={() => setPeriodo('mensual')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${periodo === 'mensual' ? 'bg-green-500 text-black' : 'text-gray-400 hover:text-white'}`}>Mensual</button>
+            <button onClick={() => setPeriodo('anual')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${periodo === 'anual' ? 'bg-green-500 text-black' : 'text-gray-400 hover:text-white'}`}>
+              Anual <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${periodo === 'anual' ? 'bg-black/20 text-black' : 'bg-green-500/20 text-green-400'}`}>−20%</span>
+            </button>
+          </div>
         </div>
         <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {planes.map((p, i) => (
@@ -262,9 +265,12 @@ function PreciosSection() {
               <div className="mb-6">
                 <p className="text-gray-400 text-sm mb-1">{p.nombre}</p>
                 <div className="flex items-baseline gap-1">
-                  <span className={`text-4xl font-extrabold ${p.destacado ? 'text-green-400' : 'text-white'}`}>{p.precio}</span>
-                  <span className="text-gray-500 text-sm">{p.periodo}</span>
+                  <span className={`text-4xl font-extrabold ${p.destacado ? 'text-green-400' : 'text-white'}`}>
+                    {formatP(periodo === 'mensual' ? p.mensual : p.anual)}
+                  </span>
+                  <span className="text-gray-500 text-sm">{periodo === 'mensual' ? '/mes' : '/año'}</span>
                 </div>
+                {periodo === 'anual' && <p className="text-green-400 text-xs mt-1">Ahorrás {formatP(p.mensual * 12 - p.anual)}</p>}
                 <p className="text-gray-500 text-xs mt-1">{p.desc}</p>
               </div>
               <ul className="space-y-3 mb-8">
@@ -276,10 +282,10 @@ function PreciosSection() {
               </ul>
               <button
                 onClick={() => handleElegirPlan(p.planKey)}
-                disabled={loadingPlan === p.planKey}
+                disabled={loadingPlan === `${p.planKey}_${periodo}`}
                 className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${p.destacado ? 'bg-green-500 hover:bg-green-400 text-black disabled:opacity-60' : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 disabled:opacity-60'}`}
               >
-                {loadingPlan === p.planKey ? (
+                {loadingPlan === `${p.planKey}_${periodo}` ? (
                   <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Procesando...</>
                 ) : p.cta}
               </button>

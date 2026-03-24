@@ -217,6 +217,52 @@ router.post('/bots/:id/stop', async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/users/:id/promote — promover a admin
+// ─────────────────────────────────────────────────────────────
+router.post('/users/:id/promote', async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { rol: 'admin', plan: 'admin', status: 'activo', bloqueadoPor: null },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    await Log.registrar({
+      userId: req.user._id,
+      tipo: 'admin_action',
+      nivel: 'warn',
+      mensaje: `Admin promovió a ${req.params.id} (${user.email}) a rol admin`,
+    });
+
+    res.json({ ok: true, user: user.toJSON() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/promote-self — promover tu propio usuario a admin
+//  Solo disponible en development para setup inicial
+// ─────────────────────────────────────────────────────────────
+router.post('/promote-self', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { rol: 'admin', plan: 'admin', status: 'activo' },
+      { new: true }
+    );
+    res.json({ ok: true, msg: `Promovido a admin: ${user.email}`, user: user.toJSON() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 //  GET /api/admin/logs — logs globales del sistema
 // ─────────────────────────────────────────────────────────────

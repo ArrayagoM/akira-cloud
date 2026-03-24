@@ -1,12 +1,13 @@
 {
   "name": "akira-cloud-backend",
   "version": "1.0.0",
-  "description": "Akira Cloud — SaaS Backend",
+  "description": "Akira Cloud \u2014 SaaS Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "seed:admin": "node scripts/seedAdmin.js"
+    "start": "node --no-deprecation server.js",
+    "dev": "nodemon --ignore sessions/ --ignore logs/ server.js",
+    "seed:admin": "node scripts/seedAdmin.js",
+    "clean:sessions": "node scripts/limpiarSesiones.js"
   },
   "dependencies": {
     "express": "^4.18.2",
