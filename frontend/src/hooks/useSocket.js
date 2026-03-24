@@ -3,21 +3,23 @@ import { io } from 'socket.io-client';
 
 let socketInstance = null;
 
+// En producción: VITE_SOCKET_URL apunta al backend de Render
+// En desarrollo: proxy de Vite maneja la conexión
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || '/';
+
 export function useSocket(userId) {
   const connected = useRef(false);
 
   useEffect(() => {
     if (!userId) return;
     if (!socketInstance || !socketInstance.connected) {
-      // En dev: Vite proxea /socket.io → localhost:5000 automáticamente
-      // En prod: nginx hace lo mismo desde el mismo origen
-      socketInstance = io('/', {
-        auth: { token: localStorage.getItem('akira_token') },
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionDelay: 2000,
+      socketInstance = io(SOCKET_URL, {
+        auth:                { token: localStorage.getItem('akira_token') },
+        transports:          ['websocket', 'polling'],
+        reconnection:        true,
+        reconnectionDelay:   2000,
         reconnectionAttempts: 10,
-        path: '/socket.io',
+        path:                '/socket.io',
       });
 
       socketInstance.on('connect', () => {
@@ -25,6 +27,9 @@ export function useSocket(userId) {
       });
       socketInstance.on('connect_error', (err) => {
         console.warn('[Socket] ❌ Error:', err.message);
+      });
+      socketInstance.on('disconnect', (reason) => {
+        console.warn('[Socket] Desconectado:', reason);
       });
     }
 

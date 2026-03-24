@@ -1,27 +1,29 @@
 import axios from 'axios';
 
+// En producción (Vercel) apunta al backend de Render
+// En desarrollo apunta a localhost via el proxy de Vite
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
 const api = axios.create({
-  baseURL: '/api',
-  timeout: 15000,
+  baseURL: BASE_URL,
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Adjuntar token en cada request
+// Interceptor — agregar JWT a cada request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('akira_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Manejar 401 → limpiar sesión
+// Interceptor — manejar errores globales
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('akira_token');
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
-      }
+      window.location.href = '/login';
     }
     return Promise.reject(err);
   }

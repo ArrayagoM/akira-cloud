@@ -83,9 +83,21 @@ const authLimiter = rateLimit({
   message: { error: 'Demasiados intentos de login. Intentá en 15 minutos.' },
 });
 
-// CORS
+// CORS — acepta Vercel en prod y localhost en dev
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:5173',
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // Postman / server-to-server
+    const ok = allowedOrigins.some(o => origin === o || origin.startsWith(o));
+    if (ok) return cb(null, true);
+    logger.warn(`[CORS] Origen bloqueado: ${origin}`);
+    cb(new Error('CORS: origen no permitido'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -137,6 +149,30 @@ connectDB().then(async () => {
     logger.info(`\x1b[32m🚀 Akira Cloud corriendo en puerto ${PORT}\x1b[0m`);
     logger.info(`\x1b[36m📡 WebSocket listo\x1b[0m`);
   });
+
+  // Levantar ngrok para webhooks de MercadoPago (plataforma)
+  if (process.env.NGROK_AUTH_TOKEN) {
+    try {
+      const ngrok = require('@ngrok/ngrok');
+      const listener = await ngrok.forward({
+        addr:      PORT,
+        authtoken: process.env.NGROK_AUTH_TOKEN,
+        domain:    process.env.NGROK_DOMAIN || undefined,
+      });
+      const url = listener.url();
+      // Actualizar BACKEND_URL en runtime para que subscription.routes lo use
+      process.env.BACKEND_URL = url;
+      logger.info(`\x1b[32m✅ Ngrok activo: ${url}\x1b[0m`);
+      logger.info(`\x1b[33m   → Webhook MP Plataforma: ${url}/api/subscriptions/webhook\x1b[0m`);
+      logger.info(`\x1b[33m   → Usá esta URL en MP Developers como notification_url\x1b[0m`);
+    } catch (err) {
+      logger.warn(`[Ngrok] No se pudo iniciar: ${err.message}`);
+      logger.warn('[Ngrok] Los pagos de suscripción no funcionarán sin URL pública.');
+    }
+  } else {
+    logger.warn('[Ngrok] NGROK_AUTH_TOKEN no configurado — webhooks de MP desactivados');
+    logger.warn('[Ngrok] Conseguí tu token gratis en: https://dashboard.ngrok.com');
+  }
 
   // Reiniciar bots de usuarios activos al iniciar
   await botManager.restoreActiveBots();
