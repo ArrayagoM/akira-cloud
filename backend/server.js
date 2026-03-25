@@ -150,6 +150,22 @@ connectDB().then(async () => {
     logger.info(`\x1b[36m📡 WebSocket listo\x1b[0m`);
   });
 
+  // Verificar Chromium al arrancar (diagnóstico de Puppeteer)
+  const chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (chromiumPath) {
+    const fs = require('fs');
+    if (fs.existsSync(chromiumPath)) {
+      logger.info(`✅ Chromium encontrado: ${chromiumPath}`);
+    } else {
+      logger.error(`❌ Chromium NO encontrado en: ${chromiumPath}`);
+      logger.error('   El bot de WhatsApp no va a funcionar.');
+      logger.error('   Opciones: 1) Instalar chromium en el servidor');
+      logger.error('             2) Quitar PUPPETEER_EXECUTABLE_PATH del .env');
+    }
+  } else {
+    logger.warn('[Puppeteer] PUPPETEER_EXECUTABLE_PATH no configurado — usando Chromium bundled');
+  }
+
   // Levantar ngrok para webhooks de MercadoPago (plataforma)
   if (process.env.NGROK_AUTH_TOKEN) {
     try {

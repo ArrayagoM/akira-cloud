@@ -624,26 +624,77 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     const waAuthPath = path.join(sessionDir, 'wa_auth');
     if(!fs.existsSync(waAuthPath))fs.mkdirSync(waAuthPath,{recursive:true});
 
+    // Detectar Chromium disponible (Render, sistema, o puppeteer bundled)
+    const getChromiumExec = () => {
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        const fs2 = require('fs');
+        if (fs2.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+          log(`[Chromium] Usando PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+          return process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+        log(`[Chromium] ⚠️ PUPPETEER_EXECUTABLE_PATH no existe: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+      }
+      // Buscar puppeteer bundled (descargado durante npm install)
+      try {
+        const pup = require('puppeteer');
+        const exec = typeof pup.executablePath === 'function' ? pup.executablePath() : null;
+        if (exec) { log(`[Chromium] Usando puppeteer bundled: ${exec}`); return exec; }
+      } catch (e) { log(`[Chromium] puppeteer bundled no disponible: ${e.message}`); }
+      // Rutas del sistema Linux
+      const fs2 = require('fs');
+      for (const r of ['/usr/bin/chromium-browser','/usr/bin/chromium','/usr/bin/google-chrome-stable','/usr/bin/google-chrome']) {
+        if (fs2.existsSync(r)) { log(`[Chromium] Usando sistema: ${r}`); return r; }
+      }
+      log('[Chromium] ⚠️ No encontrado — Puppeteer usará el suyo propio');
+      return undefined;
+    };
+    const chromiumExec = getChromiumExec();
+    log(`[Bot] Iniciando con Chromium: ${chromiumExec || '(auto)'}`);
+
     // CRÍTICO: LocalAuth NO es compatible con userDataDir en puppeteer.
-    // LocalAuth gestiona su propio userDataDir internamente usando dataPath + clientId.
-    // Estructura resultante: sessionDir/wa_auth/.wwebjs_auth/session-akira_{userId}/
     client = new Client({
       authStrategy: new LocalAuth({
         clientId: `akira_${userId}`,
         dataPath:  waAuthPath,
       }),
       puppeteer: {
-        headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-        // NO poner userDataDir aquí — LocalAuth lanza error si lo detecta
+        headless:        true,
+        executablePath:  chromiumExec,
+        timeout:         120000,   // 2 minutos para lanzar Chromium
+        protocolTimeout: 120000,   // 2 minutos para protocolo CDP
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
+          '--disable-dev-shm-usage',        // crítico en Render — usa /tmp en vez de /dev/shm
           '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu',
+          '--single-process',               // un solo proceso — ahorra RAM en servidores
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-client-side-phishing-detection',
+          '--disable-component-update',
+          '--disable-default-apps',
+          '--disable-domain-reliability',
+          '--disable-features=AudioServiceOutOfProcess',
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-popup-blocking',
+          '--disable-prompt-on-repost',
+          '--disable-renderer-backgrounding',
+          '--disable-sync',
+          '--force-color-profile=srgb',
+          '--metrics-recording-only',
+          '--no-default-browser-check',
+          '--safebrowsing-disable-auto-update',
+          '--password-store=basic',
+          '--use-mock-keychain',
+          '--mute-audio',
+          '--window-size=1280,720',
         ],
       },
     });
