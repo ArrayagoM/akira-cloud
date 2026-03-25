@@ -17,6 +17,28 @@ const instancias = new Map();
 // ── Locks para evitar arrancar dos veces el mismo bot ────────
 const arranqueEnProceso = new Set();
 
+// ── Asignación de puertos sin colisiones ─────────────────────
+const PUERTO_BASE  = 3100;
+const puertosEnUso = new Set();
+const puertosAsignados = new Map(); // userId → puerto
+
+function asignarPuerto(uid) {
+  if (puertosAsignados.has(uid)) return puertosAsignados.get(uid);
+  let p = PUERTO_BASE;
+  while (puertosEnUso.has(p)) p++;
+  puertosEnUso.add(p);
+  puertosAsignados.set(uid, p);
+  return p;
+}
+
+function liberarPuerto(uid) {
+  const p = puertosAsignados.get(uid);
+  if (p !== undefined) {
+    puertosEnUso.delete(p);
+    puertosAsignados.delete(uid);
+  }
+}
+
 const SESSIONS_PATH = process.env.WA_SESSIONS_PATH || './sessions';
 
 // ────────────────────────────────────────────────────────────
@@ -61,7 +83,7 @@ async function startBot(userId) {
       PRECIO_TURNO:            String(config.precioTurno),
       HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
       PROMPT_PERSONALIZADO:    config.promptPersonalizado || '',
-      PORT:                    String(3100 + Math.floor(Math.random() * 1000)), // puerto dinámico
+      PORT:                    String(asignarPuerto(uid)),
     };
 
     if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada o inválida');
@@ -111,8 +133,9 @@ async function startBot(userId) {
       await User.findByIdAndUpdate(uid, { botConectado: false });
       emitirAlUsuario(uid, 'bot:disconnected', { reason });
       await Log.registrar({ userId: uid, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Desconectado: ${reason}` });
-      // Limpiar instancia
+      // Limpiar instancia y puerto
       instancias.delete(uid);
+      liberarPuerto(uid);
     });
 
     bot.on('error', async (err) => {
@@ -132,6 +155,7 @@ async function startBot(userId) {
   } catch (err) {
     logger.error(`[BotMgr] Error iniciando bot ${uid}: ${err.message}`);
     instancias.delete(uid);
+    liberarPuerto(uid);
     await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
     await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Error al iniciar: ${err.message}` }).catch(() => {});
     return { ok: false, msg: err.message };
@@ -152,6 +176,7 @@ async function stopBot(userId) {
   try {
     await bot.detener();
     instancias.delete(uid);
+    liberarPuerto(uid);
     await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false });
     await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: 'Bot detenido' });
     logger.info(`[BotMgr] Bot detenido para user ${uid}`);
@@ -160,6 +185,7 @@ async function stopBot(userId) {
   } catch (err) {
     logger.error(`[BotMgr] Error deteniendo bot ${uid}: ${err.message}`);
     instancias.delete(uid);
+    liberarPuerto(uid);
     return { ok: false, msg: err.message };
   }
 }

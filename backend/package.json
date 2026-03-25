@@ -7,7 +7,9 @@
     "start": "node --no-deprecation server.js",
     "dev": "nodemon --ignore sessions/ --ignore logs/ server.js",
     "seed:admin": "node scripts/seedAdmin.js",
-    "clean:sessions": "node scripts/limpiarSesiones.js"
+    "clean:sessions": "node scripts/limpiarSesiones.js",
+    "gen:vercel": "node ../scripts/generar-vercel-json.js",
+    "test": "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -6,6 +6,9 @@ process.noDeprecation = process.env.NODE_ENV === 'production';
 
 require('dotenv').config();
 
+// Validar variables de entorno antes de cualquier otra cosa
+require('./config/env.validator')();
+
 const express      = require('express');
 const http         = require('http');
 const cors         = require('cors');
