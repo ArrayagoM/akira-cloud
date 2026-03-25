@@ -113,8 +113,14 @@ async function startBot(userId) {
       : null;
 
     if (credGoogleEncriptado) {
-      const credPath = path.join(dataDir, 'credentials.json');
-      fs.writeFileSync(credPath, credGoogleEncriptado, 'utf8');
+      try {
+        // Validar que sea JSON válido antes de escribir al disco
+        JSON.parse(credGoogleEncriptado);
+        const credPath = path.join(dataDir, 'credentials.json');
+        fs.writeFileSync(credPath, credGoogleEncriptado, 'utf8');
+      } catch (e) {
+        logger.warn(`[BotMgr] Credenciales Google inválidas para user ${uid} — Calendar desactivado: ${e.message}`);
+      }
     }
 
     // Crear instancia del bot

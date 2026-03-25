@@ -22,8 +22,16 @@ if (!RENDER_URL || !WORKER_SECRET || !MONGO_URI) {
   process.exit(1);
 }
 
-// ── Modelos (necesita ENCRYPTION_KEY también) ─────────────────
-process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+if (!process.env.ENCRYPTION_KEY) {
+  console.error('[Worker] ❌ Falta ENCRYPTION_KEY en el .env — necesaria para descifrar API keys');
+  process.exit(1);
+}
+if (process.env.ENCRYPTION_KEY.length < 16) {
+  console.error('[Worker] ❌ ENCRYPTION_KEY debe tener al menos 16 caracteres');
+  process.exit(1);
+}
+
+// ── Modelos ────────────────────────────────────────────────────
 const User   = require('../backend/models/User');
 const Config = require('../backend/models/Config');
 const Log    = require('../backend/models/Log');
@@ -118,7 +126,14 @@ socket.on('worker:start-bot', async ({ userId }) => {
 
     // Google Calendar credentials
     const credGoogle = config.credentialsGoogleB64?.encrypted ? config.getKey('credentialsGoogleB64') : null;
-    if (credGoogle) fs.writeFileSync(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
+    if (credGoogle) {
+      try {
+        JSON.parse(credGoogle); // validar JSON antes de escribir
+        fs.writeFileSync(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
+      } catch (e) {
+        console.warn(`[Worker] Credenciales Google inválidas para ${uid} — Calendar desactivado:`, e.message);
+      }
+    }
 
     const bot = crearAkiraBot(credenciales, dataDir, sessionDir);
     instancias.set(uid, bot);

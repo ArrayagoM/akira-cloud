@@ -6,11 +6,11 @@ const { EventEmitter } = require('events');
 const {
   default: makeWASocket,
   DisconnectReason,
-  useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
   isJidGroup,
 } = require('@whiskeysockets/baileys');
+const { useMongoAuthState } = require('./bot/mongo-auth.service');
 const pino    = require('pino');
 const fs      = require('fs');
 const path    = require('path');
@@ -457,6 +457,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     let fueAudio = false;
 
     if (esAudio) {
+      if (!audioSvc) { await enviarMensaje(jid, '¡Ups! El servicio de audio aún no está listo. ¿Me lo escribís? 🙏'); return; }
       const buffer   = await downloadMediaMessage(msg, 'buffer', {});
       const mimetype = msg.message.audioMessage?.mimetype || 'audio/ogg; codecs=opus';
       const tr = await audioSvc.transcribirAudioBuffer(buffer, mimetype);
@@ -500,6 +501,8 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
       const u = db.cargarMemoria(jid);
+      // Seguridad: si por algún motivo el usuario no está registrado aún, lo registramos ahora
+      if (!u) { await registrarNombre(jid, texto, tel, pushName); return; }
       u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
       u.historial = recortarHistorial(u.historial, 20);
 
@@ -510,7 +513,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
       log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..."`);
 
-      const debeAudio = fueAudio && audioSvc.debeResponderEnAudio(respuesta);
+      const debeAudio = fueAudio && audioSvc && audioSvc.debeResponderEnAudio(respuesta);
       if (debeAudio) {
         const ok = await audioSvc.enviarComoAudio(jid, respuesta, enviarAudio);
         if (!ok) await enviarMensaje(jid, respuesta);
@@ -585,10 +588,9 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
   // ── Conexión Baileys ─────────────────────────────────────────
   async function conectar() {
-    const authPath = path.join(sessionDir, 'baileys_auth');
-    if (!fs.existsSync(authPath)) fs.mkdirSync(authPath, { recursive: true });
-
-    const { state, saveCreds } = await useMultiFileAuthState(authPath);
+    // userId extraído del sessionDir (sessions/<userId>)
+    const userId = path.basename(sessionDir);
+    const { state, saveCreds, clearAuth } = await useMongoAuthState(userId);
     const { version } = await fetchLatestBaileysVersion();
     log(`[Baileys] Versión WA: ${version.join('.')}`);
 
@@ -613,7 +615,11 @@ function crearAkiraBot(config, dataDir, sessionDir) {
         const loggedOut = code === DisconnectReason.loggedOut;
         log(`⚠️ Desconectado (código: ${code})${loggedOut ? ' — sesión cerrada' : ''}`);
         emitter.emit('disconnected', `código: ${code}`);
-        if (!loggedOut && !reconectando && sock !== null) {
+        if (loggedOut) {
+          // Limpiar sesión de MongoDB para que el próximo inicio pida QR nuevo
+          await clearAuth().catch(() => {});
+          log('🗑️ Sesión eliminada de MongoDB — próximo inicio pedirá QR');
+        } else if (!reconectando && sock !== null) {
           reconectando = true;
           log('🔄 Reconectando en 5s...');
           setTimeout(async () => { reconectando = false; if (sock !== null) await conectar(); }, 5000);
