@@ -1,0 +1,218 @@
+// worker/worker.js — Akira Worker Local
+// Corre en tu PC (que siempre está encendida).
+// Se conecta al servidor en Render via Socket.io y ejecuta todos los bots ahí.
+// El servidor queda liviano; toda la carga pesada (WhatsApp, IA, Calendar) va acá.
+'use strict';
+
+require('dotenv').config({ path: __dirname + '/.env' });
+
+const { io }      = require('socket.io-client');
+const mongoose    = require('mongoose');
+const path        = require('path');
+const fs          = require('fs');
+
+// ── Config ────────────────────────────────────────────────────
+const RENDER_URL    = process.env.RENDER_URL;
+const WORKER_SECRET = process.env.WORKER_SECRET;
+const MONGO_URI     = process.env.MONGO_URI;
+const SESSIONS_PATH = process.env.WA_SESSIONS_PATH || path.resolve(__dirname, '../sessions');
+
+if (!RENDER_URL || !WORKER_SECRET || !MONGO_URI) {
+  console.error('[Worker] ❌ Faltan variables: RENDER_URL, WORKER_SECRET, MONGO_URI');
+  process.exit(1);
+}
+
+// ── Modelos (necesita ENCRYPTION_KEY también) ─────────────────
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+const User   = require('../backend/models/User');
+const Config = require('../backend/models/Config');
+const Log    = require('../backend/models/Log');
+
+const crearAkiraBot = require('../backend/services/akira.bot');
+
+// ── Estado ────────────────────────────────────────────────────
+const instancias       = new Map(); // userId → bot
+const arranqueEnCurso  = new Set();
+
+// ── MongoDB ───────────────────────────────────────────────────
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('[Worker] ✅ MongoDB conectado'))
+  .catch(e => { console.error('[Worker] ❌ MongoDB:', e.message); process.exit(1); });
+
+// ── Socket.io → Render ────────────────────────────────────────
+const socket = io(RENDER_URL, {
+  path:               '/socket.io',
+  auth:               { secret: WORKER_SECRET, role: 'worker' },
+  reconnection:       true,
+  reconnectionDelay:  3000,
+  reconnectionDelayMax: 10000,
+  transports:         ['websocket'],
+});
+
+socket.on('connect', () => {
+  console.log(`[Worker] ✅ Conectado a ${RENDER_URL} (id: ${socket.id})`);
+  socket.emit('worker:ready', {
+    workerId:   'local-pc',
+    bots:       instancias.size,
+    botIds:     Array.from(instancias.keys()),
+    platform:   process.platform,
+    nodeVersion: process.version,
+  });
+});
+
+socket.on('connect_error', (e) => {
+  console.error('[Worker] ❌ Error de conexión:', e.message);
+});
+
+socket.on('disconnect', (reason) => {
+  console.warn('[Worker] ⚠️ Desconectado del servidor:', reason);
+});
+
+// ── Comandos desde el servidor ────────────────────────────────
+
+socket.on('worker:start-bot', async ({ userId }) => {
+  const uid = String(userId);
+  console.log(`[Worker] → Arrancar bot ${uid}`);
+
+  if (instancias.has(uid)) {
+    return socket.emit('worker:bot-error', { userId: uid, msg: 'El bot ya está activo' });
+  }
+  if (arranqueEnCurso.has(uid)) {
+    return socket.emit('worker:bot-error', { userId: uid, msg: 'El bot ya está iniciando' });
+  }
+
+  arranqueEnCurso.add(uid);
+  try {
+    const [user, config] = await Promise.all([
+      User.findById(uid),
+      Config.findOne({ userId: uid }),
+    ]);
+
+    if (!user)  throw new Error('Usuario no encontrado');
+    if (user.status === 'bloqueado') throw new Error('Cuenta bloqueada');
+    if (!config || !config.estaCompleta()) throw new Error('Configuración incompleta — cargá la Groq API Key primero');
+    if (!user.planVigente()) throw new Error('Plan vencido — renovar suscripción');
+
+    const credenciales = {
+      GROQ_API_KEY:              config.getKey('keyGroq'),
+      MP_ACCESS_TOKEN:           config.getKey('keyMP')      || '',
+      CALENDAR_ID:               config.getKey('idCalendar') || '',
+      RIME_API_KEY:              config.getKey('keyRime')    || '',
+      NGROK_AUTH_TOKEN:          config.getKey('keyNgrok')   || '',
+      NGROK_DOMAIN:              config.dominioNgrok         || '',
+      MI_NOMBRE:                 config.miNombre,
+      NEGOCIO:                   config.negocio,
+      SERVICIOS:                 config.servicios,
+      PRECIO_TURNO:              String(config.precioTurno),
+      HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
+      PROMPT_PERSONALIZADO:      config.promptPersonalizado || '',
+      PORT:                      String(asignarPuerto(uid)),
+    };
+
+    if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada');
+
+    // Directorios aislados por usuario
+    const sessionDir = path.resolve(SESSIONS_PATH, uid);
+    const dataDir    = path.resolve(SESSIONS_PATH, uid, 'data');
+    [sessionDir, dataDir].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+
+    // Google Calendar credentials
+    const credGoogle = config.credentialsGoogleB64?.encrypted ? config.getKey('credentialsGoogleB64') : null;
+    if (credGoogle) fs.writeFileSync(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
+
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir);
+    instancias.set(uid, bot);
+
+    // Eventos del bot → servidor (que los reenvía al frontend)
+    bot.on('log',          msg    => socket.emit('worker:bot-log',          { userId: uid, msg, ts: new Date().toLocaleTimeString('es-AR') }));
+    bot.on('qr',           qr     => socket.emit('worker:bot-qr',           { userId: uid, qr }));
+    bot.on('ready',        ()     => socket.emit('worker:bot-ready',        { userId: uid }));
+    bot.on('disconnected', reason => socket.emit('worker:bot-disconnected', { userId: uid, reason }));
+    bot.on('error',        err    => socket.emit('worker:bot-error',        { userId: uid, msg: err.message }));
+    bot.on('stopped',      ()     => {
+      instancias.delete(uid);
+      liberarPuerto(uid);
+      socket.emit('worker:bot-stopped', { userId: uid });
+    });
+
+    await bot.iniciar();
+    await User.findByIdAndUpdate(uid, { botActivo: true });
+    await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: 'Bot iniciado (worker local)' });
+    socket.emit('worker:bot-started', { userId: uid });
+    console.log(`[Worker] ✅ Bot iniciado: ${uid}`);
+
+  } catch (err) {
+    console.error(`[Worker] ❌ Error iniciando ${uid}:`, err.message);
+    instancias.delete(uid);
+    liberarPuerto(uid);
+    socket.emit('worker:bot-error', { userId: uid, msg: err.message });
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
+  } finally {
+    arranqueEnCurso.delete(uid);
+  }
+});
+
+socket.on('worker:stop-bot', async ({ userId }) => {
+  const uid = String(userId);
+  console.log(`[Worker] → Detener bot ${uid}`);
+  const bot = instancias.get(uid);
+  if (!bot) return socket.emit('worker:bot-error', { userId: uid, msg: 'Bot no activo' });
+  try {
+    await bot.detener();
+    instancias.delete(uid);
+    liberarPuerto(uid);
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false });
+    await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: 'Bot detenido (worker local)' });
+  } catch (err) {
+    console.error(`[Worker] ❌ Error deteniendo ${uid}:`, err.message);
+    instancias.delete(uid);
+    liberarPuerto(uid);
+  }
+});
+
+socket.on('worker:panic-stop', async ({ userId, motivo }) => {
+  const uid = String(userId);
+  console.warn(`[Worker] 🚨 PÁNICO para ${uid}: ${motivo}`);
+  const bot = instancias.get(uid);
+  if (bot) { try { await bot.detener(); } catch {} }
+  instancias.delete(uid);
+  liberarPuerto(uid);
+  await User.findByIdAndUpdate(uid, { status: 'bloqueado', botActivo: false, botConectado: false, bloqueadoPor: motivo }).catch(() => {});
+  await Log.registrar({ userId: uid, tipo: 'security_block', nivel: 'critical', mensaje: `Pánico desde worker: ${motivo}` }).catch(() => {});
+});
+
+// ── Puerto determinístico (mismo lógica que bot.manager) ───────
+const PUERTO_BASE      = 3100;
+const puertosEnUso     = new Set();
+const puertosAsignados = new Map();
+
+function asignarPuerto(uid) {
+  if (puertosAsignados.has(uid)) return puertosAsignados.get(uid);
+  let p = PUERTO_BASE;
+  while (puertosEnUso.has(p)) p++;
+  puertosEnUso.add(p);
+  puertosAsignados.set(uid, p);
+  return p;
+}
+
+function liberarPuerto(uid) {
+  const p = puertosAsignados.get(uid);
+  if (p !== undefined) { puertosEnUso.delete(p); puertosAsignados.delete(uid); }
+}
+
+// ── Graceful shutdown ─────────────────────────────────────────
+async function shutdown() {
+  console.log('\n[Worker] Apagando — deteniendo bots...');
+  const uids = Array.from(instancias.keys());
+  await Promise.allSettled(uids.map(async uid => {
+    try { await instancias.get(uid)?.detener(); } catch {}
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
+  }));
+  socket.disconnect();
+  await mongoose.disconnect();
+  console.log('[Worker] ✅ Apagado limpio.');
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);
