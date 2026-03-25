@@ -21,9 +21,10 @@ const rateLimit    = require('express-rate-limit');
 const passport     = require('passport');
 const { Server }   = require('socket.io');
 
-const connectDB    = require('./config/db');
-const logger       = require('./config/logger');
-const botManager   = require('./services/bot.manager');
+const connectDB      = require('./config/db');
+const logger         = require('./config/logger');
+const botManager     = require('./services/bot.manager');
+const workerHandler  = require('./services/worker.handler');
 
 // ── Importar rutas ──────────────────────────────────────────
 const authRoutes   = require('./routes/auth.routes');
@@ -50,6 +51,9 @@ const io = new Server(server, {
 
 // Exponer io globalmente para que BotManager pueda emitir eventos
 global.io = io;
+
+// ── Namespace /worker para el proceso local del usuario ─────
+workerHandler.inicializarWorkerHandler(io);
 
 io.on('connection', (socket) => {
   logger.info(`[Socket] Cliente conectado: ${socket.id}`);
@@ -123,8 +127,9 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
-    bots: botManager.getActiveCount(),
-    ts: new Date().toISOString(),
+    bots:   botManager.getActiveCount(),
+    worker: botManager.getWorkerInfo(),
+    ts:     new Date().toISOString(),
   });
 });
 
@@ -153,48 +158,19 @@ connectDB().then(async () => {
     logger.info(`\x1b[36m📡 WebSocket listo\x1b[0m`);
   });
 
-  // Verificar Chromium al arrancar (diagnóstico de Puppeteer)
-  const chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH;
-  if (chromiumPath) {
-    const fs = require('fs');
-    if (fs.existsSync(chromiumPath)) {
-      logger.info(`✅ Chromium encontrado: ${chromiumPath}`);
-    } else {
-      logger.error(`❌ Chromium NO encontrado en: ${chromiumPath}`);
-      logger.error('   El bot de WhatsApp no va a funcionar.');
-      logger.error('   Opciones: 1) Instalar chromium en el servidor');
-      logger.error('             2) Quitar PUPPETEER_EXECUTABLE_PATH del .env');
-    }
+  // ── Arquitectura híbrida ────────────────────────────────
+  // Los bots corren en el worker local (PC del usuario).
+  // El servidor solo gestiona API, auth y base de datos.
+  // El worker se conecta automáticamente via /worker namespace.
+  if (process.env.WORKER_SECRET) {
+    logger.info('[Server] 🔌 Modo híbrido activo — esperando conexión del worker local');
+    logger.info('[Server]    Iniciá el worker en tu PC: cd worker && npm start');
   } else {
-    logger.warn('[Puppeteer] PUPPETEER_EXECUTABLE_PATH no configurado — usando Chromium bundled');
+    logger.warn('[Server] WORKER_SECRET no configurado — los bots correrán en el servidor');
+    logger.warn('[Server] Para arquitectura híbrida: agregá WORKER_SECRET al .env');
+    // Fallback: restaurar bots localmente (sin worker)
+    await botManager.restoreActiveBots();
   }
-
-  // Levantar ngrok para webhooks de MercadoPago (plataforma)
-  if (process.env.NGROK_AUTH_TOKEN) {
-    try {
-      const ngrok = require('@ngrok/ngrok');
-      const listener = await ngrok.forward({
-        addr:      PORT,
-        authtoken: process.env.NGROK_AUTH_TOKEN,
-        domain:    process.env.NGROK_DOMAIN || undefined,
-      });
-      const url = listener.url();
-      // Actualizar BACKEND_URL en runtime para que subscription.routes lo use
-      process.env.BACKEND_URL = url;
-      logger.info(`\x1b[32m✅ Ngrok activo: ${url}\x1b[0m`);
-      logger.info(`\x1b[33m   → Webhook MP Plataforma: ${url}/api/subscriptions/webhook\x1b[0m`);
-      logger.info(`\x1b[33m   → Usá esta URL en MP Developers como notification_url\x1b[0m`);
-    } catch (err) {
-      logger.warn(`[Ngrok] No se pudo iniciar: ${err.message}`);
-      logger.warn('[Ngrok] Los pagos de suscripción no funcionarán sin URL pública.');
-    }
-  } else {
-    logger.warn('[Ngrok] NGROK_AUTH_TOKEN no configurado — webhooks de MP desactivados');
-    logger.warn('[Ngrok] Conseguí tu token gratis en: https://dashboard.ngrok.com');
-  }
-
-  // Reiniciar bots de usuarios activos al iniciar
-  await botManager.restoreActiveBots();
 }).catch(err => {
   logger.error('Error conectando a MongoDB:', err);
   process.exit(1);

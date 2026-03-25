@@ -1,5 +1,7 @@
 // services/bot.manager.js
 // Gestor de instancias de bots — multi-tenant
+// Arquitectura híbrida: si hay un worker local conectado, le delega el bot.
+// Si no hay worker, inicia el bot directamente en el servidor (Baileys).
 'use strict';
 
 const path    = require('path');
@@ -8,7 +10,8 @@ const User    = require('../models/User');
 const Config  = require('../models/Config');
 const Log     = require('../models/Log');
 const logger  = require('../config/logger');
-const crearAkiraBot = require('./akira.bot');
+const crearAkiraBot  = require('./akira.bot');
+const workerHandler  = require('./worker.handler');
 
 // ── Mapa de instancias activas ───────────────────────────────
 // clave: userId (string), valor: instancia del bot
@@ -59,6 +62,14 @@ async function startBot(userId) {
   arranqueEnProceso.add(uid);
 
   try {
+    // ── Modo híbrido: delegar al worker si está conectado ──
+    if (workerHandler.isWorkerAvailable()) {
+      logger.info(`[BotMgr] Delegando bot ${uid} al worker local`);
+      workerHandler.sendToWorker('worker:start-bot', { userId: uid });
+      arranqueEnProceso.delete(uid);
+      return { ok: true, msg: 'Bot iniciando en worker local — esperá el QR' };
+    }
+
     const [user, config] = await Promise.all([
       User.findById(uid),
       Config.findOne({ userId: uid }),
@@ -169,8 +180,18 @@ async function startBot(userId) {
 // ────────────────────────────────────────────────────────────
 async function stopBot(userId) {
   const uid = String(userId);
-  const bot = instancias.get(uid);
 
+  // ── Modo híbrido: delegar al worker ───────────────────────
+  if (workerHandler.isWorkerAvailable()) {
+    try {
+      workerHandler.sendToWorker('worker:stop-bot', { userId: uid });
+      return { ok: true, msg: 'Señal de parada enviada al worker' };
+    } catch (err) {
+      logger.warn(`[BotMgr] No se pudo enviar stop al worker: ${err.message}`);
+    }
+  }
+
+  const bot = instancias.get(uid);
   if (!bot) return { ok: false, msg: 'El bot no está activo' };
 
   try {
@@ -195,6 +216,12 @@ async function stopBot(userId) {
 // ────────────────────────────────────────────────────────────
 async function panicStop(userId, motivo = 'Bloqueado por administrador') {
   const uid = String(userId);
+
+  // ── Notificar al worker también ───────────────────────────
+  if (workerHandler.isWorkerAvailable()) {
+    try { workerHandler.sendToWorker('worker:panic-stop', { userId: uid, motivo }); } catch {}
+  }
+
   await stopBot(uid).catch(() => {});
 
   await User.findByIdAndUpdate(uid, {
@@ -277,4 +304,5 @@ module.exports = {
   getBotStatus,
   getActiveCount,
   getActiveUserIds,
+  getWorkerInfo: workerHandler.getWorkerInfo,
 };
