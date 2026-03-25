@@ -9,9 +9,10 @@ const REQUERIDAS = [
 ];
 
 const RECOMENDADAS = [
-  'FRONTEND_URL',
-  'NODE_ENV',
-  'PORT',
+  { nombre: 'FRONTEND_URL',              desc: 'URL del frontend (necesaria para CORS y OAuth)' },
+  { nombre: 'BACKEND_URL',               desc: 'URL pública del backend (necesaria para webhooks de MercadoPago)' },
+  { nombre: 'MP_PLATFORM_ACCESS_TOKEN',  desc: 'Access Token de MercadoPago (necesario para suscripciones)' },
+  { nombre: 'NODE_ENV',                  desc: 'Entorno de ejecución (development / production)' },
 ];
 
 function validarEnv() {
@@ -34,10 +35,18 @@ function validarEnv() {
     warnings.push('  ⚠️  JWT_SECRET debería tener al menos 32 caracteres');
   }
 
+  // ── Variables con valores de ejemplo ────────────────────────
+  if (process.env.JWT_SECRET?.startsWith('cambia_esto')) {
+    errores.push('  ❌ JWT_SECRET tiene el valor de ejemplo — cambialo por una clave aleatoria');
+  }
+  if (process.env.ENCRYPTION_KEY?.startsWith('cambia_esto')) {
+    errores.push('  ❌ ENCRYPTION_KEY tiene el valor de ejemplo — cambiala por una clave aleatoria');
+  }
+
   // ── Variables recomendadas ──────────────────────────────────
-  const faltantesOpc = RECOMENDADAS.filter(v => !process.env[v]);
+  const faltantesOpc = RECOMENDADAS.filter(({ nombre }) => !process.env[nombre]);
   if (faltantesOpc.length) {
-    warnings.push(`  ⚠️  Variables opcionales no configuradas: ${faltantesOpc.join(', ')}`);
+    faltantesOpc.forEach(({ nombre, desc }) => warnings.push(`  ⚠️  ${nombre} no configurado — ${desc}`));
   }
 
   // ── Resultado ───────────────────────────────────────────────
