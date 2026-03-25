@@ -575,6 +575,19 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     const chromiumExec = getChromiumExec();
     log(`[Bot] Iniciando con Chromium: ${chromiumExec || '(auto)'}`);
 
+    // ── Limpiar locks de Chrome de sesiones anteriores ────────
+    // Cuando Chrome crashea o el proceso se reinicia bruscamente, deja archivos
+    // de lock que impiden reutilizar el mismo perfil (error "userDataDir already in use").
+    const profileDir = path.join(waAuthPath, `akira_${userId}`);
+    const chromeLocks = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+    for (const lockFile of chromeLocks) {
+      const lockPath = path.join(profileDir, lockFile);
+      if (fs.existsSync(lockPath)) {
+        try { fs.unlinkSync(lockPath); log(`[Bot] Lock eliminado: ${lockFile}`); }
+        catch (e) { log(`[Bot] No se pudo eliminar lock ${lockFile}: ${e.message}`); }
+      }
+    }
+
     client = new Client({
       authStrategy: new LocalAuth({ clientId: `akira_${userId}`, dataPath: waAuthPath }),
       puppeteer: {
@@ -606,7 +619,16 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     client.on('loading_screen', (pct, msg) => { log(`⏳ Cargando WhatsApp: ${pct}% — ${msg}`); });
 
     log('🔄 Iniciando cliente WhatsApp...');
-    await client.initialize();
+    try {
+      await client.initialize();
+    } catch (e) {
+      // "Target closed" y "userDataDir already in use" son errores de Chrome lock.
+      // El bot ya limpió los locks, pero si igual falla, reportarlo claramente.
+      if (e.message?.includes('Target closed') || e.message?.includes('userDataDir')) {
+        log('❌ Chrome no pudo iniciar — si el error persiste, detené el bot, esperá 10 segundos e inicialo de nuevo.');
+      }
+      throw e;
+    }
   }
 
   async function detener() {
