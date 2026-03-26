@@ -1,8 +1,7 @@
 // server.js — Akira Cloud Backend
 'use strict';
 
-// Suprimir warning de punycode (viene de dependencias internas de Node 18+)
-process.noDeprecation = process.env.NODE_ENV === 'production';
+// Node 20+: process.noDeprecation es read-only, se suprime con --no-deprecation en npm start
 
 require('dotenv').config();
 
