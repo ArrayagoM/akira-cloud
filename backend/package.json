@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Akira Cloud \u2014 SaaS Backend",
   "main": "server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node --no-deprecation server.js",
     "dev": "nodemon --ignore sessions/ --ignore logs/ server.js",
