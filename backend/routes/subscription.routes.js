@@ -208,19 +208,73 @@ router.post('/checkout', requireAuth, async(req,res)=>{
 
 // ─────────────────────────────────────────────────────────────
 //  GET /api/subscriptions/return
-//  MP redirige aquí → nosotros mandamos al frontend (puede ser localhost)
+//  MP redirige aquí tras el pago.
+//  Verificamos el pago AHORA (no esperamos el webhook) para activar
+//  el plan en el mismo instante en que el usuario regresa al sitio.
 // ─────────────────────────────────────────────────────────────
-router.get('/return',(req,res)=>{
-  const status   = req.query.status||'ok';
-  const plan     = req.query.plan||'';
-  const frontend = (process.env.FRONTEND_URL||'http://localhost:3000').replace(/\/+$/,'');
-  const destinos = {
-    ok:      `/planes?suscripcion=ok${plan?'&plan='+plan:''}`,
-    failed:  '/planes?error=pago_fallido',
-    pending: '/planes?status=pendiente',
+router.get('/return', async (req, res) => {
+  const status    = req.query.status || req.query.collection_status || 'ok';
+  const paymentId = req.query.payment_id || req.query.collection_id || '';
+  const extRef    = req.query.external_reference || '';
+  const frontend  = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
+  logger.info(`[SUB Return] status=${status} | paymentId=${paymentId} | extRef=${extRef}`);
+
+  // Si el pago fue aprobado, verificar y activar el plan inmediatamente
+  // (el webhook puede llegar tarde o fallar; esto garantiza la activación)
+  if ((status === 'approved' || status === 'ok') && paymentId && extRef) {
+    try {
+      const pago = await mpRequest(`/v1/payments/${paymentId}`);
+      logger.info(`[SUB Return] Pago ${pago.id} | status:${pago.status} | monto:$${pago.transaction_amount}`);
+
+      if (pago.status === 'approved') {
+        const parts    = (pago.external_reference || '').split('|');
+        const userId   = parts[0];
+        const planKey  = parts[1];
+        const periodo  = parts[2] || 'mensual';
+        const fullId   = `${planKey}_${periodo}`;
+        const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
+
+        if (userId && planKey && planInfo) {
+          const expira = new Date();
+          expira.setMonth(expira.getMonth() + planInfo.meses);
+
+          await User.findByIdAndUpdate(userId, {
+            plan:        planKey,
+            planPeriodo: periodo,
+            planExpira:  expira,
+            status:      'activo',
+          });
+
+          await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
+            mensaje: `Plan ${planKey} activado vía /return | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });
+
+          logger.info(`[SUB Return] ✅ Plan ${planKey} activado para ${userId} — expira ${expira.toLocaleDateString('es-AR')}`);
+
+          if (global.io) {
+            global.io.to(`user:${userId}`).emit('suscripcion:activada', {
+              plan: planKey, planBase: planKey, expira,
+              mensaje: `¡Plan ${planInfo.nombre} activado!`,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      logger.error('[SUB Return] Error verificando pago:', e.message);
+      // No bloqueamos la redirección aunque falle — el webhook es el backup
+    }
+  }
+
+  const planParam = extRef ? (extRef.split('|')[1] || '') : (req.query.plan || '');
+  const destinos  = {
+    approved: `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`,
+    ok:       `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`,
+    failed:   '/planes?error=pago_fallido',
+    rejected: '/planes?error=pago_fallido',
+    pending:  '/planes?status=pendiente',
   };
-  const destino = frontend+(destinos[status]||'/dashboard');
-  logger.info(`[SUB] Return MP → ${destino}`);
+  const destino = frontend + (destinos[status] || `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`);
+  logger.info(`[SUB Return] → Redirigiendo a ${destino}`);
   res.redirect(302, destino);
 });
 

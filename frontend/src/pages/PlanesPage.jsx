@@ -86,7 +86,12 @@ export default function PlanesPage() {
     // Notificaciones de retorno de MP
     if (params.get('suscripcion') === 'ok') {
       toast.success('¡Suscripción activada! 🎉 Ya podés usar todas las funciones.');
-      refreshUser();
+      // Re-fetchear después de 1.5s (tiempo para que el /return actualice la DB)
+      // y luego de 4s como segundo intento (por si el webhook tardó)
+      const refrescarSub = () =>
+        api.get('/subscriptions/mi-suscripcion').then(r => setSuscripcion(r.data)).catch(() => {});
+      setTimeout(() => { refrescarSub(); refreshUser(); }, 1500);
+      setTimeout(() => { refrescarSub(); refreshUser(); }, 4000);
     }
     if (params.get('error') === 'pago_fallido') {
       toast.error('El pago no se pudo procesar. Intentá de nuevo.');
