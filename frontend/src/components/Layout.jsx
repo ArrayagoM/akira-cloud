@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Bot, LayoutDashboard, Settings, Shield, LogOut, Menu, X, User, ChevronDown, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
+import AkiraSupport from './AkiraSupport';
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
@@ -101,6 +102,9 @@ export default function Layout({ children }) {
           {children}
         </main>
       </div>
+
+      {/* Akira Support Widget */}
+      <AkiraSupport />
     </div>
   );
 }

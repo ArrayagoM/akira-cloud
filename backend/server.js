@@ -26,11 +26,12 @@ const botManager     = require('./services/bot.manager');
 const workerHandler  = require('./services/worker.handler');
 
 // ── Importar rutas ──────────────────────────────────────────
-const authRoutes   = require('./routes/auth.routes');
-const adminRoutes  = require('./routes/admin.routes');
-const configRoutes = require('./routes/config.routes');
+const authRoutes         = require('./routes/auth.routes');
+const adminRoutes        = require('./routes/admin.routes');
+const configRoutes       = require('./routes/config.routes');
 const botRoutes          = require('./routes/bot.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
+const supportRoutes      = require('./routes/support.routes');
 
 // ── Passport config ─────────────────────────────────────────
 require('./config/passport')(passport);
@@ -115,11 +116,12 @@ app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }
 app.use(passport.initialize());
 
 // ── Rutas ───────────────────────────────────────────────────
-app.use('/api/auth',   authLimiter, authRoutes);
-app.use('/api/admin',  adminRoutes);
-app.use('/api/config', configRoutes);
+app.use('/api/auth',         authLimiter, authRoutes);
+app.use('/api/admin',        adminRoutes);
+app.use('/api/config',       configRoutes);
 app.use('/api/bot',          botRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/support',      supportRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
