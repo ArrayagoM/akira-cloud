@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
   const [copiado, setCopiado] = useState(false);
@@ -186,6 +187,7 @@ function KeyField({ campo, label, placeholder, keys, onSave, onDelete }) {
 }
 
 export default function ConfigPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig]   = useState({});
   const [keys,   setKeys]     = useState({});
   const [form,   setForm]     = useState({
@@ -197,6 +199,40 @@ export default function ConfigPage() {
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60' });
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
   const [saving, setSaving]   = useState(false);
+  const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
+
+  // Manejar retorno de OAuth de Google Calendar
+  useEffect(() => {
+    if (searchParams.get('calendar') === 'ok') {
+      toast.success('¡Google Calendar conectado! El bot ya puede ver y crear turnos.');
+      setSearchParams({});
+    }
+    if (searchParams.get('calendar') === 'error') {
+      toast.error('No se pudo conectar Google Calendar. Intentá de nuevo.');
+      setSearchParams({});
+    }
+  }, []);
+
+  const conectarGoogleCalendar = () => {
+    const token = localStorage.getItem('akira_token');
+    if (!token) return toast.error('Sesión expirada. Volvé a iniciar sesión.');
+    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
+    window.location.href = `${backendUrl}/api/config/google/connect?token=${encodeURIComponent(token)}`;
+  };
+
+  const desconectarGoogleCalendar = async () => {
+    setDesconectandoCalendar(true);
+    try {
+      await api.delete('/config/google/disconnect');
+      setKeys(k => ({ ...k, googleCalendarOAuth: false }));
+      setConfig(c => ({ ...c, googleEmail: '' }));
+      toast.success('Google Calendar desconectado');
+    } catch {
+      toast.error('Error al desconectar');
+    } finally {
+      setDesconectandoCalendar(false);
+    }
+  };
 
   useEffect(() => {
     api.get('/config').then(r => {
@@ -480,41 +516,90 @@ export default function ConfigPage() {
         <SeccionCollapsible titulo="📅 Google Calendar (agenda)">
           <div className="space-y-5">
 
-            {/* Estado actual */}
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-900 border border-gray-800">
-              {keys.credentialsGoogle
-                ? <><CheckCircle size={16} className="text-green-400 shrink-0" /><span className="text-sm text-green-400 font-medium">Credenciales configuradas — Calendar activo</span></>
-                : <><XCircle size={16} className="text-yellow-500 shrink-0" /><span className="text-sm text-yellow-400">Sin credenciales — el bot no puede verificar ni crear turnos en Calendar</span></>
-              }
-            </div>
-
-            {/* Guía paso a paso */}
-            <GuiaGoogleCalendar />
-
-            {/* Upload */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-gray-400 uppercase tracking-wide">PASO 6 — Subir credentials.json</label>
-                {keys.credentialsGoogle
-                  ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle size={11} /> Subido</span>
-                  : <span className="flex items-center gap-1 text-xs text-gray-600"><XCircle size={11} /> Pendiente</span>}
+            {/* Conectado via OAuth */}
+            {keys.googleCalendarOAuth ? (
+              <div className="p-4 rounded-xl bg-green-900/20 border border-green-700/40 space-y-3">
+                <div className="flex items-center gap-2">
+                  <CalendarCheck size={18} className="text-green-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-400">Google Calendar conectado</p>
+                    {config.googleEmail && <p className="text-xs text-gray-400 mt-0.5">{config.googleEmail}</p>}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">El bot puede ver y crear turnos en tu Google Calendar automáticamente.</p>
+                <button
+                  onClick={desconectarGoogleCalendar}
+                  disabled={desconectandoCalendar}
+                  className="flex items-center gap-2 text-xs text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <Unlink size={12} />
+                  {desconectandoCalendar ? 'Desconectando...' : 'Desconectar Google Calendar'}
+                </button>
               </div>
-              <label className="flex items-center gap-3 cursor-pointer btn-secondary w-full justify-center py-3 hover:bg-gray-700 transition-colors">
-                <Upload size={15} /> {keys.credentialsGoogle ? 'Reemplazar credentials.json' : 'Subir credentials.json'}
-                <input type="file" accept=".json" onChange={uploadCredentials} className="hidden" />
-              </label>
-            </div>
+            ) : (
+              /* Botón principal: conectar con Google */
+              <div className="space-y-3">
+                <p className="text-sm text-gray-300">
+                  Conectá tu Google Calendar con un click. El bot podrá ver horarios disponibles y crear turnos automáticamente.
+                </p>
+                <button
+                  onClick={conectarGoogleCalendar}
+                  className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg bg-white hover:bg-gray-100 text-gray-800 font-medium text-sm transition-colors shadow"
+                >
+                  <svg width="18" height="18" viewBox="0 0 48 48">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                  </svg>
+                  Conectar con Google Calendar
+                </button>
+                <p className="text-xs text-gray-500 text-center">
+                  Solo pedimos permiso para ver y editar tu calendario. Podés desconectarlo cuando quieras.
+                </p>
+              </div>
+            )}
 
-            {/* Calendar ID */}
-            <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">PASO 7 — Calendar ID</label>
-              <input name="idCalendar" placeholder="tu-email@gmail.com" className="input-base w-full"
-                defaultValue={config.idCalendar || ''}
-                onBlur={e => e.target.value && saveKey('idCalendar', e.target.value)} />
-              <p className="text-xs text-gray-500 mt-1">
-                Normalmente es tu email de Gmail. Lo encontrás en Google Calendar → ⚙️ Configuración del calendario → <strong className="text-gray-400">Integración del calendario</strong> → "ID del calendario".
-              </p>
-            </div>
+            {/* Calendar ID (siempre visible cuando está conectado) */}
+            {keys.googleCalendarOAuth && (
+              <div>
+                <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Calendar ID (opcional)</label>
+                <input name="idCalendar" placeholder="tu-email@gmail.com" className="input-base w-full"
+                  defaultValue={config.idCalendar || ''}
+                  onBlur={e => e.target.value && saveKey('idCalendar', e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">
+                  Dejalo vacío para usar tu calendario principal. Completalo si querés usar un calendario específico.
+                </p>
+              </div>
+            )}
+
+            {/* Opción avanzada: subir JSON manualmente */}
+            {!keys.googleCalendarOAuth && (
+              <SeccionCollapsible titulo="⚙️ Opción avanzada — Subir credentials.json manualmente">
+                <div className="space-y-4 pt-1">
+                  <GuiaGoogleCalendar />
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-medium text-gray-400 uppercase tracking-wide">credentials.json</label>
+                      {keys.credentialsGoogle
+                        ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle size={11} /> Subido</span>
+                        : <span className="flex items-center gap-1 text-xs text-gray-600"><XCircle size={11} /> Pendiente</span>}
+                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer btn-secondary w-full justify-center py-3">
+                      <Upload size={15} /> {keys.credentialsGoogle ? 'Reemplazar credentials.json' : 'Subir credentials.json'}
+                      <input type="file" accept=".json" onChange={uploadCredentials} className="hidden" />
+                    </label>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Calendar ID</label>
+                    <input name="idCalendar" placeholder="tu-email@gmail.com" className="input-base w-full"
+                      defaultValue={config.idCalendar || ''}
+                      onBlur={e => e.target.value && saveKey('idCalendar', e.target.value)} />
+                    <p className="text-xs text-gray-500 mt-1">Tu email de Gmail o el ID del calendario.</p>
+                  </div>
+                </div>
+              </SeccionCollapsible>
+            )}
 
           </div>
         </SeccionCollapsible>
