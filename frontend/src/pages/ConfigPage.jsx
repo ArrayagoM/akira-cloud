@@ -2,7 +2,117 @@ import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info } from 'lucide-react';
+
+function CopiarTexto({ texto }) {
+  const [copiado, setCopiado] = useState(false);
+  const copiar = () => {
+    navigator.clipboard.writeText(texto);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  };
+  return (
+    <button onClick={copiar} className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 ml-2">
+      <Copy size={11} />{copiado ? '¡Copiado!' : 'Copiar'}
+    </button>
+  );
+}
+
+function PasoGuia({ numero, titulo, children }) {
+  return (
+    <div className="flex gap-3">
+      <div className="shrink-0 w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center mt-0.5">{numero}</div>
+      <div className="flex-1">
+        <p className="text-sm font-medium text-white mb-1">{titulo}</p>
+        <div className="text-xs text-gray-400 space-y-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function GuiaGoogleCalendar() {
+  const [abierta, setAbierta] = useState(false);
+  return (
+    <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 overflow-hidden">
+      <button
+        onClick={() => setAbierta(!abierta)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-indigo-900/20 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-indigo-300">
+          <Info size={14} /> ¿Cómo obtener el credentials.json? — Guía paso a paso
+        </span>
+        {abierta ? <ChevronUp size={14} className="text-indigo-400" /> : <ChevronDown size={14} className="text-indigo-400" />}
+      </button>
+
+      {abierta && (
+        <div className="px-4 pb-5 space-y-4 border-t border-indigo-800/40">
+          <p className="text-xs text-gray-400 pt-3">
+            Google Calendar necesita un archivo de credenciales para que el bot pueda ver y crear turnos. Seguí estos pasos — no hace falta saber programar.
+          </p>
+
+          <PasoGuia numero="1" titulo='Entrá a Google Cloud Console'>
+            <p>Abrí este link en tu navegador:</p>
+            <div className="flex items-center gap-2 mt-1 p-2 bg-gray-900 rounded border border-gray-700">
+              <span className="text-indigo-300 font-mono">console.cloud.google.com</span>
+              <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 ml-auto">
+                <ExternalLink size={11} /> Abrir
+              </a>
+            </div>
+            <p className="mt-1">Iniciá sesión con la cuenta de Google que usás para tu negocio.</p>
+          </PasoGuia>
+
+          <PasoGuia numero="2" titulo='Creá un proyecto nuevo'>
+            <p>En la barra superior verás un selector de proyectos. Hacé click ahí y luego en <strong className="text-white">"Proyecto nuevo"</strong>.</p>
+            <p>Ponele cualquier nombre, por ejemplo: <span className="text-white font-mono">mi-negocio-bot</span></p>
+            <p>Hacé click en <strong className="text-white">"Crear"</strong> y esperá unos segundos.</p>
+          </PasoGuia>
+
+          <PasoGuia numero="3" titulo='Habilitá la API de Google Calendar'>
+            <p>En el menú de la izquierda buscá <strong className="text-white">"APIs y servicios"</strong> → <strong className="text-white">"Biblioteca"</strong>.</p>
+            <p>En el buscador escribí: <span className="text-white font-mono">Google Calendar API</span></p>
+            <p>Hacé click en el resultado y luego en el botón azul <strong className="text-white">"Habilitar"</strong>.</p>
+          </PasoGuia>
+
+          <PasoGuia numero="4" titulo='Creá una Cuenta de Servicio'>
+            <p>Andá a <strong className="text-white">"APIs y servicios"</strong> → <strong className="text-white">"Credenciales"</strong>.</p>
+            <p>Hacé click en <strong className="text-white">"+ Crear credencial"</strong> → <strong className="text-white">"Cuenta de servicio"</strong>.</p>
+            <p>En el campo nombre escribí algo como: <span className="text-white font-mono">akira-bot</span></p>
+            <p>Hacé click en <strong className="text-white">"Crear y continuar"</strong> → <strong className="text-white">"Listo"</strong> (los pasos 2 y 3 son opcionales).</p>
+          </PasoGuia>
+
+          <PasoGuia numero="5" titulo='Descargá el archivo JSON de credenciales'>
+            <p>En la pantalla de Credenciales vas a ver tu nueva cuenta de servicio. Hacé click en el <strong className="text-white">email</strong> de esa cuenta.</p>
+            <p>Andá a la pestaña <strong className="text-white">"Claves"</strong>.</p>
+            <p>Hacé click en <strong className="text-white">"Agregar clave"</strong> → <strong className="text-white">"Crear clave nueva"</strong> → elegí <strong className="text-white">JSON</strong>.</p>
+            <p>Se va a descargar un archivo <span className="text-white font-mono">.json</span> a tu computadora. Ese es el archivo que necesitás subir acá.</p>
+          </PasoGuia>
+
+          <PasoGuia numero="6" titulo='Compartí tu calendario con la cuenta de servicio'>
+            <div className="p-2 bg-yellow-900/30 border border-yellow-700/50 rounded mt-1 mb-2">
+              <span className="flex items-center gap-1.5 text-yellow-400 font-medium"><AlertTriangle size={11} /> Este paso es el más importante — sin hacerlo, nada va a funcionar</span>
+            </div>
+            <p>Abrí <strong className="text-white">Google Calendar</strong> en tu navegador (<span className="font-mono text-indigo-300">calendar.google.com</span>).</p>
+            <p>A la izquierda vas a ver tu calendario. Hacé click en los <strong className="text-white">3 puntitos</strong> que aparecen al pasar el mouse → <strong className="text-white">"Configuración y uso compartido"</strong>.</p>
+            <p>Bajá hasta la sección <strong className="text-white">"Compartir con personas específicas"</strong> → <strong className="text-white">"+ Agregar personas"</strong>.</p>
+            <p>Pegá el email de tu cuenta de servicio. Lo encontrás en Google Cloud en la pantalla de credenciales, tiene este formato:</p>
+            <div className="p-2 bg-gray-900 rounded border border-gray-700 font-mono text-gray-300 mt-1">
+              akira-bot@tu-proyecto.iam.gserviceaccount.com
+            </div>
+            <p className="mt-1">En permisos seleccioná <strong className="text-white">"Hacer cambios en eventos"</strong> → <strong className="text-white">"Enviar"</strong>.</p>
+          </PasoGuia>
+
+          <div className="p-3 bg-green-900/20 border border-green-700/40 rounded-lg">
+            <p className="text-xs text-green-400 font-medium flex items-center gap-1.5">
+              <CheckCircle size={12} /> ¡Listo! Ya podés subir el archivo JSON y tu Calendar ID abajo.
+            </p>
+            <p className="text-xs text-gray-500 mt-1">El bot va a poder ver los horarios ocupados y crear eventos automáticamente cuando un cliente confirme un turno.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SeccionCollapsible({ titulo, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -368,29 +478,44 @@ export default function ConfigPage() {
 
         {/* Google Calendar */}
         <SeccionCollapsible titulo="📅 Google Calendar (agenda)">
-          <div className="space-y-4">
+          <div className="space-y-5">
+
+            {/* Estado actual */}
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-900 border border-gray-800">
+              {keys.credentialsGoogle
+                ? <><CheckCircle size={16} className="text-green-400 shrink-0" /><span className="text-sm text-green-400 font-medium">Credenciales configuradas — Calendar activo</span></>
+                : <><XCircle size={16} className="text-yellow-500 shrink-0" /><span className="text-sm text-yellow-400">Sin credenciales — el bot no puede verificar ni crear turnos en Calendar</span></>
+              }
+            </div>
+
+            {/* Guía paso a paso */}
+            <GuiaGoogleCalendar />
+
+            {/* Upload */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-gray-400 uppercase tracking-wide">credentials.json</label>
+                <label className="text-xs font-medium text-gray-400 uppercase tracking-wide">PASO 6 — Subir credentials.json</label>
                 {keys.credentialsGoogle
-                  ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle size={11} /> Configurado</span>
-                  : <span className="flex items-center gap-1 text-xs text-gray-600"><XCircle size={11} /> No configurado</span>}
+                  ? <span className="flex items-center gap-1 text-xs text-green-400"><CheckCircle size={11} /> Subido</span>
+                  : <span className="flex items-center gap-1 text-xs text-gray-600"><XCircle size={11} /> Pendiente</span>}
               </div>
-              <label className="flex items-center gap-3 cursor-pointer btn-secondary w-full justify-center py-3">
-                <Upload size={15} /> Subir credentials.json
+              <label className="flex items-center gap-3 cursor-pointer btn-secondary w-full justify-center py-3 hover:bg-gray-700 transition-colors">
+                <Upload size={15} /> {keys.credentialsGoogle ? 'Reemplazar credentials.json' : 'Subir credentials.json'}
                 <input type="file" accept=".json" onChange={uploadCredentials} className="hidden" />
               </label>
-              <p className="text-xs text-gray-600 mt-1.5">Generá el archivo en Google Cloud Console → Cuenta de servicio → Claves.</p>
             </div>
+
+            {/* Calendar ID */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Calendar ID</label>
-              <div className="flex gap-2">
-                <input name="idCalendar" placeholder="tu-email@gmail.com" className="input-base flex-1"
-                  defaultValue={config.idCalendar || ''}
-                  onBlur={e => e.target.value && saveKey('idCalendar', e.target.value)} />
-              </div>
-              <p className="text-xs text-gray-600 mt-1">Es tu email de Gmail o el ID del calendario en Google Calendar.</p>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">PASO 7 — Calendar ID</label>
+              <input name="idCalendar" placeholder="tu-email@gmail.com" className="input-base w-full"
+                defaultValue={config.idCalendar || ''}
+                onBlur={e => e.target.value && saveKey('idCalendar', e.target.value)} />
+              <p className="text-xs text-gray-500 mt-1">
+                Normalmente es tu email de Gmail. Lo encontrás en Google Calendar → ⚙️ Configuración del calendario → <strong className="text-gray-400">Integración del calendario</strong> → "ID del calendario".
+              </p>
             </div>
+
           </div>
         </SeccionCollapsible>
 
