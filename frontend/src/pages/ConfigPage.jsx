@@ -81,6 +81,7 @@ export default function ConfigPage() {
   const [form,   setForm]     = useState({
     miNombre: '', negocio: '', servicios: '', precioTurno: '1000',
     horasCancelacion: '24', promptPersonalizado: '', dominioNgrok: '', mpWebhookUrl: '',
+    aliasTransferencia: '', cbuTransferencia: '',
   });
   const [saving, setSaving]   = useState(false);
 
@@ -98,6 +99,8 @@ export default function ConfigPage() {
         promptPersonalizado: c.promptPersonalizado || '',
         dominioNgrok:        c.dominioNgrok || '',
         mpWebhookUrl:        c.mpWebhookUrl || '',
+        aliasTransferencia:  c.aliasTransferencia || '',
+        cbuTransferencia:    c.cbuTransferencia   || '',
       });
     }).catch(() => toast.error('Error cargando configuración'));
   }, []);
@@ -200,15 +203,42 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* MercadoPago */}
-        <SeccionCollapsible titulo="💳 MercadoPago (cobros)">
-          <p className="text-xs text-gray-500 mb-4">Necesario para generar links de pago automáticos.</p>
-          <div className="space-y-4">
-            <KeyField campo="keyMP" label="Access Token" placeholder="APP_USR-..." keys={keys} onSave={saveKey} onDelete={deleteKey} />
+        <SeccionCollapsible titulo="💳 Pagos (MercadoPago o Transferencia)">
+          <div className="space-y-5">
+            {/* MercadoPago */}
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">URL del Webhook (dónde MP manda el pago)</label>
-              <div className="flex gap-2">
-                <input name="mpWebhookUrl" value={form.mpWebhookUrl} onChange={handleForm} className="input-base" placeholder="https://tu-dominio.com/webhook" />
-                <button onClick={saveNegocio} className="btn-secondary px-4 py-2 text-xs whitespace-nowrap"><Save size={13} /></button>
+              <p className="text-xs font-semibold text-gray-300 mb-1">Opción A — MercadoPago (link automático)</p>
+              <p className="text-xs text-gray-500 mb-3">El bot genera links de pago automáticos. Si configurás esto, tiene prioridad sobre la transferencia.</p>
+              <div className="space-y-3">
+                <KeyField campo="keyMP" label="Access Token" placeholder="APP_USR-..." keys={keys} onSave={saveKey} onDelete={deleteKey} />
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">URL del Webhook</label>
+                  <div className="flex gap-2">
+                    <input name="mpWebhookUrl" value={form.mpWebhookUrl} onChange={handleForm} className="input-base" placeholder="https://tu-dominio.com/webhook" />
+                    <button onClick={saveNegocio} className="btn-secondary px-4 py-2 text-xs whitespace-nowrap"><Save size={13} /></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-gray-800 pt-4">
+              <p className="text-xs font-semibold text-gray-300 mb-1">Opción B — Transferencia bancaria (alias / CBU / CVU)</p>
+              <p className="text-xs text-gray-500 mb-3">Si no usás MercadoPago, el bot le dará estos datos al cliente para que transfiera. Podés completar uno o ambos.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Alias</label>
+                  <div className="flex gap-2">
+                    <input name="aliasTransferencia" value={form.aliasTransferencia} onChange={handleForm} className="input-base" placeholder="mi.alias.mp" />
+                    <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">CBU / CVU</label>
+                  <div className="flex gap-2">
+                    <input name="cbuTransferencia" value={form.cbuTransferencia} onChange={handleForm} className="input-base" placeholder="000000000000000000000" />
+                    <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

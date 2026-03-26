@@ -37,6 +37,10 @@ const ConfigSchema = new mongoose.Schema(
     horasCancelacion: { type: Number, default: 24, min: 0 },
     promptPersonalizado: { type: String, default: '', maxlength: 2000 },
 
+    // Pago alternativo (sin MercadoPago)
+    aliasTransferencia: { type: String, default: '', trim: true },
+    cbuTransferencia:   { type: String, default: '', trim: true },
+
     // Webhook
     mpWebhookUrl: { type: String, default: '', trim: true },
 

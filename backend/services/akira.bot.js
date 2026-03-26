@@ -40,6 +40,8 @@ function crearAkiraBot(config, dataDir, sessionDir) {
   const HORAS_MINIMAS_CANCELACION = parseInt(config.HORAS_MINIMAS_CANCELACION || '24');
   const CALENDAR_ID               = config.CALENDAR_ID || '';
   const PROMPT_EXTRA              = config.PROMPT_PERSONALIZADO || '';
+  const ALIAS_TRANSFERENCIA       = config.ALIAS_TRANSFERENCIA || '';
+  const CBU_TRANSFERENCIA         = config.CBU_TRANSFERENCIA   || '';
   const DURACION_RESERVA_HORAS    = 1;
   const HORA_INICIO_DIA           = 9;
   const HORA_FIN_DIA              = 18;
@@ -210,12 +212,21 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       return `${dias[d.getDay()]} = ${y}-${mo}-${dd}`;
     }).join(', ');
 
+    // Informar método de pago configurado (NUNCA inventar datos)
+    const metodoPago = MP_ACCESS_TOKEN
+      ? 'MercadoPago (link automático al confirmar turno)'
+      : (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA)
+        ? `Transferencia bancaria — Alias: ${ALIAS_TRANSFERENCIA || 'N/A'} | CBU/CVU: ${CBU_TRANSFERENCIA || 'N/A'}`
+        : `Sin método de pago configurado — ${MI_NOMBRE} coordina el pago directamente`;
+
     const sys = { role: 'system', content:
       `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp. ` +
       `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
       `Negocio: ${SERVICIOS} | Precio: $${PRECIO_TURNO} ARS/h | Cancelar/reagendar: mín ${HORAS_MINIMAS_CANCELACION}h.\n` +
+      `💳 Método de pago: ${metodoPago}.\n` +
+      `⚠️ PROHIBIDO: NUNCA inventes alias, CBU, CVU, nombres de banco ni ningún dato bancario. Usá SOLO los que aparecen arriba.\n` +
       (pend ? `🚨 PAGO PENDIENTE: ${pend.fecha} ${pend.hora} ($${pend.totalPrecio || PRECIO_TURNO}). NO agendar otro.\n` : '') +
-      (usuario.turnosConfirmados?.length ? `[INT] Turnos pagados: ${usuario.turnosConfirmados.map(t => `${t.fecha} ${t.hora}`).join(', ')} — nunca preguntar si pagó.\n` : '') +
+      (usuario.turnosConfirmados?.length ? `[INT] Turnos confirmados: ${usuario.turnosConfirmados.map(t => `${t.fecha} ${t.hora}`).join(', ')} — nunca preguntar si pagó.\n` : '') +
       `FLUJO: 1.Consultar disponibilidad → 2.Cliente elige → 3.Confirmar → 4.Llamar agendar_turno. NUNCA saltear pasos.\n` +
       `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_turno, Cambiar→reagendar_turno.\n` +
       (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
@@ -294,21 +305,44 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       if (slotsEnProceso.has(sk)) { push('El slot ya está siendo procesado. Pedile que elija otro.'); return; }
       slotsEnProceso.add(sk);
       try {
-        const ini       = calendar.crearFecha(y, m, d, hI);
-        const fin       = calendar.crearFecha(y, m, d, hFn);
+        const ini        = calendar.crearFecha(y, m, d, hI);
+        const fin        = calendar.crearFecha(y, m, d, hFn);
         const conflictos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
         if (conflictos.length > 0) { push(`El horario ${args.hora}–${hFn}:00 ya está ocupado.`); return; }
-        if (!usuario.email) {
-          cacheTemporal[jid] = { esperandoEmail: true, reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hF } };
-          db.guardar(CACHE_PATH, cacheTemporal);
-          push('Para reservar necesitamos el email del cliente. Pedíselo.'); return;
+
+        if (MP_ACCESS_TOKEN) {
+          // ── Flujo MercadoPago: requiere email para el payer ──
+          if (!usuario.email) {
+            cacheTemporal[jid] = { esperandoEmail: true, reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hF } };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            push('Para reservar necesitamos el email del cliente. Pedíselo.'); return;
+          }
+          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hF);
+          const rk   = `${jid}|${args.fecha}|${args.hora}|${hF || args.hora}`;
+          reservasPendientes[rk] = { chatId: jid, fecha: args.fecha, hora: args.hora, horaFin: hF, nombre: usuario.nombre, email: usuario.email, cant, total, expiresAt: Date.now() + 30 * 60000 };
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          push(`Link generado. Reserva: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. Link: ${pref.init_point}. Solo se agenda si paga. Vence en 30 min.`);
+        } else {
+          // ── Flujo sin MercadoPago: agendar directo + transferencia ──
+          const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+          await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
+          usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
+          db.guardarMemoria(jid, usuario);
+          programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+
+          // Armar instrucción de pago con datos REALES (nunca inventados)
+          let infoPago = '';
+          if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+            infoPago = `Indicale que pague $${total} ARS por transferencia al` +
+              (ALIAS_TRANSFERENCIA ? ` Alias: ${ALIAS_TRANSFERENCIA}` : '') +
+              (CBU_TRANSFERENCIA   ? ` / CBU/CVU: ${CBU_TRANSFERENCIA}` : '') +
+              ` y que mande el comprobante para confirmar.`;
+          } else {
+            infoPago = `No hay método de pago configurado. Indicale que ${MI_NOMBRE} le va a confirmar cómo abonar.`;
+          }
+          push(`Turno confirmado y agendado: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. ${infoPago}`);
         }
-        const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hF);
-        const rk   = `${jid}|${args.fecha}|${args.hora}|${hF || args.hora}`;
-        reservasPendientes[rk] = { chatId: jid, fecha: args.fecha, hora: args.hora, horaFin: hF, nombre: usuario.nombre, email: usuario.email, cant, total, expiresAt: Date.now() + 30 * 60000 };
-        db.guardar(RESERVAS_PATH, reservasPendientes);
-        push(`Link generado. Reserva: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. Link: ${pref.init_point}. Solo se agenda si paga. Vence en 30 min.`);
-      } catch (e) { log('[MP] ' + e.message); push(`Error generando link: ${e.message}.`); }
+      } catch (e) { log('[Pago] ' + e.message); push(`Error al procesar la reserva: ${e.message}.`); }
       finally { slotsEnProceso.delete(sk); }
       return;
     }
@@ -369,6 +403,30 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       const hF   = horaFin ? parseInt(horaFin.split(':')[0]) : hI + 1;
       const cant  = Math.max(1, hF - hI);
       const total = PRECIO_TURNO * cant;
+
+      // Sin MercadoPago: usar transferencia bancaria (flujo post-email)
+      if (!MP_ACCESS_TOKEN) {
+        const [y, m, d] = fecha.split('-').map(Number);
+        const ini = calendar.crearFecha(y, m, d, hI);
+        const fin = calendar.crearFecha(y, m, d, hF);
+        const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+        await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
+        usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha, hora, horaFin: horaFin || null }];
+        db.guardarMemoria(jid, usuario);
+        programarRecs(jid, usuario.nombre, fecha, hora);
+        const r = horaFin ? `de *${hora}* a *${horaFin}*` : `a las *${hora}*`;
+        let msg = `¡Perfecto, ${usuario.nombre}! 🎉 Tu turno del *${fecha}* ${r} está confirmado.\n\n💰 *Total: $${total} ARS*\n\n`;
+        if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+          msg += `📲 *Pagá por transferencia:*\n`;
+          if (ALIAS_TRANSFERENCIA) msg += `• Alias: *${ALIAS_TRANSFERENCIA}*\n`;
+          if (CBU_TRANSFERENCIA)   msg += `• CBU/CVU: *${CBU_TRANSFERENCIA}*\n`;
+          msg += `\n📸 Mandanos el *comprobante* para confirmar. ✅`;
+        } else {
+          msg += `${MI_NOMBRE} te va a indicar cómo abonar. ✅`;
+        }
+        await enviarMensaje(jid, msg); return;
+      }
+
       const pref  = await mp.crearPago(jid, usuario.nombre, fecha, hora, horaFin);
       const rk    = `${jid}|${fecha}|${hora}|${horaFin || hora}`;
       reservasPendientes[rk] = { chatId: jid, fecha, hora, horaFin, nombre: usuario.nombre, email: usuario.email, cant, total, expiresAt: Date.now() + 30 * 60000 };

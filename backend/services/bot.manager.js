@@ -94,6 +94,8 @@ async function startBot(userId) {
       PRECIO_TURNO:            String(config.precioTurno),
       HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
       PROMPT_PERSONALIZADO:    config.promptPersonalizado || '',
+      ALIAS_TRANSFERENCIA:     config.aliasTransferencia  || '',
+      CBU_TRANSFERENCIA:       config.cbuTransferencia     || '',
       PORT:                    String(asignarPuerto(uid)),
     };
 
