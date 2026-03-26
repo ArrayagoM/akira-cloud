@@ -24,7 +24,7 @@ const crearMPService            = require('./bot/mercadopago.service');
 const crearAudioService         = require('./bot/audio.service');
 const crearGroqService          = require('./bot/groq.service');
 
-function crearAkiraBot(config, dataDir, sessionDir) {
+function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const emitter = new EventEmitter();
 
   // ── Config ─────────────────────────────────────────────────
@@ -65,8 +65,8 @@ function crearAkiraBot(config, dataDir, sessionDir) {
   function log(msg) { emitter.emit('log', msg); }
 
   // ── Servicios ───────────────────────────────────────────────
-  // userId del dueño del bot (extraído del path de sesión: sessions/<userId>)
-  const USER_ID  = path.basename(sessionDir);
+  // userId del dueño del bot — preferir el parámetro explícito; fallback al path
+  const USER_ID  = userId ? String(userId) : path.basename(sessionDir);
   const db       = crearPersistencia(dataDir, log);
   // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
   const clientesSvc = crearMongoClientesService(USER_ID, log);
@@ -671,9 +671,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       try { prevSock.end(); } catch {}
     }
 
-    // userId extraído del sessionDir (sessions/<userId>)
-    const userId = path.basename(sessionDir);
-    const { state, saveCreds, clearAuth } = await useMongoAuthState(userId);
+    const { state, saveCreds, clearAuth } = await useMongoAuthState(USER_ID);
     const { version } = await fetchLatestBaileysVersion();
     log(`[Baileys] Versión WA: ${version.join('.')}`);
 

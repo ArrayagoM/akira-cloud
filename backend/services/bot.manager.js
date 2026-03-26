@@ -128,7 +128,7 @@ async function startBot(userId) {
     }
 
     // Crear instancia del bot
-    const bot = crearAkiraBot(credenciales, dataDir, sessionDir);
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
     instancias.set(uid, bot);
 
     // ── Eventos del bot → Socket.io + DB ────────────────────

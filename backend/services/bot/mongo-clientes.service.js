@@ -96,4 +96,70 @@ function crearMongoClientesService(userId, log) {
   return { inicializar, cargarMemoria, guardarMemoria, listarClientes };
 }
 
+// ── useMongoClientesState: API async pura usando ClienteMemoria ──────────
+// Alternativa sin caché RAM; adecuada cuando se prefiere persistencia
+// directa a MongoDB sin estado en memoria.
+const ClienteMemoria = require('../../models/ClienteMemoria');
+
+/**
+ * useMongoClientesState(userId)
+ * Devuelve { cargarMemoria, guardarMemoria, listarClientes } — funciones async.
+ */
+function useMongoClientesState(userId) {
+  const uid = String(userId);
+
+  async function cargarMemoria(telefono) {
+    try {
+      const doc = await ClienteMemoria.findById(`${uid}:${telefono}`).lean();
+      return doc ? {
+        nombre:            doc.nombre,
+        telefono:          doc.telefono,
+        numeroReal:        doc.numeroReal,
+        email:             doc.email,
+        silenciado:        doc.silenciado,
+        historial:         doc.historial || [],
+        turnosConfirmados: doc.turnosConfirmados || [],
+      } : null;
+    } catch (e) {
+      console.error('[MongoClientes] cargarMemoria error:', e.message);
+      return null;
+    }
+  }
+
+  async function guardarMemoria(telefono, data) {
+    try {
+      await ClienteMemoria.findByIdAndUpdate(
+        `${uid}:${telefono}`,
+        {
+          $set: {
+            userId:            uid,
+            telefono,
+            numeroReal:        data.numeroReal        || '',
+            nombre:            data.nombre            || '',
+            email:             data.email             || '',
+            silenciado:        data.silenciado        || false,
+            historial:         data.historial         || [],
+            turnosConfirmados: data.turnosConfirmados || [],
+          },
+        },
+        { upsert: true, new: true }
+      );
+    } catch (e) {
+      console.error('[MongoClientes] guardarMemoria error:', e.message);
+    }
+  }
+
+  async function listarClientes() {
+    try {
+      return await ClienteMemoria.find({ userId: uid }).lean();
+    } catch (e) {
+      console.error('[MongoClientes] listarClientes error:', e.message);
+      return [];
+    }
+  }
+
+  return { cargarMemoria, guardarMemoria, listarClientes };
+}
+
 module.exports = crearMongoClientesService;
+module.exports.useMongoClientesState = useMongoClientesState;
