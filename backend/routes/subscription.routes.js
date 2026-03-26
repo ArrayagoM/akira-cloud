@@ -132,22 +132,13 @@ router.post('/checkout', requireAuth, async(req,res)=>{
       });
     }
 
-    // MercadoPago REQUIERE back_urls con protocolo HTTP/HTTPS válido.
-    // Si el frontend es localhost, usamos el backend (ngrok) que tiene el endpoint /return
-    // que redirige al frontend local.
-    const usarReturnEndpoint = frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1');
-
-    const successUrl = usarReturnEndpoint
-      ? `${backendUrl}/api/subscriptions/return?status=ok&plan=${plan.key}`
-      : `${frontendUrl}/planes?suscripcion=ok&plan=${plan.key}`;
-
-    const failureUrl = usarReturnEndpoint
-      ? `${backendUrl}/api/subscriptions/return?status=failed`
-      : `${frontendUrl}/planes?error=pago_fallido`;
-
-    const pendingUrl = usarReturnEndpoint
-      ? `${backendUrl}/api/subscriptions/return?status=pending`
-      : `${frontendUrl}/planes?status=pendiente`;
+    // SIEMPRE usamos el endpoint /return del backend como intermediario.
+    // Esto garantiza que el plan se active sincrónicamente al volver del pago,
+    // sin importar si el frontend es localhost o producción.
+    // /return verifica el pago con MP, activa el plan en DB y redirige al frontend.
+    const successUrl = `${backendUrl}/api/subscriptions/return`;
+    const failureUrl = `${backendUrl}/api/subscriptions/return?status=failed`;
+    const pendingUrl = `${backendUrl}/api/subscriptions/return?status=pending`;
 
     const webhookUrl = `${backendUrl}/api/subscriptions/webhook`;
 
@@ -276,6 +267,53 @@ router.get('/return', async (req, res) => {
   const destino = frontend + (destinos[status] || `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`);
   logger.info(`[SUB Return] → Redirigiendo a ${destino}`);
   res.redirect(302, destino);
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/verificar-pago
+//  Fallback: el frontend llama a este endpoint con payment_id
+//  para activar el plan si el /return falló por algún motivo.
+// ─────────────────────────────────────────────────────────────
+router.post('/verificar-pago', requireAuth, async(req,res)=>{
+  try {
+    const paymentId = req.body.payment_id || req.body.collection_id || '';
+    if (!paymentId) return res.status(400).json({ error: 'Falta payment_id' });
+
+    const pago = await mpRequest(`/v1/payments/${paymentId}`);
+    if (pago.status !== 'approved') {
+      return res.json({ ok: false, msg: `Pago no aprobado: ${pago.status}` });
+    }
+
+    const parts   = (pago.external_reference || '').split('|');
+    const userId  = parts[0];
+    const planKey = parts[1];
+    const periodo = parts[2] || 'mensual';
+
+    // Verificar que el pago pertenece al usuario autenticado
+    if (String(userId) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'El pago no pertenece a tu cuenta' });
+    }
+
+    const fullId   = `${planKey}_${periodo}`;
+    const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
+    if (!planInfo) return res.status(400).json({ error: `Plan desconocido: ${planKey}` });
+
+    const expira = new Date();
+    expira.setMonth(expira.getMonth() + planInfo.meses);
+
+    const user = await User.findByIdAndUpdate(userId, {
+      plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
+    }, { new: true });
+
+    await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
+      mensaje: `Plan ${planKey} activado vía verificación manual | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });
+
+    logger.info(`[SUB Verificar] ✅ Plan ${planKey} activado para ${userId}`);
+    res.json({ ok: true, plan: planKey, expira, msg: `Plan ${planInfo.nombre} activado` });
+  } catch(err) {
+    logger.error('[SUB Verificar] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────

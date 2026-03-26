@@ -83,15 +83,35 @@ export default function PlanesPage() {
     const planParam = params.get('plan') || '';
     if (planParam.includes('_anual')) setAnual(true);
 
-    // Notificaciones de retorno de MP
-    if (params.get('suscripcion') === 'ok') {
-      toast.success('¡Suscripción activada! 🎉 Ya podés usar todas las funciones.');
-      // Re-fetchear después de 1.5s (tiempo para que el /return actualice la DB)
-      // y luego de 4s como segundo intento (por si el webhook tardó)
+    // Retorno desde MercadoPago
+    const paymentId = params.get('payment_id') || params.get('collection_id') || '';
+    const mpStatus  = params.get('status') || params.get('collection_status') || '';
+
+    if (params.get('suscripcion') === 'ok' || mpStatus === 'approved') {
       const refrescarSub = () =>
         api.get('/subscriptions/mi-suscripcion').then(r => setSuscripcion(r.data)).catch(() => {});
-      setTimeout(() => { refrescarSub(); refreshUser(); }, 1500);
-      setTimeout(() => { refrescarSub(); refreshUser(); }, 4000);
+
+      const activar = async () => {
+        // Intento 1: re-fetchear (el /return ya debería haber activado el plan)
+        await refrescarSub();
+        refreshUser();
+
+        // Intento 2: si sigue en trial, forzar verificación con payment_id
+        if (paymentId) {
+          try {
+            const r = await api.post('/subscriptions/verificar-pago', { payment_id: paymentId });
+            if (r.data.ok) {
+              await refrescarSub();
+              refreshUser();
+            }
+          } catch {}
+        }
+      };
+
+      toast.success('¡Suscripción activada! 🎉 Ya podés usar todas las funciones.');
+      setTimeout(activar, 1500);
+      // Segundo intento más tarde por si el servidor tardó
+      setTimeout(() => { refrescarSub(); refreshUser(); }, 5000);
     }
     if (params.get('error') === 'pago_fallido') {
       toast.error('El pago no se pudo procesar. Intentá de nuevo.');
