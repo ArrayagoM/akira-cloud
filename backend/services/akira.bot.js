@@ -631,9 +631,10 @@ function crearAkiraBot(config, dataDir, sessionDir) {
           await clearAuth().catch(() => {});
           log('🗑️ Sesión eliminada de MongoDB — próximo inicio pedirá QR');
         } else if (replaced) {
-          // 440: otra conexión reemplazó a esta — NO reconectar para evitar loop
-          // Esto ocurre cuando hay dos instancias del mismo bot corriendo
-          log('🛑 Sesión reemplazada por otra instancia — sin reconexión automática');
+          // 440: sesión rechazada por WhatsApp (credenciales corruptas o duplicadas).
+          // Limpiar la sesión de MongoDB para que el próximo inicio genere un QR nuevo.
+          await clearAuth().catch(() => {});
+          log('🔄 Sesión inválida (440) — sesión limpiada. Detené y volvé a iniciar el bot para escanear el QR.');
         } else if (!reconectando && sock !== null) {
           reconectando = true;
           log('🔄 Reconectando en 5s...');

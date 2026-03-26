@@ -4,6 +4,7 @@
 const router     = require('express').Router();
 const botManager = require('../services/bot.manager');
 const Log        = require('../models/Log');
+const WAAuth     = require('../models/WAAuth');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -32,6 +33,21 @@ router.post('/start', async (req, res) => {
 router.post('/stop', async (req, res) => {
   const result = await botManager.stopBot(req.user._id);
   res.json(result);
+});
+
+// POST /api/bot/reset-session — borra la sesión WhatsApp de MongoDB (fuerza QR nuevo)
+router.post('/reset-session', async (req, res) => {
+  try {
+    const uid = String(req.user._id);
+    // Detener bot si está activo
+    await botManager.stopBot(uid).catch(() => {});
+    // Borrar todos los documentos wa_auth del usuario
+    const result = await WAAuth.deleteMany({ _id: new RegExp(`^${uid}:`) });
+    await Log.registrar({ userId: uid, tipo: 'bot_reset', mensaje: `Sesión WhatsApp reiniciada (${result.deletedCount} docs eliminados)` });
+    res.json({ ok: true, msg: 'Sesión eliminada. Iniciá el bot de nuevo para escanear el QR.', deleted: result.deletedCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/bot/logs — últimos logs del usuario
