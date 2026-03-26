@@ -10,6 +10,7 @@ const { io }      = require('socket.io-client');
 const mongoose    = require('mongoose');
 const path        = require('path');
 const fs          = require('fs');
+const https       = require('https');
 
 // ── Config ────────────────────────────────────────────────────
 const RENDER_URL    = process.env.RENDER_URL;
@@ -35,6 +36,31 @@ if (process.env.ENCRYPTION_KEY.length < 16) {
 const User   = require('../backend/models/User');
 const Config = require('../backend/models/Config');
 const Log    = require('../backend/models/Log');
+
+// ── Keep-alive Render: ping cada 14 min para que no se duerma ──
+// Render free tier suspende el servicio tras 15 min de inactividad.
+// Este ping periódico mantiene el servidor siempre activo.
+const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutos
+setTimeout(function pingRender() {
+  try {
+    const url     = new URL(RENDER_URL);
+    const options = {
+      hostname: url.hostname,
+      path:     '/api/health',
+      method:   'GET',
+      headers:  { 'User-Agent': 'AkiraWorker/keepalive', Connection: 'close' },
+    };
+    const req = https.request(options, (res) => {
+      console.log(`[Worker] 💓 Keep-alive Render → ${res.statusCode}`);
+      res.resume(); // consume body para liberar la conexión
+    });
+    req.on('error', () => {}); // silenciar errores de red
+    req.end();
+  } catch (e) {
+    console.warn('[Worker] ⚠️ Keep-alive error:', e.message);
+  }
+  setTimeout(pingRender, PING_INTERVAL_MS);
+}, PING_INTERVAL_MS);
 
 const crearAkiraBot = require('../backend/services/akira.bot');
 
@@ -114,6 +140,8 @@ socket.on('worker:start-bot', async ({ userId }) => {
       PRECIO_TURNO:              String(config.precioTurno),
       HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
       PROMPT_PERSONALIZADO:      config.promptPersonalizado || '',
+      ALIAS_TRANSFERENCIA:       config.aliasTransferencia  || '',
+      CBU_TRANSFERENCIA:         config.cbuTransferencia     || '',
       PORT:                      String(asignarPuerto(uid)),
     };
 

@@ -17,11 +17,12 @@ const path    = require('path');
 const https   = require('https');
 const express = require('express');
 
-const crearPersistencia    = require('./bot/persistence.service');
-const crearCalendarService = require('./bot/calendar.service');
-const crearMPService       = require('./bot/mercadopago.service');
-const crearAudioService    = require('./bot/audio.service');
-const crearGroqService     = require('./bot/groq.service');
+const crearPersistencia         = require('./bot/persistence.service');
+const crearMongoClientesService = require('./bot/mongo-clientes.service');
+const crearCalendarService      = require('./bot/calendar.service');
+const crearMPService            = require('./bot/mercadopago.service');
+const crearAudioService         = require('./bot/audio.service');
+const crearGroqService          = require('./bot/groq.service');
 
 function crearAkiraBot(config, dataDir, sessionDir) {
   const emitter = new EventEmitter();
@@ -56,7 +57,11 @@ function crearAkiraBot(config, dataDir, sessionDir) {
   function log(msg) { emitter.emit('log', msg); }
 
   // ── Servicios ───────────────────────────────────────────────
+  // userId del dueño del bot (extraído del path de sesión: sessions/<userId>)
+  const USER_ID  = path.basename(sessionDir);
   const db       = crearPersistencia(dataDir, log);
+  // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
+  const clientesSvc = crearMongoClientesService(USER_ID, log);
   const calendar = crearCalendarService({
     calendarId: CALENDAR_ID, credentialsPath: CREDENTIALS_PATH,
     horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
@@ -327,7 +332,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
           const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
           await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
           usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
-          db.guardarMemoria(jid, usuario);
+          clientesSvc.guardarMemoria(jid, usuario);
           programarRecs(jid, usuario.nombre, args.fecha, args.hora);
 
           // Armar instrucción de pago con datos REALES (nunca inventados)
@@ -359,7 +364,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       const ev  = evs.find(e => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
       if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(t => !(t.fecha === args.fecha && t.hora === args.hora));
-      db.guardarMemoria(jid, usuario);
+      clientesSvc.guardarMemoria(jid, usuario);
       push(`Turno ${args.fecha} ${args.hora} cancelado.`); return;
     }
 
@@ -387,7 +392,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       const nuevo = await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Reagendado desde ${args.fecha_actual} ${args.hora_actual}`, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
       if (!nuevo) { push('Error creando nuevo evento.'); return; }
       usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map(tc => tc.fecha === args.fecha_actual && tc.hora === args.hora_actual ? { ...tc, fecha: args.fecha_nueva, hora: args.hora_nueva, horaFin: hfnStr } : tc);
-      db.guardarMemoria(jid, usuario);
+      clientesSvc.guardarMemoria(jid, usuario);
       programarRecs(jid, usuario.nombre, args.fecha_nueva, args.hora_nueva);
       push(`Reagendado: ${args.fecha_nueva} ${args.hora_nueva}–${hfnStr}. Sin costo extra.`);
     }
@@ -412,7 +417,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
         const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
         await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
         usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha, hora, horaFin: horaFin || null }];
-        db.guardarMemoria(jid, usuario);
+        clientesSvc.guardarMemoria(jid, usuario);
         programarRecs(jid, usuario.nombre, fecha, hora);
         const r = horaFin ? `de *${hora}* a *${horaFin}*` : `a las *${hora}*`;
         let msg = `¡Perfecto, ${usuario.nombre}! 🎉 Tu turno del *${fecha}* ${r} está confirmado.\n\n💰 *Total: $${total} ARS*\n\n`;
@@ -443,9 +448,9 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       if (pushName && esNombreValido(pushName)) {
         const nombre = capitalizar(quitarEmojis(pushName.trim()));
         const u = { nombre, telefono: jid, numeroReal: tel, email: null, historial: [{ role: 'assistant', content: '¡Hola!' }, { role: 'user', content: nombre }], silenciado: false };
-        db.guardarMemoria(jid, u);
+        clientesSvc.guardarMemoria(jid, u);
         const s = `¡Hola, ${nombre}! ✨ Soy Akira, asistente de *${MI_NOMBRE}* — ${NEGOCIO}.\n\n¿En qué te puedo ayudar? 😊`;
-        u.historial.push({ role: 'assistant', content: s }); db.guardarMemoria(jid, u);
+        u.historial.push({ role: 'assistant', content: s }); clientesSvc.guardarMemoria(jid, u);
         await enviarMensaje(jid, s); return true;
       }
       cacheTemporal[jid] = { esperandoNombre: true };
@@ -457,9 +462,9 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       if (!esNombreValido(texto.trim())) { await enviarMensaje(jid, '¿Me decís tu nombre real? (solo letras) 😊'); return true; }
       const nombre = capitalizar(quitarEmojis(texto.trim()));
       const u = { nombre, telefono: jid, numeroReal: tel, email: null, historial: [{ role: 'assistant', content: '¡Hola! ¿Cómo es tu nombre?' }, { role: 'user', content: nombre }], silenciado: false };
-      delete cacheTemporal[jid]; db.guardar(CACHE_PATH, cacheTemporal); db.guardarMemoria(jid, u);
+      delete cacheTemporal[jid]; db.guardar(CACHE_PATH, cacheTemporal); clientesSvc.guardarMemoria(jid, u);
       const s = `¡Genial, ${nombre}! Un gusto. 🤝\n\n¿En qué te puedo ayudar hoy?`;
-      u.historial.push({ role: 'assistant', content: s }); db.guardarMemoria(jid, u);
+      u.historial.push({ role: 'assistant', content: s }); clientesSvc.guardarMemoria(jid, u);
       await enviarMensaje(jid, s); return true;
     }
     return false;
@@ -467,7 +472,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
   async function capturaEmail(jid, texto, usuario) {
     if (!esEmailValido(texto.trim())) { await enviarMensaje(jid, '¡Ese email no parece válido! ¿Lo escribís de nuevo? (ej: nombre@gmail.com)'); return; }
-    usuario.email = texto.trim().toLowerCase(); db.guardarMemoria(jid, usuario);
+    usuario.email = texto.trim().toLowerCase(); clientesSvc.guardarMemoria(jid, usuario);
     const { fecha, hora, horaFin } = cacheTemporal[jid].reservaPendiente;
     delete cacheTemporal[jid]; db.guardar(CACHE_PATH, cacheTemporal);
     await generarPago(jid, usuario, fecha, hora, horaFin || null);
@@ -479,15 +484,12 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
   // ── Comandos del dueño ───────────────────────────────────────
   async function manejarComando(bodyLower, jid, usuario) {
-    if (bodyLower.includes('akira stop'))       { if (usuario) { usuario.silenciado = true;  db.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira apagada)*');    return; }
-    if (bodyLower.includes('akira reactivate')) { if (usuario) { usuario.silenciado = false; db.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira reactivada)*'); return; }
+    if (bodyLower.includes('akira stop'))       { if (usuario) { usuario.silenciado = true;  clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira apagada)*');    return; }
+    if (bodyLower.includes('akira reactivate')) { if (usuario) { usuario.silenciado = false; clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira reactivada)*'); return; }
     if (bodyLower.includes('akira status')) {
-      const arch   = fs.readdirSync(dataDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
-      const lineas = arch.map(f => {
-        try { const d = JSON.parse(fs.readFileSync(path.join(dataDir, f), 'utf8')); return `${d.nombre || '?'}: ${d.silenciado ? 'SILENCIADO' : 'activo'}`; }
-        catch { return f + ': error'; }
-      });
-      await enviarMensaje(jid, `*Usuarios (${arch.length}):*\n${lineas.join('\n')}`);
+      const clientes = clientesSvc.listarClientes();
+      const lineas   = clientes.map(c => `${c.nombre || '?'}: ${c.silenciado ? 'SILENCIADO' : 'activo'}`);
+      await enviarMensaje(jid, `*Clientes (${clientes.length}):*\n${lineas.join('\n') || 'Sin clientes aún.'}`);
     }
   }
 
@@ -502,7 +504,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     // Mensajes propios (comandos del dueño)
     if (msg.key.fromMe) {
       const texto = getTexto(msg).toLowerCase().trim();
-      if (texto.startsWith('akira ')) await manejarComando(texto, jid, db.cargarMemoria(jid));
+      if (texto.startsWith('akira ')) await manejarComando(texto, jid, clientesSvc.cargarMemoria(jid));
       return;
     }
 
@@ -526,7 +528,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     const bodyLower = texto.toLowerCase().trim();
     log(`${fueAudio ? '🎤' : '📩'} [${jid}]: ${texto.slice(0, 80)}`);
 
-    let usuario = db.cargarMemoria(jid);
+    let usuario = clientesSvc.cargarMemoria(jid);
     if (usuario?.silenciado && !bodyLower.includes('akira')) return;
 
     try {
@@ -534,11 +536,11 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       const tel      = extraerNumero(jid);
 
       if (!usuario) { const r = await registrarNombre(jid, texto, tel, pushName); if (r) return; }
-      if (cacheTemporal[jid]?.esperandoEmail) { await capturaEmail(jid, texto, db.cargarMemoria(jid)); return; }
+      if (cacheTemporal[jid]?.esperandoEmail) { await capturaEmail(jid, texto, clientesSvc.cargarMemoria(jid)); return; }
 
       if (quiereConDueno(bodyLower)) {
-        const u = db.cargarMemoria(jid);
-        if (u) { u.silenciado = true; db.guardarMemoria(jid, u); }
+        const u = clientesSvc.cargarMemoria(jid);
+        if (u) { u.silenciado = true; clientesSvc.guardarMemoria(jid, u); }
         await enviarMensaje(jid, `¡Dale, ${u?.nombre || ''}! Le aviso a ${MI_NOMBRE} para que te contacte. 🙌`);
         return;
       }
@@ -558,7 +560,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       // Indicador de escritura
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
-      const u = db.cargarMemoria(jid);
+      const u = clientesSvc.cargarMemoria(jid);
       // Seguridad: si por algún motivo el usuario no está registrado aún, lo registramos ahora
       if (!u) { await registrarNombre(jid, texto, tel, pushName); return; }
       u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
@@ -566,7 +568,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
       const respuesta = await procesarConIA(jid, u);
       u.historial.push({ role: 'assistant', content: respuesta });
-      db.guardarMemoria(jid, u);
+      clientesSvc.guardarMemoria(jid, u);
 
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
       log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..."`);
@@ -612,7 +614,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
           await enviarMensaje(res2.chatId, `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario quedó ocupado. ${MI_NOMBRE} te contacta para reagendar. 🙏`);
           delete reservasPendientes[rk]; db.guardar(RESERVAS_PATH, reservasPendientes); return;
         }
-        const um  = db.cargarMemoria(res2.chatId);
+        const um  = clientesSvc.cargarMemoria(res2.chatId);
         const tel = um?.numeroReal || extraerNumero(res2.chatId);
         const ev  = await calendar.crearEvento(CALENDAR_ID, `Turno — ${res2.nombre}`, `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`, ini, fin, res2.email || null, tel);
         delete reservasPendientes[rk]; db.guardar(RESERVAS_PATH, reservasPendientes);
@@ -621,7 +623,7 @@ function crearAkiraBot(config, dataDir, sessionDir) {
             if (!um.turnosConfirmados) um.turnosConfirmados = [];
             um.turnosConfirmados.push({ fecha: res2.fecha, hora: res2.hora, horaFin: res2.horaFin || null, pagoId: pago.id, confirmadoEn: new Date().toISOString() });
             um.historial.push({ role: 'assistant', content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.` });
-            db.guardarMemoria(res2.chatId, um);
+            clientesSvc.guardarMemoria(res2.chatId, um);
           }
           programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
           await enviarMensaje(res2.chatId, `¡Listo, ${res2.nombre}! 🎉\n✅ *Pago: $${res2.total || PRECIO_TURNO} ARS*\n📅 *Turno:* ${res2.fecha} de *${res2.hora}${res2.horaFin ? '–' + res2.horaFin : ''}*\n${ev.htmlLink ? `📆 ${ev.htmlLink}\n` : ''}\n⏰ Te recordamos 24hs, 4hs y 30min antes. ¡Te esperamos! 🙌`);
@@ -719,6 +721,8 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
   // ── Ciclo de vida ────────────────────────────────────────────
   async function iniciar() {
+    // Cargar clientes existentes desde MongoDB (antes de procesar mensajes)
+    await clientesSvc.inicializar();
     audioSvc = crearAudioService({ groqApiKey: GROQ_API_KEY, rimeApiKey: RIME_API_KEY, dataDir, log });
     iniciarServidor();
     if (NGROK_AUTH_TOKEN) await iniciarNgrok();
