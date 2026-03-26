@@ -270,7 +270,13 @@ router.post('/webhook', async(req,res)=>{
     const expira=new Date();
     expira.setMonth(expira.getMonth()+planInfo.meses);
 
-    await User.findByIdAndUpdate(userId,{ plan:fullPlanId, planExpira:expira, status:'activo' });
+    // Guardamos planKey limpio ('pro') + periodo por separado ('mensual'/'anual')
+    await User.findByIdAndUpdate(userId,{
+      plan:        planKey,          // 'pro', 'basico', 'agencia' — NO 'pro_mensual'
+      planPeriodo: periodo||'mensual',
+      planExpira:  expira,
+      status:      'activo',
+    });
 
     await Log.registrar({ userId, tipo:'bot_payment', nivel:'info',
       mensaje:`Plan ${fullPlanId} activado | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });

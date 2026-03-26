@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Users, Bot, AlertTriangle, Activity, Search, Shield,
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
-  Square, Eye, X
+  Square, Eye, X, Crown
 } from 'lucide-react';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
@@ -30,6 +30,8 @@ function StatusBadge({ status }) {
 function UserModal({ user, onClose, onAction }) {
   const [newPwd, setNewPwd]     = useState('');
   const [motivo, setMotivo]     = useState('');
+  const [planSel, setPlanSel]   = useState(user.plan || 'trial');
+  const [meses,  setMeses]      = useState('1');
   const [loading, setLoading]   = useState({});
 
   const action = async (tipo, payload) => {
@@ -90,6 +92,36 @@ function UserModal({ user, onClose, onAction }) {
             </button>
           )}
 
+          {/* Activar / cambiar plan */}
+          <div className="space-y-2 border-t border-gray-800 pt-3">
+            <label className="text-xs font-medium text-gray-400 uppercase flex items-center gap-1"><Crown size={11} /> Activar plan manualmente</label>
+            <div className="grid grid-cols-2 gap-2">
+              <select value={planSel} onChange={e => setPlanSel(e.target.value)} className="input-base text-sm">
+                <option value="trial">Trial</option>
+                <option value="basico">Básico</option>
+                <option value="pro">Pro</option>
+                <option value="agencia">Agencia</option>
+                <option value="admin">Admin</option>
+              </select>
+              <select value={meses} onChange={e => setMeses(e.target.value)} className="input-base text-sm">
+                <option value="1">1 mes</option>
+                <option value="3">3 meses</option>
+                <option value="6">6 meses</option>
+                <option value="12">12 meses</option>
+              </select>
+            </div>
+            <button
+              onClick={() => action('activarPlan', { plan: planSel, meses: parseInt(meses) })}
+              disabled={loading.activarPlan}
+              className="btn-primary w-full text-sm"
+            >
+              {loading.activarPlan
+                ? <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                : <Crown size={14} />}
+              Activar Plan {planSel} — {meses} mes{meses > 1 ? 'es' : ''}
+            </button>
+          </div>
+
           {/* Detener bot */}
           {user.botActivo && (
             <button onClick={() => action('stopBot', {})} disabled={loading.stopBot} className="btn-secondary w-full text-orange-400 border-orange-500/20">
@@ -148,10 +180,14 @@ export default function AdminPanel() {
 
   const handleAction = async (tipo, userId, payload) => {
     try {
-      if (tipo === 'block')    { await api.post(`/admin/users/${userId}/block`, payload);   toast.success('Usuario bloqueado'); }
-      if (tipo === 'unblock')  { await api.post(`/admin/users/${userId}/unblock`);           toast.success('Usuario desbloqueado'); }
-      if (tipo === 'password') { await api.post(`/admin/users/${userId}/password`, payload); toast.success('Contraseña cambiada'); }
-      if (tipo === 'stopBot')  { await api.post(`/admin/bots/${userId}/stop`);               toast.success('Bot detenido'); }
+      if (tipo === 'block')       { await api.post(`/admin/users/${userId}/block`, payload);        toast.success('Usuario bloqueado'); }
+      if (tipo === 'unblock')     { await api.post(`/admin/users/${userId}/unblock`);                toast.success('Usuario desbloqueado'); }
+      if (tipo === 'password')    { await api.post(`/admin/users/${userId}/password`, payload);      toast.success('Contraseña cambiada'); }
+      if (tipo === 'stopBot')     { await api.post(`/admin/bots/${userId}/stop`);                    toast.success('Bot detenido'); }
+      if (tipo === 'activarPlan') {
+        const r = await api.post(`/admin/users/${userId}/activar-plan`, payload);
+        toast.success(`✅ Plan ${payload.plan} activado — expira ${new Date(r.data.expira).toLocaleDateString('es-AR')}`);
+      }
       setSelected(null);
       cargarUsuarios();
       cargarStats();

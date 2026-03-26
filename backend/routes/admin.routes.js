@@ -101,13 +101,13 @@ router.put('/users/:id', [
   body('nombre').optional().trim().notEmpty(),
   body('apellido').optional().trim(),
   body('email').optional().isEmail().normalizeEmail(),
-  body('plan').optional().isIn(['trial','basico','pro','agencia']),
+  body('plan').optional().isIn(['trial','basico','pro','agencia','admin']),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
-    const allowed = ['nombre','apellido','email','celular','pais','plan','planExpira'];
+    const allowed = ['nombre','apellido','email','celular','pais','plan','planPeriodo','planExpira'];
     const updates = {};
     for (const k of allowed) {
       if (req.body[k] !== undefined) updates[k] = req.body[k];
@@ -124,6 +124,63 @@ router.put('/users/:id', [
     });
 
     res.json({ user: user.toJSON() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/users/:id/activar-plan — activar/cambiar plan manualmente
+// ─────────────────────────────────────────────────────────────
+router.post('/users/:id/activar-plan', [
+  body('plan').isIn(['trial','basico','pro','agencia','admin']).withMessage('Plan inválido'),
+  body('meses').optional().isInt({ min: 1, max: 24 }),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  try {
+    const { plan, meses = 1, periodo = 'mensual' } = req.body;
+
+    const expira = new Date();
+    if (plan === 'trial') {
+      expira.setDate(expira.getDate() + (meses * 30));
+    } else {
+      expira.setMonth(expira.getMonth() + parseInt(meses));
+    }
+
+    const updates = {
+      plan,
+      planPeriodo: plan === 'trial' ? null : periodo,
+      status: 'activo',
+    };
+    if (plan === 'trial') {
+      updates.trialExpira = expira;
+    } else {
+      updates.planExpira = expira;
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    await Log.registrar({
+      userId: req.user._id,
+      tipo: 'admin_action',
+      nivel: 'info',
+      mensaje: `Admin activó plan ${plan} (${meses} mes/es) para ${user.email} — expira ${expira.toLocaleDateString('es-AR')}`,
+    });
+
+    logger.info(`[Admin] ✅ Plan ${plan} activado para ${user.email} por admin ${req.user.email} — expira ${expira.toLocaleDateString('es-AR')}`);
+
+    // Notificar al usuario por Socket.io si está conectado
+    if (global.io) {
+      global.io.to(`user:${req.params.id}`).emit('suscripcion:activada', {
+        plan, planBase: plan, expira,
+        mensaje: `¡Plan ${plan} activado!`,
+      });
+    }
+
+    res.json({ ok: true, user: user.toJSON(), expira });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -110,7 +110,8 @@ export default function PlanesPage() {
   };
 
   const esAdmin    = user?.rol === 'admin';
-  const planActual = esAdmin ? 'admin' : (user?.plan || 'trial');
+  // Usamos planBase (normalizado) del endpoint para evitar valores como 'pro_mensual'
+  const planActual = esAdmin ? 'admin' : (suscripcion?.planBase || user?.plan || 'trial');
   const dias = suscripcion?.diasRestantes || 0;
 
   return (
