@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
 
 function SeccionCollapsible({ titulo, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -81,8 +81,11 @@ export default function ConfigPage() {
   const [form,   setForm]     = useState({
     miNombre: '', negocio: '', servicios: '', precioTurno: '1000',
     horasCancelacion: '24', promptPersonalizado: '', dominioNgrok: '', mpWebhookUrl: '',
-    aliasTransferencia: '', cbuTransferencia: '',
+    aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '',
+    serviciosList: [],
   });
+  const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60' });
+  const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
   const [saving, setSaving]   = useState(false);
 
   useEffect(() => {
@@ -99,19 +102,42 @@ export default function ConfigPage() {
         promptPersonalizado: c.promptPersonalizado || '',
         dominioNgrok:        c.dominioNgrok || '',
         mpWebhookUrl:        c.mpWebhookUrl || '',
-        aliasTransferencia:  c.aliasTransferencia || '',
-        cbuTransferencia:    c.cbuTransferencia   || '',
+        aliasTransferencia:  c.aliasTransferencia  || '',
+        cbuTransferencia:    c.cbuTransferencia    || '',
+        bancoTransferencia:  c.bancoTransferencia  || '',
+        serviciosList:       Array.isArray(c.serviciosList) ? c.serviciosList : [],
       });
     }).catch(() => toast.error('Error cargando configuración'));
   }, []);
 
   const handleForm = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
+  const agregarServicio = () => {
+    if (!nuevoServicio.nombre.trim() || !nuevoServicio.precio) return;
+    const servicio = {
+      nombre:   nuevoServicio.nombre.trim(),
+      precio:   parseFloat(nuevoServicio.precio),
+      duracion: parseInt(nuevoServicio.duracion) || 60,
+    };
+    setForm(f => ({ ...f, serviciosList: [...f.serviciosList, servicio] }));
+    setNuevoServicio({ nombre: '', precio: '', duracion: '60' });
+    setMostrarFormServicio(false);
+  };
+
+  const eliminarServicio = (idx) => {
+    setForm(f => ({ ...f, serviciosList: f.serviciosList.filter((_, i) => i !== idx) }));
+  };
+
   const saveNegocio = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const r = await api.put('/config/negocio', { ...form, precioTurno: parseFloat(form.precioTurno), horasCancelacion: parseInt(form.horasCancelacion) });
+      const r = await api.put('/config/negocio', {
+        ...form,
+        precioTurno:    parseFloat(form.precioTurno),
+        horasCancelacion: parseInt(form.horasCancelacion),
+        serviciosList:  form.serviciosList,
+      });
       setConfig(r.data.config);
       toast.success('Configuración guardada');
     } catch (err) {
@@ -223,24 +249,120 @@ export default function ConfigPage() {
 
             <div className="border-t border-gray-800 pt-4">
               <p className="text-xs font-semibold text-gray-300 mb-1">Opción B — Transferencia bancaria (alias / CBU / CVU)</p>
-              <p className="text-xs text-gray-500 mb-3">Si no usás MercadoPago, el bot le dará estos datos al cliente para que transfiera. Podés completar uno o ambos.</p>
-              <div className="grid grid-cols-2 gap-3">
+              <p className="text-xs text-gray-500 mb-3">Si no usás MercadoPago, el bot usará estos datos cuando un cliente pida pagar por transferencia.</p>
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Alias</label>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Alias de transferencia</label>
                   <div className="flex gap-2">
-                    <input name="aliasTransferencia" value={form.aliasTransferencia} onChange={handleForm} className="input-base" placeholder="mi.alias.mp" />
+                    <input name="aliasTransferencia" value={form.aliasTransferencia} onChange={handleForm} className="input-base" placeholder="ejemplo: mi.alias.mp" />
                     <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">CBU / CVU</label>
                   <div className="flex gap-2">
-                    <input name="cbuTransferencia" value={form.cbuTransferencia} onChange={handleForm} className="input-base" placeholder="000000000000000000000" />
+                    <input name="cbuTransferencia" value={form.cbuTransferencia} onChange={handleForm} className="input-base" placeholder="0000000000000000000000" />
+                    <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Banco (opcional)</label>
+                  <div className="flex gap-2">
+                    <input name="bancoTransferencia" value={form.bancoTransferencia} onChange={handleForm} className="input-base" placeholder="Ej: Banco Galicia, Mercado Pago, etc." />
                     <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
+        </SeccionCollapsible>
+
+        {/* Servicios */}
+        <SeccionCollapsible titulo="🛠️ Servicios">
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">Agregá los servicios que ofrecés. El bot los usará para informar precios y duraciones.</p>
+
+            {/* Lista de servicios */}
+            {form.serviciosList.length > 0 ? (
+              <div className="space-y-2">
+                {form.serviciosList.map((s, idx) => (
+                  <div key={idx} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <span className="text-sm font-medium text-white truncate">{s.nombre}</span>
+                      <span className="text-xs text-green-400 flex-shrink-0">${s.precio.toLocaleString('es-AR')}</span>
+                      <span className="text-xs text-gray-500 flex-shrink-0">{s.duracion} min</span>
+                    </div>
+                    <button onClick={() => eliminarServicio(idx)} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0 ml-2">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 border border-dashed border-gray-700 rounded-lg">
+                <p className="text-gray-600 text-sm">No hay servicios cargados</p>
+              </div>
+            )}
+
+            {/* Formulario inline para nuevo servicio */}
+            {mostrarFormServicio ? (
+              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-300">Nuevo servicio</p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Nombre *</label>
+                  <input
+                    value={nuevoServicio.nombre}
+                    onChange={e => setNuevoServicio(s => ({ ...s, nombre: e.target.value }))}
+                    className="input-base"
+                    placeholder="Ej: Corte de cabello"
+                    onKeyDown={e => e.key === 'Enter' && agregarServicio()}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Precio (ARS) *</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={nuevoServicio.precio}
+                      onChange={e => setNuevoServicio(s => ({ ...s, precio: e.target.value }))}
+                      className="input-base"
+                      placeholder="1500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Duración (minutos)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={nuevoServicio.duracion}
+                      onChange={e => setNuevoServicio(s => ({ ...s, duracion: e.target.value }))}
+                      className="input-base"
+                      placeholder="60"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={agregarServicio} disabled={!nuevoServicio.nombre.trim() || !nuevoServicio.precio} className="btn-primary text-xs px-4 py-2">
+                    <Plus size={13} /> Agregar
+                  </button>
+                  <button onClick={() => { setMostrarFormServicio(false); setNuevoServicio({ nombre: '', precio: '', duracion: '60' }); }} className="btn-secondary text-xs px-4 py-2">
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setMostrarFormServicio(true)} className="btn-secondary text-xs flex items-center gap-1.5">
+                <Plus size={13} /> Agregar servicio
+              </button>
+            )}
+
+            {/* Guardar servicios */}
+            {form.serviciosList.length > 0 && (
+              <button onClick={saveNegocio} disabled={saving} className="btn-primary text-xs">
+                {saving ? <><span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />Guardando...</> : <><Save size={13} />Guardar servicios</>}
+              </button>
+            )}
           </div>
         </SeccionCollapsible>
 

@@ -184,4 +184,24 @@ process.on('SIGTERM', async () => {
   server.close(() => process.exit(0));
 });
 
+// ── Keep-alive: evitar que Render entre en reposo ─────────────
+if (process.env.NODE_ENV === 'production') {
+  const PING_URL = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/health`;
+  setInterval(async () => {
+    try {
+      const https = require('https');
+      const http  = require('http');
+      const mod   = PING_URL.startsWith('https') ? https : http;
+      mod.get(PING_URL, (r) => {
+        logger.info(`[Keep-alive] ping → ${r.statusCode}`);
+      }).on('error', (e) => {
+        logger.warn(`[Keep-alive] error: ${e.message}`);
+      });
+    } catch (e) {
+      logger.warn('[Keep-alive] ping failed:', e.message);
+    }
+  }, 14 * 60 * 1000); // cada 14 minutos
+  logger.info('[Keep-alive] ✅ Auto-ping habilitado (cada 14 min)');
+}
+
 module.exports = { app, server, io };

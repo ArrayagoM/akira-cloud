@@ -37,9 +37,20 @@ const ConfigSchema = new mongoose.Schema(
     horasCancelacion: { type: Number, default: 24, min: 0 },
     promptPersonalizado: { type: String, default: '', maxlength: 2000 },
 
-    // Pago alternativo (sin MercadoPago)
+    // Transferencia bancaria (alternativa a MercadoPago)
     aliasTransferencia: { type: String, default: '', trim: true },
     cbuTransferencia:   { type: String, default: '', trim: true },
+    bancoTransferencia: { type: String, default: '', trim: true },
+
+    // Servicios múltiples: [{ nombre, precio, duracion }]
+    serviciosList: {
+      type: [{
+        nombre:   { type: String, required: true },
+        precio:   { type: Number, required: true, min: 0 },
+        duracion: { type: Number, default: 60 }, // minutos
+      }],
+      default: [],
+    },
 
     // Webhook
     mpWebhookUrl: { type: String, default: '', trim: true },
@@ -95,6 +106,7 @@ ConfigSchema.methods.resumenKeys = function () {
     rime:     !!this.keyRime?.encrypted,
     ngrok:    !!this.keyNgrok?.encrypted,
     credentialsGoogle: !!this.credentialsGoogleB64?.encrypted,
+    tieneTransferencia: !!(this.aliasTransferencia || this.cbuTransferencia),
   };
 };
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Bot, LayoutDashboard, Settings, Shield, LogOut, Menu, X, User, ChevronDown, CreditCard } from 'lucide-react';
+import { Bot, LayoutDashboard, Settings, Shield, LogOut, Menu, X, User, ChevronDown, CreditCard, CalendarDays } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
 
@@ -20,6 +20,7 @@ export default function Layout({ children }) {
 
   const navItems = [
     { to: '/dashboard', icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
+    { to: '/agenda',    icon: <CalendarDays size={18} />,    label: 'Agenda' },
     { to: '/config',    icon: <Settings size={18} />,        label: 'Configuración' },
     { to: '/planes',    icon: <CreditCard size={18} />,      label: 'Planes' },
     ...(user?.rol === 'admin' ? [{ to: '/admin', icon: <Shield size={18} />, label: 'Admin' }] : []),

@@ -96,6 +96,8 @@ async function startBot(userId) {
       PROMPT_PERSONALIZADO:    config.promptPersonalizado || '',
       ALIAS_TRANSFERENCIA:     config.aliasTransferencia  || '',
       CBU_TRANSFERENCIA:       config.cbuTransferencia     || '',
+      BANCO_TRANSFERENCIA:     config.bancoTransferencia   || '',
+      SERVICIOS_LIST:          JSON.stringify(config.serviciosList || []),
       PORT:                    String(asignarPuerto(uid)),
     };
 

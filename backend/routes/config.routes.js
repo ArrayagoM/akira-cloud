@@ -45,7 +45,7 @@ router.put('/negocio', [
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
-    const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia } = req.body;
+    const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia, bancoTransferencia, serviciosList } = req.body;
 
     const config = await Config.findOneAndUpdate(
       { userId: req.user._id },
@@ -60,6 +60,8 @@ router.put('/negocio', [
         mpWebhookUrl: (mpWebhookUrl || '').trim(),
         aliasTransferencia: (aliasTransferencia || '').trim(),
         cbuTransferencia:   (cbuTransferencia   || '').trim(),
+        bancoTransferencia: (bancoTransferencia  || '').trim(),
+        ...(serviciosList !== undefined ? { serviciosList } : {}),
         configurado: true,
       },
       { upsert: true, new: true }

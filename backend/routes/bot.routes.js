@@ -77,4 +77,34 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// GET /api/bot/agenda — turnos del usuario (lee desde MongoDB o archivos)
+router.get('/agenda', async (req, res) => {
+  try {
+    const uid  = String(req.user._id);
+    const path = require('path');
+    const fs   = require('fs');
+
+    const dataDir = path.resolve(__dirname, '../sessions', uid, 'data');
+    const reservasPath = path.join(dataDir, '_reservas.json');
+
+    let reservasPendientes = {};
+    if (fs.existsSync(reservasPath)) {
+      try { reservasPendientes = JSON.parse(fs.readFileSync(reservasPath, 'utf8')); } catch {}
+    }
+
+    // Also check turnosConfirmados from logs
+    const turnosLogs = await Log.find({
+      userId: req.user._id,
+      tipo: { $in: ['bot_reservation', 'bot_payment'] }
+    }).sort({ createdAt: -1 }).limit(100).lean();
+
+    res.json({
+      pendientes: Object.values(reservasPendientes),
+      logs: turnosLogs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

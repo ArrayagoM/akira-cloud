@@ -8,6 +8,7 @@ import Register      from './pages/Register';
 import OAuthCallback from './pages/OAuthCallback';
 import Dashboard     from './pages/Dashboard';
 import ConfigPage    from './pages/ConfigPage';
+import AgendaPage    from './pages/AgendaPage';
 import AdminPanel    from './pages/AdminPanel';
 import PlanesPage    from './pages/PlanesPage';
 import NotFound      from './pages/NotFound';
@@ -43,6 +44,7 @@ export default function App() {
 
         {/* Usuario autenticado */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/agenda"    element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
         <Route path="/config"    element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
         <Route path="/planes"    element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
 

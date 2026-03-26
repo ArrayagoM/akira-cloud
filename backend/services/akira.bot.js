@@ -43,11 +43,19 @@ function crearAkiraBot(config, dataDir, sessionDir) {
   const PROMPT_EXTRA              = config.PROMPT_PERSONALIZADO || '';
   const ALIAS_TRANSFERENCIA       = config.ALIAS_TRANSFERENCIA || '';
   const CBU_TRANSFERENCIA         = config.CBU_TRANSFERENCIA   || '';
+  const BANCO_TRANSFERENCIA       = config.BANCO_TRANSFERENCIA || '';
+  const SERVICIOS_LIST            = (() => { try { return JSON.parse(config.SERVICIOS_LIST || '[]'); } catch { return []; } })();
   const DURACION_RESERVA_HORAS    = 1;
   const HORA_INICIO_DIA           = 9;
   const HORA_FIN_DIA              = 18;
   const ZONA_HORARIA              = 'America/Argentina/Buenos_Aires';
   const PUERTO                    = parseInt(config.PORT || '3100');
+
+  function getDuracionServicio(nombreServicio) {
+    if (!SERVICIOS_LIST.length || !nombreServicio) return DURACION_RESERVA_HORAS * 60;
+    const s = SERVICIOS_LIST.find(s => s.nombre.toLowerCase().includes(nombreServicio.toLowerCase()));
+    return s ? s.duracion : DURACION_RESERVA_HORAS * 60;
+  }
 
   const CACHE_PATH         = path.join(dataDir, '_cache.json');
   const RESERVAS_PATH      = path.join(dataDir, '_reservas.json');
@@ -227,7 +235,13 @@ function crearAkiraBot(config, dataDir, sessionDir) {
     const sys = { role: 'system', content:
       `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp. ` +
       `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
-      `Negocio: ${SERVICIOS} | Precio: $${PRECIO_TURNO} ARS/h | Cancelar/reagendar: mín ${HORAS_MINIMAS_CANCELACION}h.\n` +
+      (SERVICIOS_LIST.length > 0
+        ? `Servicios disponibles:\n${SERVICIOS_LIST.map(s => `- ${s.nombre}: $${s.precio} ARS (${s.duracion || 60} min)`).join('\n')}\n`
+        : `Negocio: ${SERVICIOS} | Precio: $${PRECIO_TURNO} ARS/h\n`) +
+      (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+        ? `Transferencia bancaria: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}. Ofrecer como alternativa a MercadoPago cuando el cliente lo pida.\n`
+        : '') +
+      `Cancelar/reagendar: mín ${HORAS_MINIMAS_CANCELACION}h.\n` +
       `💳 Método de pago: ${metodoPago}.\n` +
       `⚠️ PROHIBIDO: NUNCA inventes alias, CBU, CVU, nombres de banco ni ningún dato bancario. Usá SOLO los que aparecen arriba.\n` +
       (pend ? `🚨 PAGO PENDIENTE: ${pend.fecha} ${pend.hora} ($${pend.totalPrecio || PRECIO_TURNO}). NO agendar otro.\n` : '') +
