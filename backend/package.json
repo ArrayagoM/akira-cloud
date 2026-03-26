@@ -38,7 +38,9 @@
     "node-cron": "^3.0.3",
     "express-mongo-sanitize": "^2.2.0",
     "hpp": "^0.2.3",
-    "compression": "^1.7.4",
+    "compression": "^1.7.4"
+  },
+  "optionalDependencies": {
     "@ngrok/ngrok": "^1.4.0"
   },
   "devDependencies": {

@@ -4,80 +4,35 @@ services:
     runtime: node
     plan: free
     region: oregon
+    rootDir: backend
 
-    # ── Build ───────────────────────────────────────────────
-    buildCommand: |
-      npm install
-      # Instalar Chromium para Puppeteer (whatsapp-web.js)
-      apt-get update -qq && apt-get install -y -qq \
-        chromium \
-        chromium-sandbox \
-        fonts-liberation \
-        libasound2 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libcairo2 \
-        libcups2 \
-        libdbus-1-3 \
-        libexpat1 \
-        libfontconfig1 \
-        libgbm1 \
-        libglib2.0-0 \
-        libgtk-3-0 \
-        libnspr4 \
-        libnss3 \
-        libpango-1.0-0 \
-        libpangocairo-1.0-0 \
-        libstdc++6 \
-        libx11-6 \
-        libx11-xcb1 \
-        libxcb1 \
-        libxcomposite1 \
-        libxcursor1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxi6 \
-        libxrandr2 \
-        libxrender1 \
-        libxss1 \
-        libxtst6 \
-        lsb-release \
-        wget \
-        xdg-utils \
-        --no-install-recommends \
-        2>/dev/null || true
+    # ── Build ───────────────────────────────────────────────────
+    # Baileys usa WebSocket puro — no necesita Chrome ni Puppeteer.
+    buildCommand: npm install
 
     startCommand: npm start
 
-    # ── Variables de entorno ─────────────────────────────────
-    # IMPORTANTE: completar estos valores en el panel de Render
+    # ── Variables de entorno ─────────────────────────────────────
+    # Completar los valores secretos en el panel de Render:
     # Environment → Add Environment Variable
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      # Las siguientes las completás manualmente en Render:
-      # MONGO_URI, JWT_SECRET, ENCRYPTION_KEY
-      # ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NOMBRE
-      # MP_PLATFORM_ACCESS_TOKEN, MP_PLATFORM_WEBHOOK_SECRET
-      # FRONTEND_URL (la URL de Vercel)
-      # GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (si usás OAuth)
-      - key: PUPPETEER_EXECUTABLE_PATH
-        value: /usr/bin/chromium
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: "true"
       - key: WA_SESSIONS_PATH
         value: /tmp/sessions
-
-    # ── Disco persistente para sesiones de WhatsApp ─────────
-    # IMPORTANTE: las sesiones de WA necesitan persistencia
-    # Render free NO tiene disco persistente — las sesiones
-    # se pierden al reiniciar. Para producción real, usar plan
-    # paid ($7/mes) y agregar el disco aquí:
-    # disk:
-    #   name: akira-sessions
-    #   mountPath: /data/sessions
-    #   sizeGB: 1
-    # Y cambiar WA_SESSIONS_PATH a /data/sessions
+      # ── Completar manualmente en el panel de Render: ──────────
+      # MONGO_URI
+      # JWT_SECRET
+      # ENCRYPTION_KEY          (mín. 32 chars — misma que en worker/.env)
+      # WORKER_SECRET           (misma que en worker/.env)
+      # FRONTEND_URL            (URL de Vercel)
+      # BACKEND_URL             (https://akira-cloud.onrender.com)
+      # ADMIN_EMAIL
+      # ADMIN_PASSWORD
+      # ADMIN_NOMBRE
+      # MP_PLATFORM_ACCESS_TOKEN
+      # MP_PLATFORM_WEBHOOK_SECRET
+      # GOOGLE_CLIENT_ID        (si usás OAuth Google)
+      # GOOGLE_CLIENT_SECRET    (si usás OAuth Google)
