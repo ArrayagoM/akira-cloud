@@ -588,6 +588,15 @@ function crearAkiraBot(config, dataDir, sessionDir) {
 
   // ── Conexión Baileys ─────────────────────────────────────────
   async function conectar() {
+    // Cerrar socket anterior antes de crear uno nuevo.
+    // Sin esto, el socket viejo queda vivo y WhatsApp envía código 440
+    // (connectionReplaced) causando un loop infinito de reconexiones.
+    if (sock) {
+      const prevSock = sock;
+      sock = null; // null primero: evita que el handler del socket viejo programe otro reconect
+      try { prevSock.end(); } catch {}
+    }
+
     // userId extraído del sessionDir (sessions/<userId>)
     const userId = path.basename(sessionDir);
     const { state, saveCreds, clearAuth } = await useMongoAuthState(userId);
@@ -612,13 +621,19 @@ function crearAkiraBot(config, dataDir, sessionDir) {
       }
       if (connection === 'close') {
         const code      = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = code === DisconnectReason.loggedOut;
-        log(`⚠️ Desconectado (código: ${code})${loggedOut ? ' — sesión cerrada' : ''}`);
+        const loggedOut  = code === DisconnectReason.loggedOut;
+        const replaced   = code === DisconnectReason.connectionReplaced; // 440
+        log(`⚠️ Desconectado (código: ${code})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : ''}`);
         emitter.emit('disconnected', `código: ${code}`);
+
         if (loggedOut) {
           // Limpiar sesión de MongoDB para que el próximo inicio pida QR nuevo
           await clearAuth().catch(() => {});
           log('🗑️ Sesión eliminada de MongoDB — próximo inicio pedirá QR');
+        } else if (replaced) {
+          // 440: otra conexión reemplazó a esta — NO reconectar para evitar loop
+          // Esto ocurre cuando hay dos instancias del mismo bot corriendo
+          log('🛑 Sesión reemplazada por otra instancia — sin reconexión automática');
         } else if (!reconectando && sock !== null) {
           reconectando = true;
           log('🔄 Reconectando en 5s...');
