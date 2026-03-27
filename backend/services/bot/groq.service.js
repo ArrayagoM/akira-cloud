@@ -37,8 +37,17 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos' }) {
       return await groq.chat.completions.create(opts);
     } catch (err) {
       if (err.status === 429) {
-        const m = err.message.match(/try again in (\d+)m([\d.]+)s/i);
-        groqBloqueadoHasta = Date.now() + (m ? (parseInt(m[1]) * 60 + Math.ceil(parseFloat(m[2]))) * 1000 + 5000 : 5 * 60000);
+        const m  = err.message.match(/try again in (\d+)m([\d.]+)s/i);
+        const ms = err.message.match(/try again in ([\d.]+)s/i);
+        if (m) {
+          groqBloqueadoHasta = Date.now() + (parseInt(m[1]) * 60 + Math.ceil(parseFloat(m[2]))) * 1000 + 5000;
+        } else if (ms) {
+          groqBloqueadoHasta = Date.now() + Math.ceil(parseFloat(ms[1])) * 1000 + 2000;
+          log?.(`[Groq] Rate-limit ~${Math.ceil(parseFloat(ms[1]))}s`);
+        } else {
+          groqBloqueadoHasta = Date.now() + 3 * 60000; // fallback 3 min
+          log?.('[Groq] Rate-limit sin duración — esperando 3 min');
+        }
         const e = new Error('RATE_LIMIT');
         e.isRateLimit = true;
         throw e;

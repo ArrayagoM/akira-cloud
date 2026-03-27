@@ -5,6 +5,8 @@ const router     = require('express').Router();
 const botManager = require('../services/bot.manager');
 const Log        = require('../models/Log');
 const WAAuth     = require('../models/WAAuth');
+const Config     = require('../models/Config');
+const BotCliente = require('../models/BotCliente');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -77,14 +79,14 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/bot/agenda — turnos del usuario (lee desde MongoDB o archivos)
+// GET /api/bot/agenda — turnos/reservas del usuario
 router.get('/agenda', async (req, res) => {
   try {
     const uid  = String(req.user._id);
     const path = require('path');
     const fs   = require('fs');
 
-    const dataDir = path.resolve(__dirname, '../sessions', uid, 'data');
+    const dataDir      = path.resolve(__dirname, '../sessions', uid, 'data');
     const reservasPath = path.join(dataDir, '_reservas.json');
 
     let reservasPendientes = {};
@@ -92,15 +94,41 @@ router.get('/agenda', async (req, res) => {
       try { reservasPendientes = JSON.parse(fs.readFileSync(reservasPath, 'utf8')); } catch {}
     }
 
-    // Also check turnosConfirmados from logs
-    const turnosLogs = await Log.find({
-      userId: req.user._id,
-      tipo: { $in: ['bot_reservation', 'bot_payment'] }
-    }).sort({ createdAt: -1 }).limit(100).lean();
+    const [turnosLogs, config, clientes] = await Promise.all([
+      Log.find({ userId: req.user._id, tipo: { $in: ['bot_reservation', 'bot_payment'] } })
+        .sort({ createdAt: -1 }).limit(100).lean(),
+      Config.findOne({ userId: req.user._id }).lean(),
+      BotCliente.find({ userId: req.user._id }).lean(),
+    ]);
+
+    // Agregar reservas confirmadas desde memoria de clientes
+    const confirmadas = [];
+    for (const cliente of clientes) {
+      for (const t of (cliente.turnosConfirmados || [])) {
+        confirmadas.push({
+          nombre:    cliente.nombre    || 'Sin nombre',
+          telefono:  cliente.numeroReal || cliente.telefono || '',
+          fecha:     t.fecha,
+          hora:      t.hora,
+          horaFin:   t.horaFin  || '',
+          unidad:    t.unidad   || '',
+          pagoId:    t.pagoId   || '',
+          servicio:  t.servicio || '',
+          confirmadoEn: t.confirmadoEn || '',
+        });
+      }
+    }
+    // Ordenar por fecha ascendente
+    confirmadas.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
 
     res.json({
-      pendientes: Object.values(reservasPendientes),
-      logs: turnosLogs,
+      pendientes:          Object.values(reservasPendientes),
+      logs:                turnosLogs,
+      confirmadas,
+      tipoNegocio:         config?.tipoNegocio         || 'turnos',
+      unidadesAlojamiento: config?.unidadesAlojamiento || [],
+      checkInHora:         config?.checkInHora          || '14:00',
+      checkOutHora:        config?.checkOutHora         || '10:00',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

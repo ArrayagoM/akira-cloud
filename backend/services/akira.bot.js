@@ -547,7 +547,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           }
           const pref = await mp.crearPago(jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA);
           const rk   = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
-          reservasPendientes[rk] = { chatId: jid, fecha: fecha_entrada, hora: CHECK_IN_HORA, horaFin: fecha_salida, nombre: usuario.nombre, email: usuario.email, cant: noches, totalPrecio: total, expiresAt: Date.now() + 30 * 60000 };
+          reservasPendientes[rk] = { chatId: jid, fecha: fecha_entrada, hora: CHECK_IN_HORA, horaFin: fecha_salida, unidad: unidad?.nombre || '', nombre: usuario.nombre, email: usuario.email, cant: noches, totalPrecio: total, expiresAt: Date.now() + 30 * 60000 };
           db.guardar(RESERVAS_PATH, reservasPendientes);
           push(`Link de pago generado. ${unidad ? unidad.nombre + ' — ' : ''}${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`);
           notificarDueno(`🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);

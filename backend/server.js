@@ -193,9 +193,15 @@ if (process.env.NODE_ENV === 'production') {
       const https = require('https');
       const http  = require('http');
       const mod   = PING_URL.startsWith('https') ? https : http;
-      mod.get(PING_URL, (r) => {
+      const req   = mod.get(PING_URL, (r) => {
+        r.resume(); // consume response body para liberar memoria
         logger.info(`[Keep-alive] ping → ${r.statusCode}`);
-      }).on('error', (e) => {
+      });
+      req.setTimeout(10000, () => {
+        req.destroy();
+        logger.warn('[Keep-alive] timeout — conexión destruida');
+      });
+      req.on('error', (e) => {
         logger.warn(`[Keep-alive] error: ${e.message}`);
       });
     } catch (e) {

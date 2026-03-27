@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
   const [copiado, setCopiado] = useState(false);
@@ -501,7 +501,28 @@ export default function ConfigPage() {
                     <input name="linkUbicacion" value={form.linkUbicacion} onChange={handleForm}
                       className="input-base" placeholder="https://maps.app.goo.gl/..." />
                     <p className="text-xs text-gray-600 mt-1">El bot comparte este link cuando confirma una reserva.</p>
+                    {/* Link válido: botón de apertura */}
+                    {form.linkUbicacion && form.linkUbicacion.startsWith('http') && (
+                      <a href={form.linkUbicacion} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-1.5 transition-colors">
+                        <MapPin size={11} /> Abrir en Google Maps
+                      </a>
+                    )}
                   </div>
+                  {/* Vista previa del mapa desde la dirección ingresada */}
+                  {form.direccionPropiedad.trim() && (
+                    <div className="rounded-xl overflow-hidden border border-gray-700 mt-1" style={{ height: 180 }}>
+                      <iframe
+                        title="Vista previa ubicación"
+                        width="100%" height="180"
+                        frameBorder="0"
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        src={`https://maps.google.com/maps?q=${encodeURIComponent(form.direccionPropiedad.trim())}&output=embed&z=15`}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Unidades de alojamiento */}

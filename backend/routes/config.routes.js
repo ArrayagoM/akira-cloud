@@ -169,7 +169,17 @@ router.put('/negocio', [
         ...(checkInHora             ? { checkInHora }    : {}),
         ...(checkOutHora            ? { checkOutHora }   : {}),
         ...(minimaEstadia           !== undefined ? { minimaEstadia: parseInt(minimaEstadia) } : {}),
-        ...(unidadesAlojamiento     !== undefined ? { unidadesAlojamiento } : {}),
+        ...(unidadesAlojamiento !== undefined ? {
+          unidadesAlojamiento: Array.isArray(unidadesAlojamiento)
+            ? unidadesAlojamiento.map(u => ({
+                nombre:         String(u.nombre || '').trim(),
+                descripcion:    String(u.descripcion || '').trim(),
+                capacidad:      Math.max(1, parseInt(u.capacidad)  || 1),
+                precioPorNoche: Math.max(0, parseFloat(u.precioPorNoche) || 0),
+                amenidades:     String(u.amenidades || '').trim(),
+              }))
+            : [],
+        } : {}),
         ...(direccionPropiedad      !== undefined ? { direccionPropiedad: (direccionPropiedad || '').trim() } : {}),
         ...(linkUbicacion           !== undefined ? { linkUbicacion: (linkUbicacion || '').trim() } : {}),
         configurado: true,
