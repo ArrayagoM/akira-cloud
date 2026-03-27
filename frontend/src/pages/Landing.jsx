@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Bot, Calendar, CreditCard, Mic, Zap, Shield, BarChart3, CheckCircle, XCircle, ArrowRight, MessageSquare, Clock, Star, Github, Linkedin, Facebook, Globe, Code2 } from 'lucide-react';
+import { Bot, Calendar, CreditCard, Mic, Zap, Shield, BarChart3, CheckCircle, XCircle, ArrowRight, MessageSquare, Clock, Star, Github, Linkedin, Facebook, Globe, Code2, PauseCircle, BellRing, CalendarX2, GitBranch } from 'lucide-react';
 
 // ── Componentes auxiliares ───────────────────────────────────
 function NavBar() {
@@ -14,6 +14,7 @@ function NavBar() {
           <span className="font-bold text-lg text-white">Akira <span className="text-green-400">Cloud</span></span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm text-gray-400">
+          <a href="#como-funciona" className="hover:text-white transition-colors">Cómo funciona</a>
           <a href="#beneficios" className="hover:text-white transition-colors">Beneficios</a>
           <a href="#comparativa" className="hover:text-white transition-colors">Comparativa</a>
           <a href="#precios" className="hover:text-white transition-colors">Precios</a>
@@ -58,7 +59,7 @@ function HeroSection() {
             Empezar gratis — 7 días <ArrowRight size={18} />
           </Link>
           <a href="#como-funciona" className="btn-secondary text-base py-3.5 px-8">
-            Ver cómo funciona
+            Ver cómo funciona <ArrowRight size={18} />
           </a>
         </div>
 
@@ -98,13 +99,69 @@ function HeroSection() {
   );
 }
 
+const pasos = [
+  {
+    num: '01',
+    titulo: 'Creá tu cuenta',
+    desc: 'Registrate en menos de un minuto con Google o email. Tenés 7 días de prueba gratis, sin tarjeta.',
+  },
+  {
+    num: '02',
+    titulo: 'Configurá tu negocio',
+    desc: 'Cargá tu Groq API Key (gratis), definí tus servicios, precios y horarios de atención por día.',
+  },
+  {
+    num: '03',
+    titulo: 'Conectá WhatsApp',
+    desc: 'Hacé clic en "Iniciar bot" y escaneá el QR con tu WhatsApp. En 30 segundos el bot está activo.',
+  },
+  {
+    num: '04',
+    titulo: 'Tu negocio trabaja solo',
+    desc: 'Akira agenda, cobra y avisa. Vos controlás todo desde el panel: pausás, desbloqueás días y revisás la actividad en tiempo real.',
+  },
+];
+
+function ComoFuncionaSection() {
+  return (
+    <section id="como-funciona" className="py-24 bg-gray-950 border-t border-gray-900">
+      <div className="max-w-5xl mx-auto px-6">
+        <div className="text-center mb-16">
+          <span className="text-green-400 text-sm font-semibold uppercase tracking-widest">Paso a paso</span>
+          <h2 className="text-4xl font-bold text-white mt-3 mb-4">En 10 minutos estás operando</h2>
+          <p className="text-gray-400 text-lg max-w-xl mx-auto">Sin instalar nada. Sin servidores. Sin conocimientos técnicos.</p>
+        </div>
+        <div className="grid md:grid-cols-4 gap-6">
+          {pasos.map((p, i) => (
+            <div key={i} className="relative">
+              {i < pasos.length - 1 && (
+                <div className="hidden md:block absolute top-7 left-full w-full h-px bg-gradient-to-r from-green-500/30 to-transparent z-0" />
+              )}
+              <div className="relative z-10 flex flex-col gap-3">
+                <div className="w-14 h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                  <span className="text-green-400 font-extrabold text-lg">{p.num}</span>
+                </div>
+                <h3 className="font-semibold text-white">{p.titulo}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{p.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 const beneficios = [
   { icon: <Bot size={22} />, title: 'IA con LLaMA 3.3 70B', desc: 'El modelo de lenguaje más potente disponible. Entiende contexto, tono y responde como una persona real.' },
   { icon: <Calendar size={22} />, title: 'Agenda en tiempo real', desc: 'Se conecta a tu Google Calendar. Consulta disponibilidad, agenda y reagenda sin que vos intervengas.' },
   { icon: <CreditCard size={22} />, title: 'Cobros con MercadoPago', desc: 'Genera links de pago automáticamente. El turno se confirma solo cuando el cliente paga.' },
   { icon: <Mic size={22} />, title: 'Responde audios', desc: 'Transcribe mensajes de voz con Whisper y puede responder también con voz usando RIME AI.' },
-  { icon: <Clock size={22} />, title: 'Recordatorios automáticos', desc: 'Envía recordatorios 24 hs, 4 hs y 30 min antes del turno. Reducís ausencias sin hacer nada.' },
+  { icon: <Clock size={22} />, title: 'Horarios configurables', desc: 'Definí día a día tus horarios de atención desde el panel. El bot solo ofrece turnos en los horarios activos.' },
+  { icon: <BellRing size={22} />, title: 'Te avisa en WhatsApp', desc: 'Cada vez que se confirma un turno, recibís un mensaje en tu propio WhatsApp con todos los detalles.' },
+  { icon: <PauseCircle size={22} />, title: 'Modo pausa en un click', desc: 'Vacaciones, feriado o día libre: pausás el bot en segundos y bloqueás las fechas que necesitás.' },
   { icon: <Shield size={22} />, title: 'Control total', desc: 'Silenciás el bot cuando querés tomar el control de una conversación. Vos siempre tenés la última palabra.' },
+  { icon: <GitBranch size={22} />, title: 'Programa de referidos', desc: 'Compartí tu código único y ganás créditos por cada amigo que se registra. Ellos también reciben un descuento.' },
 ];
 
 function BeneficiosSection() {
@@ -132,15 +189,18 @@ function BeneficiosSection() {
 }
 
 const comparativa = [
-  { feature: 'Modelo de IA',          akira: 'LLaMA 3.3 70B',    trad: 'Respuestas fijas' },
-  { feature: 'Agenda real',           akira: 'Google Calendar',   trad: '❌ No incluye' },
-  { feature: 'Cobros integrados',     akira: 'MercadoPago',       trad: '❌ No incluye' },
-  { feature: 'Responde audios',       akira: '✓ Whisper + RIME',  trad: '❌ Solo texto' },
-  { feature: 'Recordatorios',         akira: '24h / 4h / 30min',  trad: '❌ Manual' },
-  { feature: 'Contexto de conversación', akira: '✓ Multi-turno', trad: 'Limitado' },
-  { feature: 'Cancelar / reagendar',  akira: '✓ Automático',      trad: '❌ Manual' },
-  { feature: 'Control del dueño',     akira: '✓ Silenciar/activar', trad: 'Básico' },
-  { feature: 'Multi-negocio',         akira: '✓ Un número x cliente', trad: 'Varía' },
+  { feature: 'Modelo de IA',               akira: 'LLaMA 3.3 70B',          trad: 'Respuestas fijas' },
+  { feature: 'Agenda real',                akira: 'Google Calendar',          trad: '❌ No incluye' },
+  { feature: 'Cobros integrados',          akira: 'MercadoPago',              trad: '❌ No incluye' },
+  { feature: 'Responde audios',            akira: '✓ Whisper + RIME',         trad: '❌ Solo texto' },
+  { feature: 'Recordatorios',              akira: '24h / 4h / 30min',         trad: '❌ Manual' },
+  { feature: 'Contexto de conversación',   akira: '✓ Multi-turno',            trad: 'Limitado' },
+  { feature: 'Cancelar / reagendar',       akira: '✓ Automático',             trad: '❌ Manual' },
+  { feature: 'Horarios por día',           akira: '✓ Panel visual',           trad: '❌ No incluye' },
+  { feature: 'Modo pausa / días libres',   akira: '✓ Un click',               trad: '❌ No incluye' },
+  { feature: 'Aviso al dueño por WA',      akira: '✓ Cada turno confirmado',  trad: '❌ No incluye' },
+  { feature: 'Control del dueño',          akira: '✓ Silenciar/activar',      trad: 'Básico' },
+  { feature: 'Multi-negocio',              akira: '✓ Un número x cliente',    trad: 'Varía' },
 ];
 
 function ComparativaSection() {
@@ -189,7 +249,7 @@ const planes = [
     mensual:  15000,
     anual:    144000,
     desc:     'Para negocios que empiezan',
-    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 msgs/mes', 'Recordatorios automáticos'],
+    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 msgs/mes', 'Horarios configurables', 'Modo pausa + días bloqueados'],
     cta:      'Empezar gratis',
     destacado: false,
   },
@@ -199,7 +259,7 @@ const planes = [
     mensual:  35000,
     anual:    336000,
     desc:     'El más popular',
-    features: ['1 número de WhatsApp', 'Mensajes ilimitados', 'Google Calendar + MercadoPago', 'Respuesta por audio', 'Soporte prioritario'],
+    features: ['1 número de WhatsApp', 'Mensajes ilimitados', 'Google Calendar + MercadoPago', 'Respuesta por audio', 'Notificaciones al dueño', 'Soporte prioritario'],
     cta:      'Empezar gratis',
     destacado: true,
   },
@@ -209,7 +269,7 @@ const planes = [
     mensual:  80000,
     anual:    768000,
     desc:     'Para agencias',
-    features: ['Hasta 5 WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca', 'Soporte dedicado'],
+    features: ['Hasta 5 WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca', 'Programa de referidos', 'Soporte dedicado'],
     cta:      'Elegir Agencia',
     destacado: false,
   },
@@ -504,7 +564,7 @@ function Footer() {
           <Bot size={20} className="text-green-400" />
           <span className="font-bold text-white">Akira Cloud</span>
         </div>
-        <p className="text-gray-600 text-sm">© 2024 Akira Cloud. Todos los derechos reservados.</p>
+        <p className="text-gray-600 text-sm">© 2025 Akira Cloud. Todos los derechos reservados.</p>
         <div className="flex gap-6 text-sm text-gray-600">
           <a href="#" className="hover:text-gray-400 transition-colors">Privacidad</a>
           <a href="#" className="hover:text-gray-400 transition-colors">Términos</a>
@@ -520,6 +580,7 @@ export default function Landing() {
     <div className="bg-black min-h-screen">
       <NavBar />
       <HeroSection />
+      <ComoFuncionaSection />
       <BeneficiosSection />
       <ComparativaSection />
       <PreciosSection />
