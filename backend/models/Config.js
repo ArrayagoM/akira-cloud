@@ -83,8 +83,23 @@ const ConfigSchema = new mongoose.Schema(
     tipoNegocio:   { type: String, enum: ['turnos', 'alojamiento'], default: 'turnos' },
     checkInHora:   { type: String, default: '14:00', trim: true },
     checkOutHora:  { type: String, default: '10:00', trim: true },
-    minimaEstadia: { type: Number, default: 1, min: 1 },  // noches mínimas
-    precioPorNoche:{ type: Number, default: 0, min: 0 },  // 0 = usar precioTurno
+    minimaEstadia: { type: Number, default: 1, min: 1 },
+
+    // Dirección y ubicación de la propiedad
+    direccionPropiedad: { type: String, default: '', trim: true },
+    linkUbicacion:      { type: String, default: '', trim: true }, // link de Google Maps
+
+    // Unidades de alojamiento (cabañas, departamentos, habitaciones...)
+    unidadesAlojamiento: {
+      type: [{
+        nombre:         { type: String, required: true },
+        descripcion:    { type: String, default: '' },
+        capacidad:      { type: Number, default: 2, min: 1 },
+        precioPorNoche: { type: Number, default: 0, min: 0 },
+        amenidades:     { type: String, default: '' }, // "WiFi, TV, parrilla, jacuzzi"
+      }],
+      default: [],
+    },
 
     // Estado de configuración
     configurado: { type: Boolean, default: false },

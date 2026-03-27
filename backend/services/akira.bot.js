@@ -58,7 +58,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const CHECK_IN_HORA             = config.CHECK_IN_HORA   || '14:00';
   const CHECK_OUT_HORA            = config.CHECK_OUT_HORA  || '10:00';
   const MINIMA_ESTADIA            = parseInt(config.MINIMA_ESTADIA || '1');
-  const PRECIO_POR_NOCHE          = parseFloat(config.PRECIO_POR_NOCHE || '0') || PRECIO_TURNO;
+  const UNIDADES_ALOJAMIENTO      = (() => { try { return JSON.parse(config.UNIDADES_ALOJAMIENTO || '[]'); } catch { return []; } })();
+  const DIRECCION_PROPIEDAD       = config.DIRECCION_PROPIEDAD || '';
+  const LINK_UBICACION            = config.LINK_UBICACION  || '';
   const PUERTO                    = parseInt(config.PORT || '3100');
 
   function getDuracionServicio(nombreServicio) {
@@ -267,21 +269,34 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     const esAlojamiento = TIPO_NEGOCIO === 'alojamiento';
 
+    // Armar descripción de unidades de alojamiento
+    const unidadesStr = UNIDADES_ALOJAMIENTO.length > 0
+      ? UNIDADES_ALOJAMIENTO.map(u =>
+          `• *${u.nombre}*: cap. ${u.capacidad} pers. — $${u.precioPorNoche} ARS/noche` +
+          (u.amenidades ? ` — ${u.amenidades}` : '') +
+          (u.descripcion ? ` — ${u.descripcion}` : '')
+        ).join('\n')
+      : null;
+
     const sysContent = esAlojamiento
       ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
         `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
         (DIAS_BLOQUEADOS.length > 0 ? `🚫 Fechas sin disponibilidad: ${DIAS_BLOQUEADOS.join(', ')}\n` : '') +
         (MODO_PAUSA ? `🔴 MODO PAUSA ACTIVO: No tomamos nuevas reservas ahora. Informá amablemente y ofrecé contactar a ${MI_NOMBRE}. NO llamés herramientas de reserva.\n` : '') +
         `🏠 TIPO: ALOJAMIENTO — Check-in: ${CHECK_IN_HORA} hs | Check-out: ${CHECK_OUT_HORA} hs | Estadía mínima: ${MINIMA_ESTADIA} noche(s)\n` +
-        `💰 Precio: $${PRECIO_POR_NOCHE} ARS/noche\n` +
+        (unidadesStr
+          ? `🛏️ UNIDADES DISPONIBLES:\n${unidadesStr}\nCada unidad es INDEPENDIENTE: podés consultar disponibilidad por unidad pasando nombre_unidad.\n`
+          : '') +
+        (DIRECCION_PROPIEDAD ? `📍 Dirección: ${DIRECCION_PROPIEDAD}\n` : '') +
+        (LINK_UBICACION ? `🗺️ Ubicación Google Maps: ${LINK_UBICACION}\n` : '') +
         `💳 Método de pago: ${metodoPago}\n` +
         (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
           ? `Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}\n`
           : '') +
         `⚠️ PROHIBIDO: Nunca inventes datos bancarios. Usá SOLO los de arriba.\n` +
-        (pend ? `🚨 RESERVA PENDIENTE DE PAGO: entrada ${pend.fecha} ($${pend.totalPrecio || PRECIO_POR_NOCHE}). NO agendar otra.\n` : '') +
-        (usuario.turnosConfirmados?.length ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map(t => `${t.fecha}→${t.horaFin || ''}`).join(', ')}\n` : '') +
-        `FLUJO: 1.Cliente dice fechas → 2.Llamar consultar_disponibilidad_alojamiento → 3.Si disponible informar precio total → 4.Cliente confirma → 5.Llamar agendar_alojamiento. NUNCA saltear pasos.\n` +
+        (pend ? `🚨 RESERVA PENDIENTE DE PAGO: entrada ${pend.fecha} ($${pend.totalPrecio}). NO agendar otra.\n` : '') +
+        (usuario.turnosConfirmados?.length ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map(t => `${t.unidad ? t.unidad + ' ' : ''}${t.fecha}→${t.horaFin || ''}`).join(', ')}\n` : '') +
+        `FLUJO: 1.Cliente dice fechas [y nº huéspedes si hay varias unidades] → 2.Llamar consultar_disponibilidad_alojamiento (con nombre_unidad si aplica) → 3.Informar precio total y dirección → 4.Cliente confirma → 5.Llamar agendar_alojamiento. NUNCA saltear pasos.\n` +
         `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_alojamiento, Cambiar fechas→reagendar_alojamiento.\n` +
         (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
       : `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp. ` +
@@ -428,16 +443,51 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     // ── Tools de ALOJAMIENTO ─────────────────────────────────────
     if (tool.function.name === 'consultar_disponibilidad_alojamiento') {
-      const { fecha_entrada, fecha_salida } = args;
+      const { fecha_entrada, fecha_salida, nombre_unidad, huespedes } = args;
       const noches = Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000);
       if (noches < MINIMA_ESTADIA) { push(`Estadía mínima: ${MINIMA_ESTADIA} noche(s). El cliente pidió ${noches}.`); return; }
+
+      // Con múltiples unidades: consultar cada una (o solo la solicitada)
+      if (UNIDADES_ALOJAMIENTO.length > 0) {
+        const unidadesAConsultar = nombre_unidad
+          ? UNIDADES_ALOJAMIENTO.filter(u => u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()))
+          : UNIDADES_ALOJAMIENTO.filter(u => !huespedes || u.capacidad >= Number(huespedes));
+
+        if (unidadesAConsultar.length === 0) {
+          push(`No hay unidades con capacidad para ${huespedes || 'esa cantidad'} de huéspedes.`); return;
+        }
+
+        const resultados = await Promise.all(
+          unidadesAConsultar.map(async u => {
+            const { disponible, motivo } = await calendar.consultarRango(fecha_entrada, fecha_salida, u.nombre);
+            return { unidad: u, disponible, motivo };
+          })
+        );
+
+        const disponibles = resultados.filter(r => r.disponible);
+        if (disponibles.length === 0) {
+          const motivo = resultados[0]?.motivo;
+          push(motivo || `No hay unidades disponibles del ${fecha_entrada} al ${fecha_salida}.`); return;
+        }
+
+        if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+        cacheTemporal[jid].ultimaConsultaAloj = { fechaEntrada: fecha_entrada, fechaSalida: fecha_salida, noches, ts: Date.now() };
+        db.guardar(CACHE_PATH, cacheTemporal);
+
+        const infoDisponibles = disponibles.map(r =>
+          `${r.unidad.nombre} (cap. ${r.unidad.capacidad} pers.) — $${r.unidad.precioPorNoche * noches} ARS (${noches} noches)`
+        ).join(' | ');
+        push(`Disponibles del ${fecha_entrada} al ${fecha_salida}: ${infoDisponibles}. Check-in: ${CHECK_IN_HORA} hs. Check-out: ${CHECK_OUT_HORA} hs.${DIRECCION_PROPIEDAD ? ` Dirección: ${DIRECCION_PROPIEDAD}.` : ''}`);
+        return;
+      }
+
+      // Sin unidades configuradas: comportamiento simple (una sola propiedad)
       const { disponible, motivo } = await calendar.consultarRango(fecha_entrada, fecha_salida);
-      const total = PRECIO_POR_NOCHE * noches;
       if (disponible) {
         if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
-        cacheTemporal[jid].ultimaConsultaAloj = { fechaEntrada: fecha_entrada, fechaSalida: fecha_salida, noches, total, ts: Date.now() };
+        cacheTemporal[jid].ultimaConsultaAloj = { fechaEntrada: fecha_entrada, fechaSalida: fecha_salida, noches, ts: Date.now() };
         db.guardar(CACHE_PATH, cacheTemporal);
-        push(`Disponible del ${fecha_entrada} al ${fecha_salida}. ${noches} noche(s). Total: $${total} ARS. Check-in: ${CHECK_IN_HORA} hs. Check-out: ${CHECK_OUT_HORA} hs.`);
+        push(`Disponible del ${fecha_entrada} al ${fecha_salida}. ${noches} noche(s). Check-in: ${CHECK_IN_HORA} hs. Check-out: ${CHECK_OUT_HORA} hs.${DIRECCION_PROPIEDAD ? ` Dirección: ${DIRECCION_PROPIEDAD}.` : ''}`);
       } else {
         push(motivo || `No disponible del ${fecha_entrada} al ${fecha_salida}. Ya hay una reserva en esas fechas.`);
       }
@@ -445,7 +495,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     }
 
     if (tool.function.name === 'agendar_alojamiento') {
-      const { fecha_entrada, fecha_salida } = args;
+      const { fecha_entrada, fecha_salida, nombre_unidad } = args;
       const msgs   = usuario.historial.filter(m => m.role === 'user').map(m => (m.content || '').toLowerCase());
       const ultimo = msgs[msgs.length - 1] || '';
       const confirma = ['si','sí','dale','bueno','ok','reservame','reservá','quiero','perfecto','listo','va','confirmo','poneme','anotame'].some(p => ultimo.includes(p));
@@ -456,38 +506,55 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       limpiarExpiradas();
       if (pendienteActual(jid)) { push('Ya hay una reserva pendiente de pago. El cliente debe pagarla primero.'); return; }
 
+      // Resolver unidad y precio
+      const unidad = nombre_unidad
+        ? UNIDADES_ALOJAMIENTO.find(u => u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()))
+        : UNIDADES_ALOJAMIENTO[0] || null;
+      const precioPorNoche = unidad ? unidad.precioPorNoche : PRECIO_TURNO;
+      const nombreEvento   = unidad ? `Reserva ${unidad.nombre} — ${usuario.nombre}` : `Reserva — ${usuario.nombre}`;
+
       const noches = Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000);
-      const total  = PRECIO_POR_NOCHE * noches;
+      const total  = precioPorNoche * noches;
       const [ye, me, de] = fecha_entrada.split('-').map(Number);
       const [ys, ms, ds] = fecha_salida.split('-').map(Number);
       const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
       const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
       const ini = calendar.crearFecha(ye, me, de, hCI);
       const fin = calendar.crearFecha(ys, ms, ds, hCO);
-      const sk  = `${fecha_entrada}|${fecha_salida}`;
+      const sk  = `${fecha_entrada}|${fecha_salida}|${unidad?.nombre || ''}`;
       if (slotsEnProceso.has(sk)) { push('Reserva en proceso. Pedile que espere.'); return; }
       slotsEnProceso.add(sk);
 
+      // Info de ubicación para incluir al confirmar
+      const infoUbicacion = [
+        DIRECCION_PROPIEDAD ? `📍 ${DIRECCION_PROPIEDAD}` : '',
+        LINK_UBICACION      ? `🗺️ ${LINK_UBICACION}`      : '',
+      ].filter(Boolean).join('\n');
+
       try {
-        const conflictos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
-        if (conflictos.length > 0) { push(`Las fechas ${fecha_entrada}–${fecha_salida} ya están ocupadas.`); return; }
+        // Verificar conflictos solo para esta unidad (si se especificó)
+        const eventos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+        const conflictos = unidad
+          ? eventos.filter(e => (e.summary || '').toLowerCase().includes(unidad.nombre.toLowerCase()))
+          : eventos;
+        if (conflictos.length > 0) { push(`Las fechas ${fecha_entrada}–${fecha_salida}${unidad ? ` para ${unidad.nombre}` : ''} ya están ocupadas.`); return; }
 
         if (MP_ACCESS_TOKEN) {
           if (!usuario.email) {
-            cacheTemporal[jid] = { ...cacheTemporal[jid], esperandoEmail: true, reservaAlojPendiente: { fecha_entrada, fecha_salida } };
+            cacheTemporal[jid] = { ...cacheTemporal[jid], esperandoEmail: true, reservaAlojPendiente: { fecha_entrada, fecha_salida, nombre_unidad } };
             db.guardar(CACHE_PATH, cacheTemporal);
             push('Necesitamos el email del cliente para el pago. Pedíselo.'); return;
           }
           const pref = await mp.crearPago(jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA);
-          const rk   = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}`;
+          const rk   = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
           reservasPendientes[rk] = { chatId: jid, fecha: fecha_entrada, hora: CHECK_IN_HORA, horaFin: fecha_salida, nombre: usuario.nombre, email: usuario.email, cant: noches, totalPrecio: total, expiresAt: Date.now() + 30 * 60000 };
           db.guardar(RESERVAS_PATH, reservasPendientes);
-          push(`Link de pago generado. Reserva: ${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`);
-          notificarDueno(`🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
+          push(`Link de pago generado. ${unidad ? unidad.nombre + ' — ' : ''}${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`);
+          notificarDueno(`🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
         } else {
-          const desc = `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`;
-          await calendar.crearEvento(CALENDAR_ID, `Reserva — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
-          usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: fecha_entrada, hora: CHECK_IN_HORA, horaFin: fecha_salida }];
+          const desc = `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${unidad ? ' | Unidad: ' + unidad.nombre : ''}`;
+          await calendar.crearEvento(CALENDAR_ID, nombreEvento, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
+          usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: fecha_entrada, hora: CHECK_IN_HORA, horaFin: fecha_salida, unidad: unidad?.nombre || '' }];
           clientesSvc.guardarMemoria(jid, usuario);
           let infoPago = '';
           if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
@@ -495,8 +562,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           } else {
             infoPago = `${MI_NOMBRE} le va a indicar cómo abonar.`;
           }
-          push(`Reserva confirmada: ${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Check-in ${CHECK_IN_HORA}, Check-out ${CHECK_OUT_HORA}. ${infoPago}`);
-          notificarDueno(`✅ *Nueva reserva confirmada*\n👤 ${usuario.nombre}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
+          const infoLocacion = infoUbicacion ? ` Al confirmar el pago enviá la ubicación: ${infoUbicacion}.` : '';
+          push(`Reserva confirmada: ${unidad ? unidad.nombre + ' — ' : ''}${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Check-in ${CHECK_IN_HORA}, Check-out ${CHECK_OUT_HORA}. ${infoPago}${infoLocacion}`);
+          notificarDueno(`✅ *Nueva reserva confirmada*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
         }
       } catch (e) { log('[Aloj] ' + e.message); push(`Error al procesar la reserva: ${e.message}.`); }
       finally { slotsEnProceso.delete(sk); }
@@ -504,9 +572,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     }
 
     if (tool.function.name === 'cancelar_alojamiento') {
-      const t = (usuario.turnosConfirmados || []).find(t => t.fecha === args.fecha_entrada);
-      if (!t) { push(`No encontré reserva con entrada el ${args.fecha_entrada}.`); return; }
-      const [ye, me, de] = args.fecha_entrada.split('-').map(Number);
+      const { fecha_entrada, nombre_unidad: nu } = args;
+      const t = (usuario.turnosConfirmados || []).find(t =>
+        t.fecha === fecha_entrada && (!nu || !t.unidad || t.unidad.toLowerCase().includes(nu.toLowerCase()))
+      );
+      if (!t) { push(`No encontré reserva con entrada el ${fecha_entrada}.`); return; }
+      const [ye, me, de] = fecha_entrada.split('-').map(Number);
       const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
       const hs  = (calendar.crearFecha(ye, me, de, hCI).getTime() - Date.now()) / 3600000;
       if (hs < HORAS_MINIMAS_CANCELACION) { push(`No se puede cancelar: el check-in es en ${Math.round(hs)} hs.`); return; }
@@ -515,43 +586,57 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const [ys, ms, ds] = fechaSalida.split('-').map(Number);
         const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
         const evs = await calendar.obtenerEventos(CALENDAR_ID, calendar.crearFecha(ye, me, de, hCI), calendar.crearFecha(ys, ms, ds, hCO));
-        const ev  = evs.find(e => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+        const ev  = evs.find(e => {
+          const s = (e.summary || '').toLowerCase();
+          return s.includes(usuario.nombre.toLowerCase()) && (!t.unidad || s.includes(t.unidad.toLowerCase()));
+        });
         if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       }
-      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(t => t.fecha !== args.fecha_entrada);
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(tc => !(tc.fecha === fecha_entrada && (!nu || !tc.unidad || tc.unidad.toLowerCase().includes(nu.toLowerCase()))));
       clientesSvc.guardarMemoria(jid, usuario);
-      push(`Reserva del ${args.fecha_entrada} cancelada.`); return;
+      push(`Reserva${t.unidad ? ' de ' + t.unidad : ''} del ${fecha_entrada} cancelada.`); return;
     }
 
     if (tool.function.name === 'reagendar_alojamiento') {
-      const t = (usuario.turnosConfirmados || []).find(t => t.fecha === args.fecha_entrada_actual);
-      if (!t) { push(`No encontré reserva con entrada el ${args.fecha_entrada_actual}.`); return; }
-      const [ye, me, de] = args.fecha_entrada_actual.split('-').map(Number);
+      const { fecha_entrada_actual, fecha_entrada_nueva, fecha_salida_nueva, nombre_unidad: nu } = args;
+      const t = (usuario.turnosConfirmados || []).find(t =>
+        t.fecha === fecha_entrada_actual && (!nu || !t.unidad || t.unidad.toLowerCase().includes(nu.toLowerCase()))
+      );
+      if (!t) { push(`No encontré reserva con entrada el ${fecha_entrada_actual}.`); return; }
+      const [ye, me, de] = fecha_entrada_actual.split('-').map(Number);
       const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
       const hs  = (calendar.crearFecha(ye, me, de, hCI).getTime() - Date.now()) / 3600000;
       if (hs < HORAS_MINIMAS_CANCELACION) { push(`No se puede reagendar: el check-in es en ${Math.round(hs)} hs.`); return; }
-      const { disponible } = await calendar.consultarRango(args.fecha_entrada_nueva, args.fecha_salida_nueva);
-      if (!disponible) { push(`Las nuevas fechas ${args.fecha_entrada_nueva}–${args.fecha_salida_nueva} ya están ocupadas.`); return; }
+      const { disponible } = await calendar.consultarRango(fecha_entrada_nueva, fecha_salida_nueva, t.unidad || null);
+      if (!disponible) { push(`Las nuevas fechas ${fecha_entrada_nueva}–${fecha_salida_nueva}${t.unidad ? ' para ' + t.unidad : ''} ya están ocupadas.`); return; }
       // Eliminar evento viejo
       const fechaSalidaActual = t.horaFin;
       if (fechaSalidaActual) {
         const [ys, ms, ds] = fechaSalidaActual.split('-').map(Number);
         const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
         const evs = await calendar.obtenerEventos(CALENDAR_ID, calendar.crearFecha(ye, me, de, hCI), calendar.crearFecha(ys, ms, ds, hCO));
-        const ev  = evs.find(e => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+        const ev  = evs.find(e => {
+          const s = (e.summary || '').toLowerCase();
+          return s.includes(usuario.nombre.toLowerCase()) && (!t.unidad || s.includes(t.unidad.toLowerCase()));
+        });
         if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       }
       // Crear evento nuevo
-      const [yn, mn, dn] = args.fecha_entrada_nueva.split('-').map(Number);
-      const [ys2, ms2, ds2] = args.fecha_salida_nueva.split('-').map(Number);
+      const [yn, mn, dn] = fecha_entrada_nueva.split('-').map(Number);
+      const [ys2, ms2, ds2] = fecha_salida_nueva.split('-').map(Number);
       const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
       const inN = calendar.crearFecha(yn, mn, dn, hCI);
       const fiN = calendar.crearFecha(ys2, ms2, ds2, hCO);
-      const noches = Math.round((new Date(args.fecha_salida_nueva) - new Date(args.fecha_entrada_nueva)) / 86400000);
-      await calendar.crearEvento(CALENDAR_ID, `Reserva — ${usuario.nombre}`, `Reagendado. WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`, inN, fiN, usuario.email, usuario.numeroReal || extraerNumero(jid));
-      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map(tc => tc.fecha === args.fecha_entrada_actual ? { ...tc, fecha: args.fecha_entrada_nueva, horaFin: args.fecha_salida_nueva } : tc);
+      const noches = Math.round((new Date(fecha_salida_nueva) - new Date(fecha_entrada_nueva)) / 86400000);
+      const nomEvNuevo = t.unidad ? `Reserva ${t.unidad} — ${usuario.nombre}` : `Reserva — ${usuario.nombre}`;
+      await calendar.crearEvento(CALENDAR_ID, nomEvNuevo, `Reagendado. WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`, inN, fiN, usuario.email, usuario.numeroReal || extraerNumero(jid));
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map(tc =>
+        tc.fecha === fecha_entrada_actual && (!nu || !tc.unidad || tc.unidad.toLowerCase().includes(nu.toLowerCase()))
+          ? { ...tc, fecha: fecha_entrada_nueva, horaFin: fecha_salida_nueva }
+          : tc
+      );
       clientesSvc.guardarMemoria(jid, usuario);
-      push(`Reserva reagendada: ${args.fecha_entrada_nueva} al ${args.fecha_salida_nueva} (${noches} noches). Sin costo extra.`); return;
+      push(`Reserva${t.unidad ? ' de ' + t.unidad : ''} reagendada: ${fecha_entrada_nueva} al ${fecha_salida_nueva} (${noches} noches). Sin costo extra.`); return;
     }
 
     if (tool.function.name === 'cancelar_turno') {

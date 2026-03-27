@@ -106,7 +106,9 @@ async function startBot(userId) {
       CHECK_IN_HORA:             config.checkInHora    || '14:00',
       CHECK_OUT_HORA:            config.checkOutHora   || '10:00',
       MINIMA_ESTADIA:            String(config.minimaEstadia  || 1),
-      PRECIO_POR_NOCHE:          String(config.precioPorNoche || 0),
+      UNIDADES_ALOJAMIENTO:      JSON.stringify(config.unidadesAlojamiento || []),
+      DIRECCION_PROPIEDAD:       config.direccionPropiedad || '',
+      LINK_UBICACION:            config.linkUbicacion  || '',
       PORT:                    String(asignarPuerto(uid)),
     };
 

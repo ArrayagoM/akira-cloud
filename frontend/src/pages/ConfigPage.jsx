@@ -196,10 +196,13 @@ export default function ConfigPage() {
     aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '',
     serviciosList: [],
     tipoNegocio: 'turnos', checkInHora: '14:00', checkOutHora: '10:00',
-    minimaEstadia: '1', precioPorNoche: '0',
+    minimaEstadia: '1',
+    unidadesAlojamiento: [], direccionPropiedad: '', linkUbicacion: '',
   });
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60' });
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
+  const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' });
+  const [mostrarFormUnidad, setMostrarFormUnidad] = useState(false);
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
 
@@ -280,11 +283,13 @@ export default function ConfigPage() {
         cbuTransferencia:    c.cbuTransferencia    || '',
         bancoTransferencia:  c.bancoTransferencia  || '',
         serviciosList:       Array.isArray(c.serviciosList) ? c.serviciosList : [],
-        tipoNegocio:         c.tipoNegocio    || 'turnos',
-        checkInHora:         c.checkInHora    || '14:00',
-        checkOutHora:        c.checkOutHora   || '10:00',
-        minimaEstadia:       String(c.minimaEstadia  || 1),
-        precioPorNoche:      String(c.precioPorNoche || 0),
+        tipoNegocio:           c.tipoNegocio    || 'turnos',
+        checkInHora:           c.checkInHora    || '14:00',
+        checkOutHora:          c.checkOutHora   || '10:00',
+        minimaEstadia:         String(c.minimaEstadia || 1),
+        unidadesAlojamiento:   Array.isArray(c.unidadesAlojamiento) ? c.unidadesAlojamiento : [],
+        direccionPropiedad:    c.direccionPropiedad || '',
+        linkUbicacion:         c.linkUbicacion  || '',
       });
       if (c.horariosAtencion && Object.keys(c.horariosAtencion).length > 0) {
         setHorarios({ ...HORARIOS_DEFAULT, ...c.horariosAtencion });
@@ -313,15 +318,35 @@ export default function ConfigPage() {
     setForm(f => ({ ...f, serviciosList: f.serviciosList.filter((_, i) => i !== idx) }));
   };
 
+  const agregarUnidad = () => {
+    if (!nuevaUnidad.nombre.trim()) return;
+    const unidad = {
+      nombre:         nuevaUnidad.nombre.trim(),
+      descripcion:    nuevaUnidad.descripcion.trim(),
+      capacidad:      parseInt(nuevaUnidad.capacidad) || 2,
+      precioPorNoche: parseFloat(nuevaUnidad.precioPorNoche) || 0,
+      amenidades:     nuevaUnidad.amenidades.trim(),
+    };
+    setForm(f => ({ ...f, unidadesAlojamiento: [...f.unidadesAlojamiento, unidad] }));
+    setNuevaUnidad({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' });
+    setMostrarFormUnidad(false);
+  };
+
+  const eliminarUnidad = (idx) => {
+    setForm(f => ({ ...f, unidadesAlojamiento: f.unidadesAlojamiento.filter((_, i) => i !== idx) }));
+  };
+
   const saveNegocio = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       const r = await api.put('/config/negocio', {
         ...form,
-        precioTurno:    parseFloat(form.precioTurno),
+        precioTurno:      parseFloat(form.precioTurno),
         horasCancelacion: parseInt(form.horasCancelacion),
-        serviciosList:  form.serviciosList,
+        minimaEstadia:    parseInt(form.minimaEstadia) || 1,
+        serviciosList:    form.serviciosList,
+        unidadesAlojamiento: form.unidadesAlojamiento,
       });
       setConfig(r.data.config);
       toast.success('Configuración guardada');
@@ -444,9 +469,11 @@ export default function ConfigPage() {
 
             {/* Configuración de alojamiento */}
             {form.tipoNegocio === 'alojamiento' && (
-              <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-xl p-4 space-y-3">
+              <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-xl p-4 space-y-4">
                 <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Configuración de alojamiento</p>
-                <div className="grid grid-cols-2 gap-3">
+
+                {/* Check-in / Check-out / Estadía mínima */}
+                <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Check-in</label>
                     <input type="time" name="checkInHora" value={form.checkInHora} onChange={handleForm} className="input-base" />
@@ -455,16 +482,102 @@ export default function ConfigPage() {
                     <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Check-out</label>
                     <input type="time" name="checkOutHora" value={form.checkOutHora} onChange={handleForm} className="input-base" />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Estadía mínima</label>
+                    <input type="number" name="minimaEstadia" value={form.minimaEstadia} onChange={handleForm} min="1" className="input-base" placeholder="1" />
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                {/* Dirección y ubicación */}
+                <div className="space-y-2 border-t border-indigo-800/30 pt-3">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">📍 Dirección y ubicación</p>
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Estadía mínima (noches)</label>
-                    <input type="number" name="minimaEstadia" value={form.minimaEstadia} onChange={handleForm} min="1" className="input-base" />
+                    <label className="block text-xs text-gray-500 mb-1">Dirección de la propiedad</label>
+                    <input name="direccionPropiedad" value={form.direccionPropiedad} onChange={handleForm}
+                      className="input-base" placeholder="Ej: Av. Siempreviva 742, Villa Carlos Paz, Córdoba" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Precio por noche (ARS)</label>
-                    <input type="number" name="precioPorNoche" value={form.precioPorNoche} onChange={handleForm} min="0" className="input-base" />
+                    <label className="block text-xs text-gray-500 mb-1">Link de Google Maps (opcional)</label>
+                    <input name="linkUbicacion" value={form.linkUbicacion} onChange={handleForm}
+                      className="input-base" placeholder="https://maps.app.goo.gl/..." />
+                    <p className="text-xs text-gray-600 mt-1">El bot comparte este link cuando confirma una reserva.</p>
                   </div>
+                </div>
+
+                {/* Unidades de alojamiento */}
+                <div className="space-y-3 border-t border-indigo-800/30 pt-3">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">🏠 Unidades (cabañas / departamentos / habitaciones)</p>
+                  <p className="text-xs text-gray-600">Cada unidad tiene su propio precio y disponibilidad independiente en el calendario.</p>
+
+                  {form.unidadesAlojamiento.length > 0 ? (
+                    <div className="space-y-2">
+                      {form.unidadesAlojamiento.map((u, idx) => (
+                        <div key={idx} className="flex items-start justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5 gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium text-white">{u.nombre}</span>
+                              <span className="text-xs text-gray-500">{u.capacidad} pers.</span>
+                              <span className="text-xs text-green-400">${(u.precioPorNoche || 0).toLocaleString('es-AR')}/noche</span>
+                            </div>
+                            {u.amenidades && <p className="text-xs text-gray-500 mt-0.5 truncate">{u.amenidades}</p>}
+                            {u.descripcion && <p className="text-xs text-gray-600 mt-0.5 truncate">{u.descripcion}</p>}
+                          </div>
+                          <button onClick={() => eliminarUnidad(idx)} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0 mt-0.5">
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-5 border border-dashed border-indigo-800/50 rounded-lg">
+                      <p className="text-gray-600 text-sm">Sin unidades — el bot gestionará la propiedad completa como una sola reserva</p>
+                    </div>
+                  )}
+
+                  {mostrarFormUnidad ? (
+                    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 space-y-3">
+                      <p className="text-xs font-semibold text-gray-300">Nueva unidad</p>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Nombre *</label>
+                        <input value={nuevaUnidad.nombre} onChange={e => setNuevaUnidad(u => ({ ...u, nombre: e.target.value }))}
+                          className="input-base" placeholder="Ej: Cabaña 1, Dpto A, Habitación Doble" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Descripción (opcional)</label>
+                        <input value={nuevaUnidad.descripcion} onChange={e => setNuevaUnidad(u => ({ ...u, descripcion: e.target.value }))}
+                          className="input-base" placeholder="Ej: Con vista al lago, 2 habitaciones" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Capacidad (personas) *</label>
+                          <input type="number" min="1" value={nuevaUnidad.capacidad} onChange={e => setNuevaUnidad(u => ({ ...u, capacidad: e.target.value }))}
+                            className="input-base" placeholder="2" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Precio por noche (ARS) *</label>
+                          <input type="number" min="0" value={nuevaUnidad.precioPorNoche} onChange={e => setNuevaUnidad(u => ({ ...u, precioPorNoche: e.target.value }))}
+                            className="input-base" placeholder="15000" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Amenidades (opcional)</label>
+                        <input value={nuevaUnidad.amenidades} onChange={e => setNuevaUnidad(u => ({ ...u, amenidades: e.target.value }))}
+                          className="input-base" placeholder="Ej: WiFi, parrilla, TV, jacuzzi, cochera" />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={agregarUnidad} disabled={!nuevaUnidad.nombre.trim()} className="btn-primary text-xs px-4 py-2">
+                          <Plus size={13} /> Agregar
+                        </button>
+                        <button onClick={() => { setMostrarFormUnidad(false); setNuevaUnidad({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' }); }} className="btn-secondary text-xs px-4 py-2">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setMostrarFormUnidad(true)} className="btn-secondary text-xs flex items-center gap-1.5">
+                      <Plus size={13} /> Agregar unidad
+                    </button>
+                  )}
                 </div>
               </div>
             )}

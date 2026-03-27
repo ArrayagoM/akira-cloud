@@ -120,7 +120,8 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
   }
 
   // ── Disponibilidad por rango de fechas (alojamiento) ─────────
-  async function consultarRango(fechaEntrada, fechaSalida) {
+  // nombreUnidad: si se pasa, solo considera eventos que contengan ese nombre en el título
+  async function consultarRango(fechaEntrada, fechaSalida, nombreUnidad = null) {
     const [ye, me, de] = fechaEntrada.split('-').map(Number);
     const [ys, ms, ds] = fechaSalida.split('-').map(Number);
     // Verificar días bloqueados: si algún día del rango está bloqueado
@@ -135,7 +136,11 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     const iniDate = new Date(Date.UTC(ye, me - 1, de));
     const finDate = new Date(Date.UTC(ys, ms - 1, ds));
     const eventos = await obtenerEventos(calendarId, iniDate, finDate);
-    return { disponible: eventos.length === 0, eventos };
+    // Si se especifica unidad, filtrar solo eventos de esa unidad
+    const eventosRelevantes = nombreUnidad
+      ? eventos.filter(e => (e.summary || '').toLowerCase().includes(nombreUnidad.toLowerCase()))
+      : eventos;
+    return { disponible: eventosRelevantes.length === 0, eventos: eventosRelevantes };
   }
 
   return { crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento };
