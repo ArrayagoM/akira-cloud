@@ -5,7 +5,10 @@
 const fs             = require('fs');
 const { google }     = require('googleapis');
 
-function crearCalendarService({ calendarId, credentialsPath, horaInicio, horaFin, duracion, zonaHoraria, log }) {
+// Mapa JS day-of-week → nombre en horariosAtencion
+const DIA_NOMBRE = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+
+function crearCalendarService({ calendarId, credentialsPath, horaInicio, horaFin, duracion, zonaHoraria, horarios, diasBloqueados, log }) {
   let calendarAuth = null;
 
   if (credentialsPath && fs.existsSync(credentialsPath)) {
@@ -38,14 +41,27 @@ function crearCalendarService({ calendarId, credentialsPath, horaInicio, horaFin
   }
 
   async function horariosLibres(fecha) {
+    // 1. Verificar días bloqueados
+    if (Array.isArray(diasBloqueados) && diasBloqueados.includes(fecha)) return [];
+
+    // 2. Determinar horario del día según configuración
     const [y, m, d] = fecha.split('-').map(Number);
-    const ev = await obtenerEventos(
-      calendarId,
-      crearFecha(y, m, d, horaInicio),
-      crearFecha(y, m, d, horaFin)
-    );
+    const fechaObj  = new Date(y, m - 1, d);
+    const diaNombre = DIA_NOMBRE[fechaObj.getDay()];
+
+    let hIni = horaInicio;
+    let hFin = horaFin;
+
+    if (horarios && horarios[diaNombre]) {
+      const diaConf = horarios[diaNombre];
+      if (!diaConf.activo) return []; // día cerrado
+      hIni = parseInt((diaConf.inicio || '09:00').split(':')[0]);
+      hFin = parseInt((diaConf.fin   || '18:00').split(':')[0]);
+    }
+
+    const ev = await obtenerEventos(calendarId, crearFecha(y, m, d, hIni), crearFecha(y, m, d, hFin));
     const libres = [];
-    for (let h = horaInicio; h < horaFin; h++) {
+    for (let h = hIni; h < hFin; h++) {
       const si = crearFecha(y, m, d, h);
       const sf = crearFecha(y, m, d, h + duracion);
       const ocu = ev.some(e => {

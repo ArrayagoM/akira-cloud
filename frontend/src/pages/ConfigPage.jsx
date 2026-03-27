@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
   const [copiado, setCopiado] = useState(false);
@@ -201,6 +201,27 @@ export default function ConfigPage() {
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
 
+  // Horarios de atención
+  const DIAS_ORDEN = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo'];
+  const DIAS_LABEL = { lunes:'Lunes', martes:'Martes', miercoles:'Miércoles', jueves:'Jueves', viernes:'Viernes', sabado:'Sábado', domingo:'Domingo' };
+  const HORARIOS_DEFAULT = {
+    lunes:     { activo: true,  inicio: '09:00', fin: '18:00' },
+    martes:    { activo: true,  inicio: '09:00', fin: '18:00' },
+    miercoles: { activo: true,  inicio: '09:00', fin: '18:00' },
+    jueves:    { activo: true,  inicio: '09:00', fin: '18:00' },
+    viernes:   { activo: true,  inicio: '09:00', fin: '18:00' },
+    sabado:    { activo: true,  inicio: '09:00', fin: '13:00' },
+    domingo:   { activo: false, inicio: '09:00', fin: '18:00' },
+  };
+  const [horarios, setHorarios]                     = useState(HORARIOS_DEFAULT);
+  const [celularNotificaciones, setCelularNotif]    = useState('');
+  const [savingHorarios, setSavingHorarios]         = useState(false);
+  const [modoPausa, setModoPausa]                   = useState(false);
+  const [savingPausa, setSavingPausa]               = useState(false);
+  const [diasBloqueados, setDiasBloqueados]         = useState([]);
+  const [nuevaFecha, setNuevaFecha]                 = useState('');
+  const [savingDia, setSavingDia]                   = useState(false);
+
   // Manejar retorno de OAuth de Google Calendar
   useEffect(() => {
     if (searchParams.get('calendar') === 'ok') {
@@ -258,6 +279,12 @@ export default function ConfigPage() {
         bancoTransferencia:  c.bancoTransferencia  || '',
         serviciosList:       Array.isArray(c.serviciosList) ? c.serviciosList : [],
       });
+      if (c.horariosAtencion && Object.keys(c.horariosAtencion).length > 0) {
+        setHorarios({ ...HORARIOS_DEFAULT, ...c.horariosAtencion });
+      }
+      setCelularNotif(c.celularNotificaciones || '');
+      setModoPausa(!!c.modoPausa);
+      setDiasBloqueados(Array.isArray(c.diasBloqueados) ? c.diasBloqueados : []);
     }).catch(() => toast.error('Error cargando configuración'));
   }, []);
 
@@ -308,6 +335,57 @@ export default function ConfigPage() {
     const r = await api.delete(`/config/keys/${campo}`);
     setKeys(r.data.keys);
     toast.success('Key eliminada');
+  };
+
+  const saveHorarios = async () => {
+    setSavingHorarios(true);
+    try {
+      await api.put('/config/horarios', { horariosAtencion: horarios, celularNotificaciones });
+      toast.success('Horarios guardados');
+    } catch {
+      toast.error('Error al guardar horarios');
+    } finally {
+      setSavingHorarios(false);
+    }
+  };
+
+  const togglePausa = async () => {
+    setSavingPausa(true);
+    const nuevoEstado = !modoPausa;
+    try {
+      await api.put('/config/pausa', { modoPausa: nuevoEstado });
+      setModoPausa(nuevoEstado);
+      toast.success(nuevoEstado ? '⏸️ Modo pausa activado' : '▶️ Bot disponible nuevamente');
+    } catch {
+      toast.error('Error al cambiar el modo pausa');
+    } finally {
+      setSavingPausa(false);
+    }
+  };
+
+  const agregarDia = async () => {
+    if (!nuevaFecha) return;
+    if (diasBloqueados.includes(nuevaFecha)) return toast.error('Esa fecha ya está bloqueada');
+    setSavingDia(true);
+    try {
+      const r = await api.put('/config/dias-bloqueados', { fecha: nuevaFecha, accion: 'agregar' });
+      setDiasBloqueados(r.data.diasBloqueados);
+      setNuevaFecha('');
+      toast.success('Día bloqueado');
+    } catch {
+      toast.error('Error al bloquear el día');
+    } finally {
+      setSavingDia(false);
+    }
+  };
+
+  const quitarDia = async (fecha) => {
+    try {
+      const r = await api.put('/config/dias-bloqueados', { fecha, accion: 'quitar' });
+      setDiasBloqueados(r.data.diasBloqueados);
+    } catch {
+      toast.error('Error al desbloquear el día');
+    }
   };
 
   const uploadCredentials = async (e) => {
@@ -628,6 +706,135 @@ export default function ConfigPage() {
                 <input name="dominioNgrok" value={form.dominioNgrok} onChange={handleForm} className="input-base flex-1" placeholder="tu-nombre.ngrok-free.app" />
                 <button onClick={saveNegocio} className="btn-secondary px-4 text-xs"><Save size={13} /></button>
               </div>
+            </div>
+          </div>
+        </SeccionCollapsible>
+
+        {/* Horarios de atención */}
+        <SeccionCollapsible titulo="⏰ Horarios de atención">
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">Configurá en qué días y horarios recibís clientes. El bot solo ofrecerá turnos en los horarios activos.</p>
+            <div className="space-y-2">
+              {DIAS_ORDEN.map(dia => (
+                <div key={dia} className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setHorarios(h => ({ ...h, [dia]: { ...h[dia], activo: !h[dia].activo } }))}
+                    className={`w-10 h-5 rounded-full transition-colors flex-shrink-0 ${horarios[dia]?.activo ? 'bg-indigo-600' : 'bg-gray-700'}`}
+                  >
+                    <span className={`block w-4 h-4 rounded-full bg-white mx-0.5 transition-transform ${horarios[dia]?.activo ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                  <span className={`text-sm w-20 flex-shrink-0 ${horarios[dia]?.activo ? 'text-white' : 'text-gray-600'}`}>{DIAS_LABEL[dia]}</span>
+                  {horarios[dia]?.activo ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="time"
+                        value={horarios[dia]?.inicio || '09:00'}
+                        onChange={e => setHorarios(h => ({ ...h, [dia]: { ...h[dia], inicio: e.target.value } }))}
+                        className="input-base py-1 text-xs w-28"
+                      />
+                      <span className="text-gray-600 text-xs">a</span>
+                      <input
+                        type="time"
+                        value={horarios[dia]?.fin || '18:00'}
+                        onChange={e => setHorarios(h => ({ ...h, [dia]: { ...h[dia], fin: e.target.value } }))}
+                        className="input-base py-1 text-xs w-28"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-600 italic">Cerrado</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Celular notificaciones */}
+            <div className="border-t border-gray-800 pt-4">
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+                <BellRing size={11} className="inline mr-1" />Número para notificaciones (WhatsApp)
+              </label>
+              <input
+                type="tel"
+                value={celularNotificaciones}
+                onChange={e => setCelularNotif(e.target.value)}
+                className="input-base"
+                placeholder="5491112345678 (con código de país, sin +)"
+              />
+              <p className="text-xs text-gray-600 mt-1">Cada vez que el bot confirme un turno, te manda un aviso a este número.</p>
+            </div>
+
+            <button onClick={saveHorarios} disabled={savingHorarios} className="btn-primary">
+              {savingHorarios
+                ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />Guardando...</>
+                : <><Save size={15} />Guardar horarios</>}
+            </button>
+          </div>
+        </SeccionCollapsible>
+
+        {/* Disponibilidad */}
+        <SeccionCollapsible titulo="⏸️ Disponibilidad">
+          <div className="space-y-5">
+
+            {/* Modo pausa */}
+            <div className={`flex items-center justify-between p-4 rounded-xl border ${modoPausa ? 'bg-red-950/30 border-red-800/50' : 'bg-gray-800/40 border-gray-700'}`}>
+              <div>
+                <p className="text-sm font-semibold text-white flex items-center gap-2">
+                  {modoPausa ? <PauseCircle size={16} className="text-red-400" /> : <PlayCircle size={16} className="text-green-400" />}
+                  {modoPausa ? 'Bot en pausa — no acepta nuevos turnos' : 'Bot activo — aceptando turnos normalmente'}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {modoPausa
+                    ? 'Los clientes verán un mensaje de no disponibilidad.'
+                    : 'Activá la pausa si te tomás vacaciones o días libres.'}
+                </p>
+              </div>
+              <button
+                onClick={togglePausa}
+                disabled={savingPausa}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${modoPausa ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-red-700 hover:bg-red-600 text-white'}`}
+              >
+                {savingPausa
+                  ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
+                  : modoPausa ? 'Reactivar' : 'Pausar'}
+              </button>
+            </div>
+
+            {/* Días bloqueados */}
+            <div>
+              <p className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5"><Ban size={12} /> Días sin atención</p>
+              <p className="text-xs text-gray-500 mb-3">Bloqueá fechas puntuales (feriados, vacaciones). El bot no ofrecerá turnos esos días.</p>
+
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="date"
+                  value={nuevaFecha}
+                  onChange={e => setNuevaFecha(e.target.value)}
+                  className="input-base flex-1"
+                  min={new Date().toISOString().split('T')[0]}
+                />
+                <button
+                  onClick={agregarDia}
+                  disabled={!nuevaFecha || savingDia}
+                  className="btn-primary px-4 text-xs"
+                >
+                  {savingDia ? <span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Plus size={13} />}
+                </button>
+              </div>
+
+              {diasBloqueados.length > 0 ? (
+                <div className="space-y-1.5">
+                  {[...diasBloqueados].sort().map(fecha => (
+                    <div key={fecha} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2">
+                      <span className="text-sm text-white">{new Date(fecha + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                      <button onClick={() => quitarDia(fecha)} className="text-gray-600 hover:text-red-400 transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-600 italic text-center py-3">No hay días bloqueados</p>
+              )}
             </div>
           </div>
         </SeccionCollapsible>

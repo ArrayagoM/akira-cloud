@@ -77,6 +77,67 @@ router.put('/negocio', [
 });
 
 // ─────────────────────────────────────────────────────────────
+//  PUT /api/config/horarios — horarios de atención + notificaciones
+// ─────────────────────────────────────────────────────────────
+router.put('/horarios', async (req, res) => {
+  try {
+    const { horariosAtencion, celularNotificaciones } = req.body;
+    const update = {};
+    if (horariosAtencion)           update.horariosAtencion      = horariosAtencion;
+    if (celularNotificaciones !== undefined) update.celularNotificaciones = (celularNotificaciones || '').trim();
+
+    const config = await Config.findOneAndUpdate(
+      { userId: req.user._id },
+      update,
+      { upsert: true, new: true }
+    );
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: 'Horarios de atención actualizados' });
+    res.json({ config: config.toJSON(), keys: config.resumenKeys() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PUT /api/config/pausa — activar/desactivar modo pausa
+// ─────────────────────────────────────────────────────────────
+router.put('/pausa', async (req, res) => {
+  try {
+    const { modoPausa } = req.body;
+    const config = await Config.findOneAndUpdate(
+      { userId: req.user._id },
+      { modoPausa: !!modoPausa },
+      { upsert: true, new: true }
+    );
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Modo pausa ${modoPausa ? 'activado' : 'desactivado'}` });
+    res.json({ modoPausa: config.modoPausa });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PUT /api/config/dias-bloqueados — agregar o quitar un día bloqueado
+// ─────────────────────────────────────────────────────────────
+router.put('/dias-bloqueados', async (req, res) => {
+  try {
+    const { fecha, accion } = req.body; // accion: 'agregar' | 'quitar'
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      return res.status(400).json({ error: 'Fecha inválida (formato YYYY-MM-DD)' });
+    }
+    const update = accion === 'quitar'
+      ? { $pull:     { diasBloqueados: fecha } }
+      : { $addToSet: { diasBloqueados: fecha } };
+
+    const config = await Config.findOneAndUpdate({ userId: req.user._id }, update, { upsert: true, new: true });
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Día ${accion === 'quitar' ? 'desbloqueado' : 'bloqueado'}: ${fecha}` });
+    res.json({ diasBloqueados: config.diasBloqueados });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  PUT /api/config/keys — actualizar API Keys (cifradas)
 // ─────────────────────────────────────────────────────────────
 router.put('/keys', [

@@ -49,6 +49,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const HORA_INICIO_DIA           = 9;
   const HORA_FIN_DIA              = 18;
   const ZONA_HORARIA              = 'America/Argentina/Buenos_Aires';
+  const HORARIOS_ATENCION         = (() => { try { return JSON.parse(config.HORARIOS_ATENCION || '{}'); } catch { return {}; } })();
+  const DIAS_BLOQUEADOS           = (() => { try { return JSON.parse(config.DIAS_BLOQUEADOS || '[]'); } catch { return []; } })();
+  const MODO_PAUSA                = config.MODO_PAUSA === 'true';
+  const CELULAR_NOTIFICACIONES    = config.CELULAR_NOTIFICACIONES || '';
   const PUERTO                    = parseInt(config.PORT || '3100');
 
   function getDuracionServicio(nombreServicio) {
@@ -73,7 +77,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const calendar = crearCalendarService({
     calendarId: CALENDAR_ID, credentialsPath: CREDENTIALS_PATH,
     horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
-    duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA, log,
+    duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA,
+    horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,
   });
   const mp      = crearMPService({ accessToken: MP_ACCESS_TOKEN, precioTurno: PRECIO_TURNO, duracion: DURACION_RESERVA_HORAS, negocio: NEGOCIO, ngrokDomain: NGROK_DOMAIN, log });
   const groqSvc = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log });
@@ -160,6 +165,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     }
   }
 
+  // ── Notificación al dueño ────────────────────────────────────
+  function notificarDueno(texto) {
+    if (!CELULAR_NOTIFICACIONES) return;
+    const cel = CELULAR_NOTIFICACIONES.replace(/\D/g, '');
+    if (cel.length < 10) return;
+    const jidDueno = `${cel}@s.whatsapp.net`;
+    enviarMensaje(jidDueno, texto).catch(() => {});
+  }
+
   // ── Recordatorios ────────────────────────────────────────────
   const RECS = [
     { min: 24 * 60, label: '24h',   msg: (n, h) => `¡Hola ${n}! 👋 Recordatorio: *mañana* a las *${h}* con ${NEGOCIO}. ¡Te esperamos!` },
@@ -232,9 +246,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         ? `Transferencia bancaria — Alias: ${ALIAS_TRANSFERENCIA || 'N/A'} | CBU/CVU: ${CBU_TRANSFERENCIA || 'N/A'}`
         : `Sin método de pago configurado — ${MI_NOMBRE} coordina el pago directamente`;
 
+    // ── Armar descripción de horarios configurados ───────────────
+    const DIAS_LABELS = { lunes:'Lun', martes:'Mar', miercoles:'Mié', jueves:'Jue', viernes:'Vie', sabado:'Sáb', domingo:'Dom' };
+    const DIAS_ORDER  = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo'];
+    const horariosStr = Object.keys(HORARIOS_ATENCION).length > 0
+      ? DIAS_ORDER.map(d => {
+          const h = HORARIOS_ATENCION[d];
+          if (!h) return null;
+          return h.activo ? `${DIAS_LABELS[d]} ${h.inicio}–${h.fin}` : `${DIAS_LABELS[d]} Cerrado`;
+        }).filter(Boolean).join(' | ')
+      : `Lun–Vie 09:00–18:00 | Sáb 09:00–13:00 | Dom Cerrado`;
+
     const sys = { role: 'system', content:
       `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp. ` +
       `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
+      `🕐 Horarios de atención: ${horariosStr}\n` +
+      (DIAS_BLOQUEADOS.length > 0 ? `🚫 Días sin atención: ${DIAS_BLOQUEADOS.join(', ')}\n` : '') +
+      (MODO_PAUSA ? `🔴 MODO PAUSA ACTIVO: No hay disponibilidad por el momento. Informá amablemente que no estamos tomando nuevas reservas y ofrecé contactar directamente a ${MI_NOMBRE}. NO llames a consultar_disponibilidad ni agendar_turno.\n` : '') +
       (SERVICIOS_LIST.length > 0
         ? `Servicios disponibles:\n${SERVICIOS_LIST.map(s => `- ${s.nombre}: $${s.precio} ARS (${s.duracion || 60} min)`).join('\n')}\n`
         : `Negocio: ${SERVICIOS} | Precio: $${PRECIO_TURNO} ARS/h\n`) +
@@ -341,6 +369,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           reservasPendientes[rk] = { chatId: jid, fecha: args.fecha, hora: args.hora, horaFin: hF, nombre: usuario.nombre, email: usuario.email, cant, total, expiresAt: Date.now() + 30 * 60000 };
           db.guardar(RESERVAS_PATH, reservasPendientes);
           push(`Link generado. Reserva: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. Link: ${pref.init_point}. Solo se agenda si paga. Vence en 30 min.`);
+          // Notificar al dueño (reserva pendiente de pago)
+          notificarDueno(`🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💳 Esperando pago MP ($${total})\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
         } else {
           // ── Flujo sin MercadoPago: agendar directo + transferencia ──
           const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
@@ -348,6 +378,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
           clientesSvc.guardarMemoria(jid, usuario);
           programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+
+          // Notificar al dueño
+          notificarDueno(`✅ *Nuevo turno confirmado*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
 
           // Armar instrucción de pago con datos REALES (nunca inventados)
           let infoPago = '';

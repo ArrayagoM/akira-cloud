@@ -5,7 +5,7 @@ import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
-import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff, Clock, AlertCircle } from 'lucide-react';
+import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff, Clock, AlertCircle, PauseCircle, PlayCircle } from 'lucide-react';
 import OnboardingChecklist from '../components/OnboardingChecklist';
 import ReferralCard from '../components/ReferralCard';
 
@@ -38,6 +38,8 @@ export default function Dashboard() {
   const [logs,      setLogs]      = useState([]);
   const [stats,     setStats]     = useState({ mensajes: 0, reservas: 0, pagos: 0 });
   const [loading,   setLoading]   = useState({ start: false, stop: false });
+  const [modoPausa, setModoPausa] = useState(false);
+  const [savingPausa, setSavingPausa] = useState(false);
   const logsRef = useRef(null);
 
   // ── Cargar datos iniciales ──────────────────────────────────
@@ -45,6 +47,7 @@ export default function Dashboard() {
     api.get('/bot/status').then(r => setBotStatus(r.data)).catch(() => {});
     api.get('/bot/stats').then(r => setStats(r.data)).catch(() => {});
     api.get('/bot/logs?limit=30').then(r => setLogs(r.data.logs.reverse())).catch(() => {});
+    api.get('/config').then(r => setModoPausa(!!r.data.config?.modoPausa)).catch(() => {});
   }, []);
 
   // ── Eventos Socket.io ───────────────────────────────────────
@@ -112,6 +115,20 @@ export default function Dashboard() {
     return 'text-gray-400';
   };
 
+  const togglePausa = async () => {
+    setSavingPausa(true);
+    const nuevoEstado = !modoPausa;
+    try {
+      await api.put('/config/pausa', { modoPausa: nuevoEstado });
+      setModoPausa(nuevoEstado);
+      toast.success(nuevoEstado ? '⏸️ Modo pausa activado' : '▶️ Bot disponible nuevamente');
+    } catch {
+      toast.error('Error al cambiar el modo pausa');
+    } finally {
+      setSavingPausa(false);
+    }
+  };
+
   const planVigente = user?.plan === 'trial' ? new Date(user.trialExpira) > new Date() : true;
   const diasTrial   = user?.plan === 'trial' ? Math.max(0, Math.ceil((new Date(user.trialExpira) - new Date()) / 86400000)) : null;
 
@@ -166,6 +183,28 @@ export default function Dashboard() {
           <StatCard icon={<Calendar size={18} />}      label="Reservas" value={stats.reservas} color="text-blue-400" />
           <StatCard icon={<DollarSign size={18} />}    label="Cobros del bot" value={stats.pagos} color="text-purple-400" />
           <StatCard icon={<Wifi size={18} />}          label="Estado bot" value={botStatus.conectado ? 'Activo' : 'Inactivo'} color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'} />
+        </div>
+
+        {/* Modo pausa rápido */}
+        <div className={`flex items-center justify-between rounded-xl px-4 py-3 border transition-colors ${modoPausa ? 'bg-red-950/40 border-red-800/60' : 'bg-gray-800/30 border-gray-700/60'}`}>
+          <div className="flex items-center gap-2.5">
+            {modoPausa
+              ? <PauseCircle size={18} className="text-red-400 flex-shrink-0" />
+              : <PlayCircle size={18} className="text-green-400 flex-shrink-0" />}
+            <div>
+              <p className="text-sm font-medium text-white">{modoPausa ? 'Bot en pausa — no acepta nuevos turnos' : 'Recibiendo turnos'}</p>
+              {modoPausa && <p className="text-xs text-red-400/80">Los clientes verán un mensaje de no disponibilidad.</p>}
+            </div>
+          </div>
+          <button
+            onClick={togglePausa}
+            disabled={savingPausa}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${modoPausa ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-red-700/80 hover:bg-red-700 text-white'}`}
+          >
+            {savingPausa
+              ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
+              : modoPausa ? 'Reactivar' : 'Pausar'}
+          </button>
         </div>
 
         {/* Referidos */}

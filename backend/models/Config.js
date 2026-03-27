@@ -55,6 +55,28 @@ const ConfigSchema = new mongoose.Schema(
     // Webhook
     mpWebhookUrl: { type: String, default: '', trim: true },
 
+    // Horarios de atención por día de la semana
+    horariosAtencion: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({
+        lunes:     { activo: true,  inicio: '09:00', fin: '18:00' },
+        martes:    { activo: true,  inicio: '09:00', fin: '18:00' },
+        miercoles: { activo: true,  inicio: '09:00', fin: '18:00' },
+        jueves:    { activo: true,  inicio: '09:00', fin: '18:00' },
+        viernes:   { activo: true,  inicio: '09:00', fin: '18:00' },
+        sabado:    { activo: true,  inicio: '09:00', fin: '13:00' },
+        domingo:   { activo: false, inicio: '09:00', fin: '18:00' },
+      }),
+    },
+
+    // Número al que el bot notifica cuando confirma un turno
+    celularNotificaciones: { type: String, default: '', trim: true },
+
+    // Modo pausa: el bot no acepta nuevas reservas
+    modoPausa:     { type: Boolean, default: false },
+    // Días específicamente bloqueados: ['YYYY-MM-DD', ...]
+    diasBloqueados: { type: [String], default: [] },
+
     // Estado de configuración
     configurado: { type: Boolean, default: false },
     credentialsGoogleB64: { ...EncryptedField }, // credentials.json de Google cifrado

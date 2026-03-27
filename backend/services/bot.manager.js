@@ -97,7 +97,11 @@ async function startBot(userId) {
       ALIAS_TRANSFERENCIA:     config.aliasTransferencia  || '',
       CBU_TRANSFERENCIA:       config.cbuTransferencia     || '',
       BANCO_TRANSFERENCIA:     config.bancoTransferencia   || '',
-      SERVICIOS_LIST:          JSON.stringify(config.serviciosList || []),
+      SERVICIOS_LIST:            JSON.stringify(config.serviciosList || []),
+      HORARIOS_ATENCION:         JSON.stringify(config.horariosAtencion || {}),
+      DIAS_BLOQUEADOS:           JSON.stringify(config.diasBloqueados || []),
+      MODO_PAUSA:                String(config.modoPausa || false),
+      CELULAR_NOTIFICACIONES:    config.celularNotificaciones || '',
       PORT:                    String(asignarPuerto(uid)),
     };
 
