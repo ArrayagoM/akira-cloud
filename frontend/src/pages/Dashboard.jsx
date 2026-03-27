@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff, Clock, AlertCircle } from 'lucide-react';
 import OnboardingChecklist from '../components/OnboardingChecklist';
+import ReferralCard from '../components/ReferralCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400' }) {
@@ -163,9 +164,12 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={<MessageSquare size={18} />} label="Mensajes hoy" value={stats.mensajes} />
           <StatCard icon={<Calendar size={18} />}      label="Reservas" value={stats.reservas} color="text-blue-400" />
-          <StatCard icon={<DollarSign size={18} />}    label="Pagos cobrados" value={stats.pagos} color="text-purple-400" />
+          <StatCard icon={<DollarSign size={18} />}    label="Cobros del bot" value={stats.pagos} color="text-purple-400" />
           <StatCard icon={<Wifi size={18} />}          label="Estado bot" value={botStatus.conectado ? 'Activo' : 'Inactivo'} color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'} />
         </div>
+
+        {/* Referidos */}
+        <ReferralCard />
 
         <div className="grid md:grid-cols-2 gap-5">
           {/* QR / Estado */}

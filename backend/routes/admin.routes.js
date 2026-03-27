@@ -361,12 +361,48 @@ router.post('/users/:id/tester', async (req, res) => {
 router.get('/referidos', async (req, res) => {
   try {
     const referidos = await Referido.find()
-      .populate('referente', 'nombre email')
+      .populate('referente', 'nombre email creditoReferidos')
       .populate('referido',  'nombre email plan')
       .sort({ createdAt: -1 })
       .limit(200)
       .lean();
-    res.json({ referidos, total: referidos.length });
+
+    const totalPendiente = referidos
+      .filter(r => !r.comisionPagada && r.estado !== 'pendiente')
+      .reduce((a, r) => a + (r.comisionPendiente || 0), 0);
+
+    res.json({ referidos, total: referidos.length, totalPendiente });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/referidos/:id/pagar — marcar comisión como pagada
+// ─────────────────────────────────────────────────────────────
+router.post('/referidos/:id/pagar', async (req, res) => {
+  try {
+    const ref = await Referido.findById(req.params.id);
+    if (!ref) return res.status(404).json({ error: 'Referido no encontrado' });
+    if (ref.comisionPagada) return res.status(400).json({ error: 'La comisión ya fue pagada' });
+
+    ref.comisionPagada = true;
+    ref.estado = 'pagado';
+    await ref.save();
+
+    // Descontar del crédito del referente (ya fue acreditado)
+    await User.findByIdAndUpdate(ref.referente, {
+      $inc: { creditoReferidos: -(ref.comisionPendiente || 0) },
+    });
+
+    await Log.registrar({
+      userId: req.user._id,
+      tipo: 'admin_action',
+      nivel: 'info',
+      mensaje: `Admin marcó comisión de referido ${req.params.id} como pagada ($${ref.comisionPendiente})`,
+    });
+
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

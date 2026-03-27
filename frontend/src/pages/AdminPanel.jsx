@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Users, Bot, AlertTriangle, Activity, Search, Shield,
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
-  Square, Eye, X, Crown, FlaskConical, GitBranch
+  Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck
 } from 'lucide-react';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
@@ -150,11 +150,13 @@ function UserModal({ user, onClose, onAction }) {
 }
 
 export default function AdminPanel() {
-  const [stats,     setStats]     = useState(null);
-  const [users,     setUsers]     = useState([]);
-  const [logs,      setLogs]      = useState([]);
-  const [bots,      setBots]      = useState([]);
-  const [referidos, setReferidos] = useState([]);
+  const [stats,           setStats]           = useState(null);
+  const [users,           setUsers]           = useState([]);
+  const [logs,            setLogs]            = useState([]);
+  const [bots,            setBots]            = useState([]);
+  const [referidos,       setReferidos]       = useState([]);
+  const [totalPendiente,  setTotalPendiente]  = useState(0);
+  const [pagandoRef,      setPagandoRef]      = useState(null);
   const [tab,       setTab]       = useState('usuarios');
   const [search,  setSearch]  = useState('');
   const [filtro,  setFiltro]  = useState('');
@@ -192,7 +194,21 @@ export default function AdminPanel() {
   const cargarReferidos = useCallback(async () => {
     const r = await api.get('/admin/referidos');
     setReferidos(r.data.referidos);
+    setTotalPendiente(r.data.totalPendiente || 0);
   }, []);
+
+  const pagarComision = async (refId) => {
+    setPagandoRef(refId);
+    try {
+      await api.post(`/admin/referidos/${refId}/pagar`);
+      toast.success('Comisión marcada como pagada');
+      cargarReferidos();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error');
+    } finally {
+      setPagandoRef(null);
+    }
+  };
 
   useEffect(() => { cargarStats(); }, []);
   useEffect(() => { if (tab === 'usuarios') cargarUsuarios(); }, [tab, page, search, filtro, cargarUsuarios]);
@@ -402,13 +418,43 @@ export default function AdminPanel() {
               </div>
               <div className="card text-center">
                 <p className="text-2xl font-bold text-green-400">{referidos.filter(r => r.estado === 'activo' || r.estado === 'pagado').length}</p>
-                <p className="text-xs text-gray-500 mt-1">Referidos activos</p>
+                <p className="text-xs text-gray-500 mt-1">Convertidos</p>
               </div>
-              <div className="card text-center">
-                <p className="text-2xl font-bold text-yellow-400">${referidos.filter(r => !r.comisionPagada && r.estado !== 'pendiente').reduce((a, r) => a + (r.comisionPendiente || 0), 0).toLocaleString('es-AR')}</p>
-                <p className="text-xs text-gray-500 mt-1">Comisiones pendientes</p>
+              <div className={`card text-center ${totalPendiente > 0 ? 'border-yellow-500/30 bg-yellow-500/5' : ''}`}>
+                <p className={`text-2xl font-bold ${totalPendiente > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                  ${totalPendiente.toLocaleString('es-AR')}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">💸 A pagar a referentes</p>
               </div>
             </div>
+
+            {/* Lista de comisiones pendientes de pago */}
+            {totalPendiente > 0 && (
+              <div className="card border border-yellow-500/20 bg-yellow-500/5 space-y-2">
+                <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2">Comisiones pendientes de pago</p>
+                {referidos.filter(r => !r.comisionPagada && r.estado !== 'pendiente').map(r => (
+                  <div key={r._id} className="flex items-center justify-between bg-gray-900/60 rounded-lg px-3 py-2.5">
+                    <div>
+                      <p className="text-sm text-white font-medium">{r.referente?.nombre} <span className="text-gray-500 font-normal">({r.referente?.email})</span></p>
+                      <p className="text-xs text-gray-500 mt-0.5">Referido: {r.referido?.nombre} — código <span className="font-mono text-indigo-400">{r.codigo}</span></p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-sm font-bold text-yellow-400">${(r.comisionPendiente || 0).toLocaleString('es-AR')}</span>
+                      <button
+                        onClick={() => pagarComision(r._id)}
+                        disabled={pagandoRef === r._id}
+                        className="flex items-center gap-1.5 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {pagandoRef === r._id
+                          ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <BadgeCheck size={12} />}
+                        Marcar pagado
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="overflow-hidden rounded-xl border border-gray-800">
               <table className="w-full text-sm">
@@ -416,15 +462,14 @@ export default function AdminPanel() {
                   <tr>
                     <th className="text-left px-4 py-3 text-gray-500 font-medium">Referente</th>
                     <th className="text-left px-4 py-3 text-gray-500 font-medium">Referido</th>
-                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Código</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium hidden md:table-cell">Código</th>
                     <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
-                    <th className="text-left px-4 py-3 text-gray-500 font-medium hidden md:table-cell">Comisión</th>
-                    <th className="text-left px-4 py-3 text-gray-500 font-medium hidden lg:table-cell">Fecha</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Comisión</th>
                   </tr>
                 </thead>
                 <tbody>
                   {referidos.length === 0 ? (
-                    <tr><td colSpan={6} className="text-center py-10 text-gray-600">Sin referidos registrados aún.</td></tr>
+                    <tr><td colSpan={5} className="text-center py-10 text-gray-600">Sin referidos registrados aún.</td></tr>
                   ) : referidos.map((r, i) => (
                     <tr key={r._id} className={`border-t border-gray-800 ${i % 2 === 0 ? 'bg-black' : 'bg-gray-950'}`}>
                       <td className="px-4 py-3">
@@ -433,21 +478,23 @@ export default function AdminPanel() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-white text-sm">{r.referido?.nombre}</p>
-                        <p className="text-xs text-gray-500">{r.referido?.email}</p>
+                        <p className="text-xs text-gray-500">{r.referido?.email} · plan: {r.referido?.plan}</p>
                       </td>
-                      <td className="px-4 py-3"><span className="font-mono text-xs text-indigo-400">{r.codigo}</span></td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <span className="font-mono text-xs text-indigo-400">{r.codigo}</span>
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`text-xs font-medium ${r.estado === 'pagado' ? 'text-green-400' : r.estado === 'activo' ? 'text-blue-400' : 'text-yellow-400'}`}>
                           {r.estado}
                         </span>
                       </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <span className={`text-xs ${r.comisionPagada ? 'text-gray-500 line-through' : 'text-green-400'}`}>
-                          ${(r.comisionPendiente || 0).toLocaleString('es-AR')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600 hidden lg:table-cell">
-                        {new Date(r.createdAt).toLocaleDateString('es-AR')}
+                      <td className="px-4 py-3">
+                        {r.comisionPagada
+                          ? <span className="text-xs text-gray-600">✓ pagado</span>
+                          : r.estado === 'pendiente'
+                          ? <span className="text-xs text-gray-600">—</span>
+                          : <span className="text-xs font-semibold text-yellow-400">${(r.comisionPendiente || 0).toLocaleString('es-AR')} pendiente</span>
+                        }
                       </td>
                     </tr>
                   ))}

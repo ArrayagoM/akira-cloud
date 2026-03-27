@@ -287,6 +287,28 @@ router.get('/me', requireAuth, (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  POST /api/auth/generar-codigo — genera codigoReferido si el usuario no tiene uno
+// ─────────────────────────────────────────────────────────────
+router.post('/generar-codigo', requireAuth, async (req, res) => {
+  try {
+    if (req.user.codigoReferido) {
+      return res.json({ codigoReferido: req.user.codigoReferido });
+    }
+
+    let codigo = User.generarCodigoReferido(req.user.nombre);
+    while (await User.exists({ codigoReferido: codigo })) {
+      codigo = User.generarCodigoReferido(req.user.nombre);
+    }
+
+    await User.findByIdAndUpdate(req.user._id, { codigoReferido: codigo });
+    logger.info(`[Auth] Código referido generado para ${req.user.email}: ${codigo}`);
+    res.json({ codigoReferido: codigo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  PUT /api/auth/password
 // ─────────────────────────────────────────────────────────────
 router.put(
