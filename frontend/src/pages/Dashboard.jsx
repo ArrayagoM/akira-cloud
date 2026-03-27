@@ -6,6 +6,7 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff, Clock, AlertCircle } from 'lucide-react';
+import OnboardingChecklist from '../components/OnboardingChecklist';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400' }) {
@@ -116,6 +117,10 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto space-y-6">
+
+        {/* Checklist de onboarding */}
+        <OnboardingChecklist user={user} botStatus={botStatus} />
+
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
