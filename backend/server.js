@@ -83,11 +83,12 @@ app.use(rateLimit({
   legacyHeaders: false,
 }));
 
-// Rate limiting estricto para auth
+// Rate limiting estricto para auth (no aplica a OAuth redirects)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: { error: 'Demasiados intentos de login. Intentá en 15 minutos.' },
+  skip: (req) => /\/(google|facebook)/.test(req.path),
 });
 
 // CORS — acepta Vercel en prod y localhost en dev

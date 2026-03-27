@@ -53,6 +53,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const DIAS_BLOQUEADOS           = (() => { try { return JSON.parse(config.DIAS_BLOQUEADOS || '[]'); } catch { return []; } })();
   const MODO_PAUSA                = config.MODO_PAUSA === 'true';
   const CELULAR_NOTIFICACIONES    = config.CELULAR_NOTIFICACIONES || '';
+  const GOOGLE_CALENDAR_TOKENS    = (() => { try { return JSON.parse(config.GOOGLE_CALENDAR_TOKENS || ''); } catch { return null; } })();
   const PUERTO                    = parseInt(config.PORT || '3100');
 
   function getDuracionServicio(nombreServicio) {
@@ -75,7 +76,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
   const clientesSvc = crearMongoClientesService(USER_ID, log);
   const calendar = crearCalendarService({
-    calendarId: CALENDAR_ID, credentialsPath: CREDENTIALS_PATH,
+    calendarId: CALENDAR_ID,
+    credentialsPath: CREDENTIALS_PATH,
+    oauthTokens: GOOGLE_CALENDAR_TOKENS,   // prioridad sobre service account
     horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
     duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA,
     horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,

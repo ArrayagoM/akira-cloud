@@ -8,16 +8,28 @@ const { google }     = require('googleapis');
 // Mapa JS day-of-week → nombre en horariosAtencion
 const DIA_NOMBRE = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 
-function crearCalendarService({ calendarId, credentialsPath, horaInicio, horaFin, duracion, zonaHoraria, horarios, diasBloqueados, log }) {
+function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaInicio, horaFin, duracion, zonaHoraria, horarios, diasBloqueados, log }) {
   let calendarAuth = null;
 
-  if (credentialsPath && fs.existsSync(credentialsPath)) {
+  if (oauthTokens) {
+    // ── OAuth2 del usuario (Google Calendar conectado desde el panel) ──
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+      );
+      oauth2Client.setCredentials(oauthTokens);
+      calendarAuth = oauth2Client;
+      log('✅ Google Calendar configurado via OAuth');
+    } catch (e) { log('⚠️ Calendar OAuth: ' + e.message); }
+  } else if (credentialsPath && fs.existsSync(credentialsPath)) {
+    // ── Service account (método manual / legacy) ──
     try {
       calendarAuth = new google.auth.GoogleAuth({
         keyFile: credentialsPath,
         scopes: ['https://www.googleapis.com/auth/calendar'],
       });
-      log('✅ Google Calendar configurado');
+      log('✅ Google Calendar configurado via service account');
     } catch (e) { log('⚠️ Calendar: ' + e.message); }
   }
 

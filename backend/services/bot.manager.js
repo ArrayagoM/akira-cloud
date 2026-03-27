@@ -115,7 +115,17 @@ async function startBot(userId) {
     const dataDir = path.resolve(SESSIONS_PATH, uid, 'data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-    // Credenciales de Google Calendar
+    // Tokens Google Calendar OAuth (prioridad sobre service account)
+    const googleCalendarTokens = config.googleCalendarTokens?.encrypted
+      ? config.getKey('googleCalendarTokens')
+      : null;
+
+    if (googleCalendarTokens) {
+      credenciales.GOOGLE_CALENDAR_TOKENS = googleCalendarTokens;
+      credenciales.GOOGLE_EMAIL           = config.googleEmail || '';
+    }
+
+    // Credenciales de Google Calendar (service account — fallback)
     const credGoogleEncriptado = config.credentialsGoogleB64?.encrypted
       ? config.getKey('credentialsGoogleB64')
       : null;

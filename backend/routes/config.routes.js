@@ -3,13 +3,116 @@
 
 const router = require('express').Router();
 const { body, validationResult } = require('express-validator');
+const jwt    = require('jsonwebtoken');
+const { google } = require('googleapis');
 const Config = require('../models/Config');
 const Log    = require('../models/Log');
 const { requireAuth } = require('../middleware/auth');
 const logger = require('../config/logger');
 
-// Todas las rutas requieren auth
+// ─────────────────────────────────────────────────────────────
+//  Helpers OAuth Google Calendar
+// ─────────────────────────────────────────────────────────────
+function crearOAuth2Client() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    `${process.env.BACKEND_URL}/api/config/google/callback`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/config/google/connect — inicia OAuth de Calendar
+//  No requiere auth header (viene desde window.location.href)
+//  Verifica el JWT desde ?token=...
+// ─────────────────────────────────────────────────────────────
+router.get('/google/connect', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(401).json({ error: 'No auth token' });
+
+  try {
+    jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google OAuth no configurado en el servidor' });
+  }
+
+  const oauth2Client = crearOAuth2Client();
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['https://www.googleapis.com/auth/calendar'],
+    state: token,   // pasamos el JWT como state para identificar al usuario en el callback
+    prompt: 'consent',
+  });
+  res.redirect(url);
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/config/google/callback — callback de OAuth Calendar
+// ─────────────────────────────────────────────────────────────
+router.get('/google/callback', async (req, res) => {
+  const { code, state: userToken, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || '';
+
+  if (error || !code || !userToken) {
+    logger.warn(`[Config] Google OAuth callback — error o datos faltantes: ${error || 'sin code/state'}`);
+    return res.redirect(`${frontendUrl}/config?calendar=error`);
+  }
+
+  try {
+    const payload = jwt.verify(userToken, process.env.JWT_SECRET);
+    const userId  = payload.id;
+
+    const oauth2Client = crearOAuth2Client();
+    const { tokens }   = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    // Obtener email del usuario de Google
+    const oauth2       = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data }     = await oauth2.userinfo.get();
+
+    // Guardar tokens cifrados
+    let config = await Config.findOne({ userId });
+    if (!config) config = new Config({ userId });
+    config.setKey('googleCalendarTokens', JSON.stringify(tokens));
+    config.googleEmail = data.email || '';
+    await config.save();
+
+    await Log.registrar({ userId, tipo: 'config_update', mensaje: `Google Calendar conectado (${data.email})` });
+    logger.info(`[Config] Google Calendar OAuth OK para user ${userId} — ${data.email}`);
+    res.redirect(`${frontendUrl}/config?calendar=ok`);
+
+  } catch (err) {
+    logger.error('[Config] Google OAuth callback error:', err.message);
+    res.redirect(`${process.env.FRONTEND_URL || ''}/config?calendar=error`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  Todas las rutas siguientes requieren auth
+// ─────────────────────────────────────────────────────────────
 router.use(requireAuth);
+
+// ─────────────────────────────────────────────────────────────
+//  DELETE /api/config/google/disconnect — desconectar Calendar
+// ─────────────────────────────────────────────────────────────
+router.delete('/google/disconnect', async (req, res) => {
+  try {
+    const config = await Config.findOne({ userId: req.user._id });
+    if (config) {
+      config.setKey('googleCalendarTokens', null);
+      config.googleEmail = '';
+      await config.save();
+    }
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: 'Google Calendar desconectado' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al desconectar' });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 //  GET /api/config — obtener config del usuario (sin keys)

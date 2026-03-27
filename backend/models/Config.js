@@ -80,6 +80,10 @@ const ConfigSchema = new mongoose.Schema(
     // Estado de configuración
     configurado: { type: Boolean, default: false },
     credentialsGoogleB64: { ...EncryptedField }, // credentials.json de Google cifrado
+
+    // Google Calendar OAuth (tokens del usuario, cifrados)
+    googleCalendarTokens: { ...EncryptedField },
+    googleEmail: { type: String, default: '', trim: true },
   },
   {
     timestamps: true,
@@ -92,6 +96,7 @@ const ConfigSchema = new mongoose.Schema(
         delete ret.keyRime;
         delete ret.keyNgrok;
         delete ret.credentialsGoogleB64;
+        delete ret.googleCalendarTokens;
         delete ret.__v;
         return ret;
       },
@@ -127,8 +132,10 @@ ConfigSchema.methods.resumenKeys = function () {
     calendar: !!this.idCalendar?.encrypted,
     rime:     !!this.keyRime?.encrypted,
     ngrok:    !!this.keyNgrok?.encrypted,
-    credentialsGoogle: !!this.credentialsGoogleB64?.encrypted,
-    tieneTransferencia: !!(this.aliasTransferencia || this.cbuTransferencia),
+    credentialsGoogle:    !!this.credentialsGoogleB64?.encrypted,
+    googleCalendarOAuth:  !!this.googleCalendarTokens?.encrypted,
+    googleEmail:          this.googleEmail || '',
+    tieneTransferencia:   !!(this.aliasTransferencia || this.cbuTransferencia),
   };
 };
 
