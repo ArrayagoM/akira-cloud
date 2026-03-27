@@ -216,7 +216,12 @@ export default function ConfigPage() {
   const conectarGoogleCalendar = () => {
     const token = localStorage.getItem('akira_token');
     if (!token) return toast.error('Sesión expirada. Volvé a iniciar sesión.');
-    const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
+    // api.defaults.baseURL puede ser '/api' (relativo, dev) o 'https://....onrender.com/api' (prod).
+    // Necesitamos la URL absoluta del backend para el redirect de OAuth.
+    const base = api.defaults.baseURL || '/api';
+    const backendUrl = base.startsWith('http')
+      ? base.replace(/\/api\/?$/, '')   // 'https://akira-cloud.onrender.com'
+      : window.location.origin;          // fallback mismo origen (dev local)
     window.location.href = `${backendUrl}/api/config/google/connect?token=${encodeURIComponent(token)}`;
   };
 
