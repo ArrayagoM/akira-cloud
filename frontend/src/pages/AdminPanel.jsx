@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Users, Bot, AlertTriangle, Activity, Search, Shield,
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
-  Square, Eye, X, Crown
+  Square, Eye, X, Crown, FlaskConical, GitBranch
 } from 'lucide-react';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
@@ -122,6 +122,21 @@ function UserModal({ user, onClose, onAction }) {
             </button>
           </div>
 
+          {/* Modo Tester */}
+          <div className="flex items-center justify-between border-t border-gray-800 pt-3">
+            <div>
+              <p className="text-sm font-medium text-white flex items-center gap-1.5"><FlaskConical size={13} className="text-indigo-400" /> Modo Tester</p>
+              <p className="text-xs text-gray-500 mt-0.5">Acceso completo sin pagar plan</p>
+            </div>
+            <button
+              onClick={() => action('tester', {})}
+              disabled={loading.tester}
+              className={`relative w-11 h-6 rounded-full transition-colors ${user.esTester ? 'bg-indigo-600' : 'bg-gray-700'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${user.esTester ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+
           {/* Detener bot */}
           {user.botActivo && (
             <button onClick={() => action('stopBot', {})} disabled={loading.stopBot} className="btn-secondary w-full text-orange-400 border-orange-500/20">
@@ -135,11 +150,12 @@ function UserModal({ user, onClose, onAction }) {
 }
 
 export default function AdminPanel() {
-  const [stats,   setStats]   = useState(null);
-  const [users,   setUsers]   = useState([]);
-  const [logs,    setLogs]    = useState([]);
-  const [bots,    setBots]    = useState([]);
-  const [tab,     setTab]     = useState('usuarios');
+  const [stats,     setStats]     = useState(null);
+  const [users,     setUsers]     = useState([]);
+  const [logs,      setLogs]      = useState([]);
+  const [bots,      setBots]      = useState([]);
+  const [referidos, setReferidos] = useState([]);
+  const [tab,       setTab]       = useState('usuarios');
   const [search,  setSearch]  = useState('');
   const [filtro,  setFiltro]  = useState('');
   const [page,    setPage]    = useState(1);
@@ -173,10 +189,16 @@ export default function AdminPanel() {
     setBots(r.data.bots);
   }, []);
 
+  const cargarReferidos = useCallback(async () => {
+    const r = await api.get('/admin/referidos');
+    setReferidos(r.data.referidos);
+  }, []);
+
   useEffect(() => { cargarStats(); }, []);
   useEffect(() => { if (tab === 'usuarios') cargarUsuarios(); }, [tab, page, search, filtro, cargarUsuarios]);
   useEffect(() => { if (tab === 'logs') cargarLogs(); }, [tab]);
   useEffect(() => { if (tab === 'bots') cargarBots(); }, [tab]);
+  useEffect(() => { if (tab === 'referidos') cargarReferidos(); }, [tab]);
 
   const handleAction = async (tipo, userId, payload) => {
     try {
@@ -188,6 +210,10 @@ export default function AdminPanel() {
         const r = await api.post(`/admin/users/${userId}/activar-plan`, payload);
         toast.success(`✅ Plan ${payload.plan} activado — expira ${new Date(r.data.expira).toLocaleDateString('es-AR')}`);
       }
+      if (tipo === 'tester') {
+        const r = await api.post(`/admin/users/${userId}/tester`);
+        toast.success(r.data.esTester ? '🧪 Modo tester activado' : 'Modo tester desactivado');
+      }
       setSelected(null);
       cargarUsuarios();
       cargarStats();
@@ -197,9 +223,10 @@ export default function AdminPanel() {
   };
 
   const tabs = [
-    { id: 'usuarios', label: 'Usuarios', icon: <Users size={15} /> },
-    { id: 'bots',     label: 'Bots activos', icon: <Bot size={15} /> },
-    { id: 'logs',     label: 'Logs de error', icon: <AlertTriangle size={15} /> },
+    { id: 'usuarios',  label: 'Usuarios',     icon: <Users size={15} /> },
+    { id: 'bots',      label: 'Bots activos', icon: <Bot size={15} /> },
+    { id: 'logs',      label: 'Logs de error', icon: <AlertTriangle size={15} /> },
+    { id: 'referidos', label: 'Referidos',    icon: <GitBranch size={15} /> },
   ];
 
   return (
@@ -277,7 +304,10 @@ export default function AdminPanel() {
                         <p className="text-xs text-gray-500">{u.email}</p>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="badge-gray">{u.plan}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="badge-gray">{u.plan}</span>
+                          {u.esTester && <span className="text-xs text-indigo-400 flex items-center gap-0.5"><FlaskConical size={10} />tester</span>}
+                        </div>
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={u.status} /></td>
                       <td className="px-4 py-3 hidden lg:table-cell">
@@ -359,6 +389,71 @@ export default function AdminPanel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Referidos */}
+        {tab === 'referidos' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="card text-center">
+                <p className="text-2xl font-bold text-white">{referidos.length}</p>
+                <p className="text-xs text-gray-500 mt-1">Total referidos</p>
+              </div>
+              <div className="card text-center">
+                <p className="text-2xl font-bold text-green-400">{referidos.filter(r => r.estado === 'activo' || r.estado === 'pagado').length}</p>
+                <p className="text-xs text-gray-500 mt-1">Referidos activos</p>
+              </div>
+              <div className="card text-center">
+                <p className="text-2xl font-bold text-yellow-400">${referidos.filter(r => !r.comisionPagada && r.estado !== 'pendiente').reduce((a, r) => a + (r.comisionPendiente || 0), 0).toLocaleString('es-AR')}</p>
+                <p className="text-xs text-gray-500 mt-1">Comisiones pendientes</p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-gray-800">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-900">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Referente</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Referido</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Código</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium">Estado</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium hidden md:table-cell">Comisión</th>
+                    <th className="text-left px-4 py-3 text-gray-500 font-medium hidden lg:table-cell">Fecha</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {referidos.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-10 text-gray-600">Sin referidos registrados aún.</td></tr>
+                  ) : referidos.map((r, i) => (
+                    <tr key={r._id} className={`border-t border-gray-800 ${i % 2 === 0 ? 'bg-black' : 'bg-gray-950'}`}>
+                      <td className="px-4 py-3">
+                        <p className="text-white text-sm">{r.referente?.nombre}</p>
+                        <p className="text-xs text-gray-500">{r.referente?.email}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-white text-sm">{r.referido?.nombre}</p>
+                        <p className="text-xs text-gray-500">{r.referido?.email}</p>
+                      </td>
+                      <td className="px-4 py-3"><span className="font-mono text-xs text-indigo-400">{r.codigo}</span></td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-medium ${r.estado === 'pagado' ? 'text-green-400' : r.estado === 'activo' ? 'text-blue-400' : 'text-yellow-400'}`}>
+                          {r.estado}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <span className={`text-xs ${r.comisionPagada ? 'text-gray-500 line-through' : 'text-green-400'}`}>
+                          ${(r.comisionPendiente || 0).toLocaleString('es-AR')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600 hidden lg:table-cell">
+                        {new Date(r.createdAt).toLocaleDateString('es-AR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

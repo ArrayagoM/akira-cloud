@@ -5,6 +5,7 @@ const router     = require('express').Router();
 const { body, validationResult } = require('express-validator');
 const User       = require('../models/User');
 const Log        = require('../models/Log');
+const Referido   = require('../models/Referido');
 const botManager = require('../services/bot.manager');
 const { requireAuth, requireAdmin, generarJWT } = require('../middleware/auth');
 const logger     = require('../config/logger');
@@ -315,6 +316,57 @@ router.post('/promote-self', async (req, res) => {
       { new: true }
     );
     res.json({ ok: true, msg: `Promovido a admin: ${user.email}`, user: user.toJSON() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/users/:id/tester — toggle modo tester
+// ─────────────────────────────────────────────────────────────
+router.post('/users/:id/tester', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    user.esTester = !user.esTester;
+    await user.save();
+
+    await Log.registrar({
+      userId: req.user._id,
+      tipo: 'admin_action',
+      nivel: 'info',
+      mensaje: `Admin ${user.esTester ? 'activó' : 'desactivó'} modo tester para ${user.email}`,
+    });
+
+    logger.info(`[Admin] Tester ${user.esTester ? 'ON' : 'OFF'} para ${user.email} por ${req.user.email}`);
+
+    // Notificar al usuario si está conectado
+    if (global.io && user.esTester) {
+      global.io.to(`user:${req.params.id}`).emit('suscripcion:activada', {
+        plan: 'tester', planBase: 'tester',
+        mensaje: '¡Acceso tester activado por el administrador!',
+      });
+    }
+
+    res.json({ ok: true, esTester: user.esTester });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/admin/referidos — listar todos los referidos
+// ─────────────────────────────────────────────────────────────
+router.get('/referidos', async (req, res) => {
+  try {
+    const referidos = await Referido.find()
+      .populate('referente', 'nombre email')
+      .populate('referido',  'nombre email plan')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
+    res.json({ referidos, total: referidos.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -6,6 +6,7 @@ const passport = require('passport');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const Log = require('../models/Log');
+const Referido = require('../models/Referido');
 const { requireAuth, generarJWT } = require('../middleware/auth');
 const logger = require('../config/logger');
 
@@ -110,6 +111,21 @@ router.post('/register', registerValidations, async (req, res) => {
       });
     }
 
+    // Validar código de referido (antes de crear el usuario para no dejar huérfanos)
+    const codigoUsado = (req.body.codigoReferidoUsado || '').trim().toUpperCase();
+    let referente = null;
+    if (codigoUsado) {
+      referente = await User.findOne({ codigoReferido: codigoUsado }).lean();
+      // Si el código no existe simplemente lo ignoramos — no bloqueamos el registro
+    }
+
+    // Generar código de referido único para el nuevo usuario
+    let codigoPropio = User.generarCodigoReferido(nombre);
+    // Garantizar unicidad
+    while (await User.exists({ codigoReferido: codigoPropio })) {
+      codigoPropio = User.generarCodigoReferido(nombre);
+    }
+
     // Crear usuario
     const user = await User.create({
       nombre: nombre.trim(),
@@ -119,7 +135,20 @@ router.post('/register', registerValidations, async (req, res) => {
       celular: celular || '',
       pais: pais || 'Argentina',
       auth_provider: 'local',
+      codigoReferido: codigoPropio,
+      codigoReferidoUsado: referente ? codigoUsado : '',
+      descuentoReferido:   referente ? 5000 : 0,
     });
+
+    // Crear registro de referido en la colección
+    if (referente) {
+      await Referido.create({
+        referente: referente._id,
+        referido:  user._id,
+        codigo:    codigoUsado,
+      }).catch(err => logger.warn('[Auth] No se pudo crear Referido:', err.message));
+      logger.info(`[Auth] Referido creado: ${email} referido por ${referente.email} (${codigoUsado}) — descuento $5000`);
+    }
 
     // Generar JWT — si falla, borrar el usuario para no dejar huérfanos
     let token;

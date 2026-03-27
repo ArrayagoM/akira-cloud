@@ -5,7 +5,7 @@ import { Bot, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function Register() {
-  const [form, setForm]       = useState({ nombre: '', apellido: '', email: '', password: '', pais: 'Argentina' });
+  const [form, setForm]       = useState({ nombre: '', apellido: '', email: '', password: '', pais: 'Argentina', codigoReferidoUsado: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -143,6 +143,20 @@ export default function Register() {
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+                Código de referido <span className="normal-case text-gray-600 font-normal">(opcional — $5.000 de descuento)</span>
+              </label>
+              <input
+                name="codigoReferidoUsado"
+                value={form.codigoReferidoUsado}
+                onChange={e => setForm(f => ({ ...f, codigoReferidoUsado: e.target.value.toUpperCase() }))}
+                className="input-base font-mono tracking-widest"
+                placeholder="Ej: JUAN-A3K9"
+                maxLength={20}
+              />
             </div>
 
             <button type="submit" disabled={loading} className="btn-primary w-full mt-2">
