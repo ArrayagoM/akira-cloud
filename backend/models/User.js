@@ -69,6 +69,15 @@ const UserSchema = new mongoose.Schema(
     ipUltimoLogin: { type: String },
     loginCount:  { type: Number, default: 0 },
     bloqueadoPor: { type: String }, // motivo del bloqueo
+
+    // Testers
+    esTester: { type: Boolean, default: false },
+
+    // Sistema de referidos
+    codigoReferido:      { type: String, unique: true, sparse: true }, // código propio para compartir
+    codigoReferidoUsado: { type: String, default: '' },                // código que usó al registrarse
+    creditoReferidos:    { type: Number, default: 0 },                 // ARS acumulados por referidos
+    descuentoReferido:   { type: Number, default: 0 },                 // descuento pendiente por haber sido referido (5000)
   },
   {
     timestamps: true,
@@ -104,6 +113,7 @@ UserSchema.methods.compararPassword = async function (candidato) {
 };
 
 UserSchema.methods.planVigente = function () {
+  if (this.esTester) return true; // testers: siempre activo sin pagar
   if (this.rol === 'admin' || this.plan === 'admin') return true; // admin: siempre activo
   if (this.plan === 'trial') return this.trialExpira > new Date();
   if (this.planExpira) return this.planExpira > new Date();
@@ -113,5 +123,11 @@ UserSchema.methods.planVigente = function () {
 UserSchema.virtual('nombreCompleto').get(function () {
   return `${this.nombre} ${this.apellido}`.trim();
 });
+
+UserSchema.statics.generarCodigoReferido = function (nombre) {
+  const base = nombre.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5) || 'USER';
+  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${base}-${rand}`;
+};
 
 module.exports = mongoose.model('User', UserSchema);
