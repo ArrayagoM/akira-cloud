@@ -109,6 +109,7 @@ async function startBot(userId) {
       UNIDADES_ALOJAMIENTO:      JSON.stringify(config.unidadesAlojamiento || []),
       DIRECCION_PROPIEDAD:       config.direccionPropiedad || '',
       LINK_UBICACION:            config.linkUbicacion  || '',
+      CATALOGO:                  JSON.stringify(config.catalogo || []),
       PORT:                    String(asignarPuerto(uid)),
     };
 
@@ -184,6 +185,38 @@ async function startBot(userId) {
       logger.error(`[BotMgr] Error en bot de user ${uid}: ${err.message}`);
       emitirAlUsuario(uid, 'bot:error', { msg: err.message });
       await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: err.message });
+    });
+
+    // ── Catálogo: sincronización automática desde WA Business ──
+    bot.on('catalog:update', async (catalogo) => {
+      try {
+        const cfg = await Config.findOne({ userId: uid });
+        // Conservar productos manuales; reemplazar los de wa_catalog
+        const manuales = (cfg?.catalogo || []).filter(p => p.fuente !== 'wa_catalog');
+        const merged   = [...manuales, ...catalogo];
+        await Config.findOneAndUpdate(
+          { userId: uid },
+          { catalogo: merged, catalogoSincronizadoEn: new Date() }
+        );
+        emitirAlUsuario(uid, 'catalog:synced', { count: catalogo.length, total: merged.length });
+        logger.info(`[BotMgr] Catálogo WA sincronizado para user ${uid}: ${catalogo.length} productos`);
+      } catch (e) {
+        logger.warn(`[BotMgr] Error guardando catálogo para user ${uid}: ${e.message}`);
+      }
+    });
+
+    // ── Catálogo: producto detectado desde un estado (status) ──
+    bot.on('catalog:candidate', async (producto) => {
+      try {
+        await Config.findOneAndUpdate(
+          { userId: uid },
+          { $push: { catalogo: { ...producto, disponible: true, fuente: 'status' } } }
+        );
+        emitirAlUsuario(uid, 'catalog:new-product', producto);
+        logger.info(`[BotMgr] Producto detectado en estado WA para user ${uid}: ${producto.nombre}`);
+      } catch (e) {
+        logger.warn(`[BotMgr] Error guardando candidato de catálogo para user ${uid}: ${e.message}`);
+      }
     });
 
     // ── Iniciar ──────────────────────────────────────────────
@@ -326,6 +359,15 @@ function emitirAlUsuario(userId, evento, datos) {
   }
 }
 
+// ─── Disparar sincronización de catálogo WA en un bot activo ──
+function triggerCatalogSync(userId) {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+  if (!bot) return false;
+  bot.emit('catalog:sync');
+  return true;
+}
+
 module.exports = {
   startBot,
   stopBot,
@@ -335,5 +377,6 @@ module.exports = {
   getBotStatus,
   getActiveCount,
   getActiveUserIds,
+  triggerCatalogSync,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

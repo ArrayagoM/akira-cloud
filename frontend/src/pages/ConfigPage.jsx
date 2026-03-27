@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin, RefreshCw } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
   const [copiado, setCopiado] = useState(false);
@@ -203,6 +203,13 @@ export default function ConfigPage() {
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
   const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' });
   const [mostrarFormUnidad, setMostrarFormUnidad] = useState(false);
+  // ── Catálogo de productos ────────────────────────────────────
+  const [catalogo,          setCatalogo]          = useState([]);
+  const [nuevoProd,         setNuevoProd]         = useState({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true });
+  const [mostrarFormProd,   setMostrarFormProd]   = useState(false);
+  const [savingCatalogo,    setSavingCatalogo]    = useState(false);
+  const [syncingCatalogo,   setSyncingCatalogo]   = useState(false);
+  const [catalogoSyncInfo,  setCatalogoSyncInfo]  = useState(null); // { count, ts }
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
 
@@ -297,6 +304,10 @@ export default function ConfigPage() {
       setCelularNotif(c.celularNotificaciones || '');
       setModoPausa(!!c.modoPausa);
       setDiasBloqueados(Array.isArray(c.diasBloqueados) ? c.diasBloqueados : []);
+      setCatalogo(Array.isArray(c.catalogo) ? c.catalogo : []);
+      if (r.data.keys?.catalogoSincronizadoEn) {
+        setCatalogoSyncInfo({ ts: r.data.keys.catalogoSincronizadoEn, count: r.data.keys.catalogoProductos || 0 });
+      }
     }).catch(() => toast.error('Error cargando configuración'));
   }, []);
 
@@ -334,6 +345,54 @@ export default function ConfigPage() {
 
   const eliminarUnidad = (idx) => {
     setForm(f => ({ ...f, unidadesAlojamiento: f.unidadesAlojamiento.filter((_, i) => i !== idx) }));
+  };
+
+  // ── Catálogo: funciones ──────────────────────────────────────
+  const agregarProducto = () => {
+    if (!nuevoProd.nombre.trim()) return;
+    const prod = {
+      nombre:      nuevoProd.nombre.trim(),
+      precio:      parseFloat(nuevoProd.precio) || 0,
+      categoria:   nuevoProd.categoria.trim(),
+      descripcion: nuevoProd.descripcion.trim(),
+      stock:       nuevoProd.stock !== '' ? parseInt(nuevoProd.stock) : -1,
+      imagen:      nuevoProd.imagen.trim(),
+      disponible:  nuevoProd.disponible !== false,
+      moneda:      'ARS',
+      fuente:      'manual',
+    };
+    setCatalogo(c => [...c, prod]);
+    setNuevoProd({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true });
+    setMostrarFormProd(false);
+  };
+
+  const eliminarProducto = (idx) => setCatalogo(c => c.filter((_, i) => i !== idx));
+  const toggleDisponible = (idx) => setCatalogo(c => c.map((p, i) => i === idx ? { ...p, disponible: !p.disponible } : p));
+
+  const saveCatalogo = async () => {
+    setSavingCatalogo(true);
+    try {
+      const r = await api.put('/config/catalogo', { catalogo });
+      setCatalogo(Array.isArray(r.data.catalogo) ? r.data.catalogo : catalogo);
+      toast.success(`Catálogo guardado — ${catalogo.length} producto(s)`);
+    } catch {
+      toast.error('Error al guardar catálogo');
+    } finally {
+      setSavingCatalogo(false);
+    }
+  };
+
+  const syncCatalogo = async () => {
+    setSyncingCatalogo(true);
+    try {
+      const r = await api.post('/config/catalogo/sync');
+      toast.success(r.data.msg || 'Sincronizando desde WhatsApp Business...');
+      setCatalogoSyncInfo({ ts: new Date().toISOString(), count: catalogo.length });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error al sincronizar');
+    } finally {
+      setTimeout(() => setSyncingCatalogo(false), 3000);
+    }
   };
 
   const saveNegocio = async (e) => {
@@ -897,6 +956,118 @@ export default function ConfigPage() {
                 <button onClick={saveNegocio} className="btn-secondary px-4 text-xs"><Save size={13} /></button>
               </div>
             </div>
+          </div>
+        </SeccionCollapsible>
+
+        {/* ── Catálogo de productos ─────────────────────────── */}
+        <SeccionCollapsible titulo={`📦 Catálogo de productos${catalogo.length > 0 ? ` (${catalogo.length})` : ''}`}>
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+              El bot consulta este catálogo cuando un cliente pregunta por productos, precios o stock.
+              Si usás <strong>WhatsApp Business</strong> con catálogo, podés sincronizarlo automáticamente. También se detectan productos publicados en tus <strong>estados de WA</strong>.
+            </p>
+
+            {/* Botón sync desde WA Business */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={syncCatalogo} disabled={syncingCatalogo}
+                className="btn-secondary text-xs flex items-center gap-1.5">
+                <RefreshCw size={13} className={syncingCatalogo ? 'animate-spin' : ''} />
+                {syncingCatalogo ? 'Sincronizando...' : 'Sincronizar desde WA Business'}
+              </button>
+              {catalogoSyncInfo?.ts && (
+                <span className="text-xs text-gray-600">
+                  Última sync: {new Date(catalogoSyncInfo.ts).toLocaleString('es-AR')} · {catalogoSyncInfo.count} producto(s)
+                </span>
+              )}
+            </div>
+
+            {/* Lista de productos */}
+            {catalogo.length > 0 && (
+              <div className="space-y-2">
+                {catalogo.map((p, idx) => (
+                  <div key={idx} className="flex items-start justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5 gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-sm font-medium ${p.disponible ? 'text-white' : 'text-gray-500 line-through'}`}>{p.nombre}</span>
+                        <span className="text-xs font-semibold text-green-400">${parseFloat(p.precio || 0).toLocaleString('es-AR')} ARS</span>
+                        {p.categoria && <span className="text-xs text-gray-500 bg-gray-700/50 rounded px-1.5">{p.categoria}</span>}
+                        {p.fuente === 'wa_catalog' && <span className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5">WA</span>}
+                        {p.fuente === 'status'     && <span className="text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5">estado</span>}
+                        {p.stock >= 0 && <span className="text-xs text-gray-500">stock: {p.stock}</span>}
+                      </div>
+                      {p.descripcion && <p className="text-xs text-gray-500 mt-0.5 truncate">{p.descripcion}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => toggleDisponible(idx)} title={p.disponible ? 'Deshabilitar' : 'Habilitar'}
+                        className={`p-1.5 rounded-lg text-xs transition-colors ${p.disponible ? 'text-green-400 hover:bg-green-500/10' : 'text-gray-600 hover:bg-gray-700'}`}>
+                        {p.disponible ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                      </button>
+                      <button onClick={() => eliminarProducto(idx)} className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Formulario nuevo producto */}
+            {mostrarFormProd ? (
+              <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Nuevo producto</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Nombre *</label>
+                    <input value={nuevoProd.nombre} onChange={e => setNuevoProd(p => ({ ...p, nombre: e.target.value }))}
+                      className="input-base" placeholder="Ej: Zapatillas Nike Air Max" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Precio (ARS)</label>
+                    <input type="number" min="0" value={nuevoProd.precio} onChange={e => setNuevoProd(p => ({ ...p, precio: e.target.value }))}
+                      className="input-base" placeholder="15000" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Categoría</label>
+                    <input value={nuevoProd.categoria} onChange={e => setNuevoProd(p => ({ ...p, categoria: e.target.value }))}
+                      className="input-base" placeholder="Ropa, Electro, etc." />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Stock (-1 = sin límite)</label>
+                    <input type="number" min="-1" value={nuevoProd.stock} onChange={e => setNuevoProd(p => ({ ...p, stock: e.target.value }))}
+                      className="input-base" placeholder="-1" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">URL Imagen (opcional)</label>
+                    <input value={nuevoProd.imagen} onChange={e => setNuevoProd(p => ({ ...p, imagen: e.target.value }))}
+                      className="input-base" placeholder="https://..." />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Descripción</label>
+                    <input value={nuevoProd.descripcion} onChange={e => setNuevoProd(p => ({ ...p, descripcion: e.target.value }))}
+                      className="input-base" placeholder="Talles 38-45, colores variados..." />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={agregarProducto} disabled={!nuevoProd.nombre.trim()} className="btn-primary text-xs px-4 py-2">
+                    <Plus size={13} /> Agregar
+                  </button>
+                  <button onClick={() => { setMostrarFormProd(false); setNuevoProd({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true }); }}
+                    className="btn-secondary text-xs px-4 py-2">Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setMostrarFormProd(true)} className="btn-secondary text-xs flex items-center gap-1.5">
+                <Plus size={13} /> Agregar producto manualmente
+              </button>
+            )}
+
+            {/* Guardar catálogo */}
+            {catalogo.length > 0 && (
+              <button onClick={saveCatalogo} disabled={savingCatalogo} className="btn-primary text-xs flex items-center gap-1.5 mt-1">
+                <Save size={13} className={savingCatalogo ? 'animate-spin' : ''} />
+                {savingCatalogo ? 'Guardando...' : `Guardar catálogo (${catalogo.length} producto${catalogo.length !== 1 ? 's' : ''})`}
+              </button>
+            )}
           </div>
         </SeccionCollapsible>
 

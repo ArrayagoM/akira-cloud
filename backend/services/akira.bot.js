@@ -9,6 +9,7 @@ const {
   fetchLatestBaileysVersion,
   downloadMediaMessage,
   isJidGroup,
+  isJidStatusBroadcast,
 } = require('@whiskeysockets/baileys');
 const { useMongoAuthState } = require('./bot/mongo-auth.service');
 const pino    = require('pino');
@@ -61,6 +62,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const UNIDADES_ALOJAMIENTO      = (() => { try { return JSON.parse(config.UNIDADES_ALOJAMIENTO || '[]'); } catch { return []; } })();
   const DIRECCION_PROPIEDAD       = config.DIRECCION_PROPIEDAD || '';
   const LINK_UBICACION            = config.LINK_UBICACION  || '';
+  const CATALOGO                  = (() => { try { return JSON.parse(config.CATALOGO || '[]'); } catch { return []; } })();
   const PUERTO                    = parseInt(config.PORT || '3100');
 
   function getDuracionServicio(nombreServicio) {
@@ -91,7 +93,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,
   });
   const mp      = crearMPService({ accessToken: MP_ACCESS_TOKEN, precioTurno: PRECIO_TURNO, duracion: DURACION_RESERVA_HORAS, negocio: NEGOCIO, ngrokDomain: NGROK_DOMAIN, log });
-  const groqSvc = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log, tipoNegocio: TIPO_NEGOCIO });
+  const groqSvc = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log, tipoNegocio: TIPO_NEGOCIO, catalogo: CATALOGO });
 
   // ── Estado ──────────────────────────────────────────────────
   const cacheTemporal        = db.cargar(CACHE_PATH);
@@ -269,6 +271,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     const esAlojamiento = TIPO_NEGOCIO === 'alojamiento';
 
+    // Armar listado del catálogo de productos (si existe)
+    const catalogoStr = CATALOGO.filter(p => p.disponible).map(p =>
+      `• *${p.nombre}*: $${p.precio} ${p.moneda || 'ARS'}${p.categoria ? ` [${p.categoria}]` : ''}${p.descripcion ? ` — ${p.descripcion}` : ''}${p.stock >= 0 ? ` (stock: ${p.stock})` : ''}`
+    ).join('\n');
+
     // Armar descripción de unidades de alojamiento
     const unidadesStr = UNIDADES_ALOJAMIENTO.length > 0
       ? UNIDADES_ALOJAMIENTO.map(u =>
@@ -298,6 +305,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         (usuario.turnosConfirmados?.length ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map(t => `${t.unidad ? t.unidad + ' ' : ''}${t.fecha}→${t.horaFin || ''}`).join(', ')}\n` : '') +
         `FLUJO: 1.Cliente dice fechas [y nº huéspedes si hay varias unidades] → 2.Llamar consultar_disponibilidad_alojamiento (con nombre_unidad si aplica) → 3.Informar precio total y dirección → 4.Cliente confirma → 5.Llamar agendar_alojamiento. NUNCA saltear pasos.\n` +
         `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_alojamiento, Cambiar fechas→reagendar_alojamiento.\n` +
+        (catalogoStr ? `📦 CATÁLOGO DE PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan por productos.\n` : '') +
         (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
       : `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp. ` +
         `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
@@ -317,6 +325,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         (usuario.turnosConfirmados?.length ? `[INT] Turnos confirmados: ${usuario.turnosConfirmados.map(t => `${t.fecha} ${t.hora}`).join(', ')} — nunca preguntar si pagó.\n` : '') +
         `FLUJO: 1.Consultar disponibilidad → 2.Cliente elige → 3.Confirmar → 4.Llamar agendar_turno. NUNCA saltear pasos.\n` +
         `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_turno, Cambiar→reagendar_turno.\n` +
+        (catalogoStr ? `📦 CATÁLOGO DE PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si el cliente pregunta por un producto.\n` : '') +
         (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '');
 
     const sys = { role: 'system', content: sysContent };
@@ -683,6 +692,30 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       programarRecs(jid, usuario.nombre, args.fecha_nueva, args.hora_nueva);
       push(`Reagendado: ${args.fecha_nueva} ${args.hora_nueva}–${hfnStr}. Sin costo extra.`);
     }
+
+    // ── Tool: buscar en catálogo de productos ───────────────────
+    if (tool.function.name === 'consultar_catalogo') {
+      const { query = '', categoria = '' } = args;
+      const q   = query.toLowerCase();
+      const cat = categoria.toLowerCase();
+      const resultados = CATALOGO.filter(p => {
+        if (!p.disponible) return false;
+        if (cat && !(p.categoria || '').toLowerCase().includes(cat)) return false;
+        if (q && !p.nombre.toLowerCase().includes(q) && !(p.descripcion || '').toLowerCase().includes(q)) return false;
+        return true;
+      });
+      if (resultados.length === 0) {
+        push('No encontré productos que coincidan con la búsqueda. Chequeá con el negocio directamente.');
+        return;
+      }
+      push(resultados.map(p =>
+        `*${p.nombre}* — $${p.precio.toLocaleString('es-AR')} ${p.moneda || 'ARS'}` +
+        (p.descripcion ? `\n${p.descripcion}` : '') +
+        (p.categoria   ? ` [${p.categoria}]`  : '') +
+        (p.stock >= 0  ? `\nStock disponible: ${p.stock}` : '')
+      ).join('\n\n'));
+      return;
+    }
   }
 
   // ── Pago post-email ──────────────────────────────────────────
@@ -780,13 +813,93 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     }
   }
 
+  // ── Sincronizar catálogo desde WA Business ───────────────────
+  async function sincronizarCatalogoWA() {
+    try {
+      if (!sock) return;
+      const myJid = sock.user?.id;
+      if (!myJid) return;
+      log('[Catálogo] 🔄 Obteniendo catálogo desde WhatsApp Business...');
+      const { products } = await sock.getCatalog({ jid: myJid, limit: 100 });
+      if (!products?.length) { log('[Catálogo] Sin productos en catálogo WA.'); return; }
+      const catalogo = products.map(p => ({
+        waProductId:  String(p.id || ''),
+        nombre:       p.name        || 'Sin nombre',
+        descripcion:  p.description || '',
+        precio:       parseFloat(p.price) || 0,
+        moneda:       p.currency    || 'ARS',
+        categoria:    p.category    || '',
+        stock:        -1,
+        imagen:       p.imageUrls?.[0] || p.thumbnailUrl || '',
+        disponible:   p.isHidden !== true,
+        fuente:       'wa_catalog',
+      }));
+      emitter.emit('catalog:update', catalogo);
+    } catch (e) {
+      log(`[Catálogo] ⚠️ No se pudo sincronizar catálogo WA Business: ${e.message}`);
+    }
+  }
+
+  // ── Analizar estado (status) del dueño para detectar productos ─
+  async function procesarStatusDueno(msg) {
+    try {
+      const caption =
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        msg.message?.extendedTextMessage?.text || '';
+      if (!caption || caption.length < 5) return;
+
+      const rsp = await groqSvc.llamarGroq([
+        { role: 'system', content: 'Sos un parser de productos. Si el texto describe un producto en venta (con precio), respondé SOLO con JSON válido: {"esProducto":true,"nombre":"...","precio":0,"descripcion":"...","categoria":""}. Si no es un producto respondé: {"esProducto":false}' },
+        { role: 'user', content: caption },
+      ], false);
+      const content = rsp?.choices?.[0]?.message?.content || '';
+      // Extraer JSON del texto (puede venir con texto adicional)
+      const match = content.match(/\{[\s\S]*\}/);
+      if (!match) return;
+      const data = JSON.parse(match[0]);
+      if (!data.esProducto) return;
+      const producto = {
+        nombre:      String(data.nombre      || '').trim(),
+        precio:      parseFloat(data.precio) || 0,
+        descripcion: String(data.descripcion || caption).trim(),
+        categoria:   String(data.categoria   || '').trim(),
+      };
+      if (!producto.nombre) return;
+      emitter.emit('catalog:candidate', producto);
+      log(`[Catálogo] 📸 Producto detectado en estado: "${producto.nombre}" — $${producto.precio}`);
+    } catch {}
+  }
+
   // ── Handler principal de mensajes ────────────────────────────
   async function handleBaileysMessage(msg) {
     if (!msg.message) return;
     const jid = msg.key.remoteJid;
     if (!jid) return;
     if (isJidGroup(jid)) return;
-    if (jid === 'status@broadcast') return;
+
+    // Estados (stories) del dueño → detectar productos
+    if (isJidStatusBroadcast(jid)) {
+      if (msg.key.fromMe) await procesarStatusDueno(msg);
+      return;
+    }
+
+    // Pedido de catálogo WA Business (cliente hace un order desde el catálogo)
+    if (msg.message?.orderMessage) {
+      const order  = msg.message.orderMessage;
+      const items  = order.itemCount   || '?';
+      const total  = order.totalAmount1000 ? (order.totalAmount1000 / 1000).toLocaleString('es-AR') : '?';
+      const moneda = order.totalCurrencyCode || 'ARS';
+      notificarDueno(
+        `🛒 *Nuevo pedido de catálogo WA*\n` +
+        `👤 ${extraerNumero(jid)}\n` +
+        `📦 ${items} ${items === 1 ? 'artículo' : 'artículos'}\n` +
+        `💰 $${total} ${moneda}\n` +
+        `🆔 Pedido: ${order.orderId || '—'}`
+      );
+      await enviarMensaje(jid, `¡Gracias por tu pedido! 🛒\n*${MI_NOMBRE}* lo va a revisar y te contacta a la brevedad para coordinar entrega y pago.`);
+      return;
+    }
 
     // Mensajes propios (comandos del dueño)
     if (msg.key.fromMe) {
@@ -990,6 +1103,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         log('✅ WhatsApp conectado y listo');
         emitter.emit('ready');
         reprogramarRecs();
+        // Sincronizar catálogo WA Business (si tiene productos)
+        setTimeout(() => sincronizarCatalogoWA().catch(() => {}), 5000);
       }
     });
 
@@ -1011,6 +1126,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     audioSvc = crearAudioService({ groqApiKey: GROQ_API_KEY, rimeApiKey: RIME_API_KEY, dataDir, log });
     iniciarServidor();
     if (NGROK_AUTH_TOKEN) await iniciarNgrok();
+    // Escuchar solicitudes externas de sync de catálogo (desde bot.manager)
+    emitter.on('catalog:sync', () => {
+      log('[Catálogo] 🔄 Sync solicitado manualmente...');
+      sincronizarCatalogoWA().catch(() => {});
+    });
     log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
     await conectar();
   }

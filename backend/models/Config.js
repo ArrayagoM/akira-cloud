@@ -101,6 +101,25 @@ const ConfigSchema = new mongoose.Schema(
       default: [],
     },
 
+    // ── Catálogo de productos (revendedores / tiendas / WA Business) ──────
+    // fuente: 'manual' | 'wa_catalog' | 'status'
+    catalogo: {
+      type: [{
+        waProductId:  { type: String, default: '' },       // ID en WA Business
+        nombre:       { type: String, required: true },
+        descripcion:  { type: String, default: '' },
+        precio:       { type: Number, default: 0, min: 0 },
+        moneda:       { type: String, default: 'ARS' },
+        categoria:    { type: String, default: '' },
+        stock:        { type: Number, default: -1 },       // -1 = sin límite
+        imagen:       { type: String, default: '' },       // URL de imagen
+        disponible:   { type: Boolean, default: true },
+        fuente:       { type: String, default: 'manual' },
+      }],
+      default: [],
+    },
+    catalogoSincronizadoEn: { type: Date, default: null },
+
     // Estado de configuración
     configurado: { type: Boolean, default: false },
     credentialsGoogleB64: { ...EncryptedField }, // credentials.json de Google cifrado
@@ -160,6 +179,9 @@ ConfigSchema.methods.resumenKeys = function () {
     googleCalendarOAuth:  !!this.googleCalendarTokens?.encrypted,
     googleEmail:          this.googleEmail || '',
     tieneTransferencia:   !!(this.aliasTransferencia || this.cbuTransferencia),
+    tieneCatalogo:        this.catalogo?.length > 0,
+    catalogoProductos:    this.catalogo?.length || 0,
+    catalogoSincronizadoEn: this.catalogoSincronizadoEn || null,
   };
 };
 

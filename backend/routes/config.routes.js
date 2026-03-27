@@ -317,4 +317,71 @@ router.delete('/keys/:campo', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+//  PUT /api/config/catalogo — guardar catálogo completo
+// ─────────────────────────────────────────────────────────────
+router.put('/catalogo', async (req, res) => {
+  try {
+    const { catalogo } = req.body;
+    if (!Array.isArray(catalogo)) return res.status(400).json({ error: 'catalogo debe ser un array' });
+
+    const catalogoSanitizado = catalogo.map(p => ({
+      waProductId:  String(p.waProductId  || '').trim(),
+      nombre:       String(p.nombre       || '').trim(),
+      descripcion:  String(p.descripcion  || '').trim(),
+      precio:       Math.max(0, parseFloat(p.precio) || 0),
+      moneda:       String(p.moneda       || 'ARS').trim(),
+      categoria:    String(p.categoria    || '').trim(),
+      stock:        parseInt(p.stock)     >= 0 ? parseInt(p.stock) : -1,
+      imagen:       String(p.imagen       || '').trim(),
+      disponible:   p.disponible !== false,
+      fuente:       ['manual', 'wa_catalog', 'status'].includes(p.fuente) ? p.fuente : 'manual',
+    })).filter(p => p.nombre);
+
+    const config = await Config.findOneAndUpdate(
+      { userId: req.user._id },
+      { catalogo: catalogoSanitizado },
+      { upsert: true, new: true }
+    );
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Catálogo actualizado: ${catalogoSanitizado.length} producto(s)` });
+    res.json({ ok: true, catalogo: config.catalogo, keys: config.resumenKeys() });
+  } catch (err) {
+    logger.error('[Config] PUT catalogo error:', err.message);
+    res.status(500).json({ error: 'Error al guardar catálogo' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/config/catalogo/sync — disparar sync desde WA Business
+// ─────────────────────────────────────────────────────────────
+router.post('/catalogo/sync', async (req, res) => {
+  try {
+    const botManager = require('../services/bot.manager');
+    const ok = botManager.triggerCatalogSync(req.user._id);
+    if (!ok) return res.status(400).json({ error: 'El bot no está activo. Inicialo primero para sincronizar el catálogo WA.' });
+    res.json({ ok: true, msg: 'Sincronizando catálogo desde WhatsApp Business...' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  DELETE /api/config/catalogo/producto/:idx — eliminar por índice
+// ─────────────────────────────────────────────────────────────
+router.delete('/catalogo/producto/:idx', async (req, res) => {
+  try {
+    const idx = parseInt(req.params.idx);
+    const config = await Config.findOne({ userId: req.user._id });
+    if (!config) return res.status(404).json({ error: 'Configuración no encontrada' });
+    if (isNaN(idx) || idx < 0 || idx >= config.catalogo.length) {
+      return res.status(400).json({ error: 'Índice inválido' });
+    }
+    config.catalogo.splice(idx, 1);
+    await config.save();
+    res.json({ ok: true, catalogo: config.catalogo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

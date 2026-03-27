@@ -4,25 +4,40 @@
 
 const Groq = require('groq-sdk');
 
-function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos' }) {
+function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [] }) {
   const groq = new Groq({ apiKey });
   let groqBloqueadoHasta = 0;
 
+  // ── Tool: buscar en catálogo de productos ──────────────────
+  const toolCatalogo = { type: 'function', function: {
+    name: 'consultar_catalogo',
+    description: 'Busca productos en el catálogo del negocio. Úsala cuando el cliente pregunte por productos, precios, stock o disponibilidad de artículos.',
+    parameters: { type: 'object', properties: {
+      query:    { type: 'string',  description: 'Nombre o descripción del producto a buscar.' },
+      categoria:{ type: 'string',  description: 'Categoría específica a filtrar (opcional).' },
+    }, required: [] },
+  }};
+
   function herramientas() {
+    const tieneCat = Array.isArray(catalogo) && catalogo.length > 0;
     if (tipoNegocio === 'alojamiento') {
-      return [
+      const tools = [
         { type: 'function', function: { name: 'consultar_disponibilidad_alojamiento', description: 'Verifica disponibilidad para fechas dadas. Si hay múltiples unidades, consulta cada una por separado pasando nombre_unidad. Úsala SIEMPRE ante preguntas de disponibilidad.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string', description: 'YYYY-MM-DD' }, fecha_salida: { type: 'string', description: 'YYYY-MM-DD' }, nombre_unidad: { type: 'string', description: 'Nombre exacto de la unidad (cabaña, departamento, etc.). Omitir para buscar en todas.' }, huespedes: { type: 'number', description: 'Cantidad de huéspedes (para filtrar por capacidad).' } }, required: ['fecha_entrada', 'fecha_salida'] } } },
         { type: 'function', function: { name: 'agendar_alojamiento',                  description: 'Confirma y registra la reserva. SOLO llamar si: (1) se consultó disponibilidad, (2) está disponible, (3) cliente confirmó. Si hay varias unidades, incluir nombre_unidad.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string' }, fecha_salida: { type: 'string' }, nombre_unidad: { type: 'string', description: 'Nombre exacto de la unidad elegida.' } }, required: ['fecha_entrada', 'fecha_salida'] } } },
         { type: 'function', function: { name: 'cancelar_alojamiento',                 description: 'Cancela una reserva de alojamiento existente.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string' }, nombre_unidad: { type: 'string' } }, required: ['fecha_entrada'] } } },
         { type: 'function', function: { name: 'reagendar_alojamiento',                description: 'Cambia las fechas de una reserva existente.', parameters: { type: 'object', properties: { fecha_entrada_actual: { type: 'string' }, fecha_entrada_nueva: { type: 'string' }, fecha_salida_nueva: { type: 'string' }, nombre_unidad: { type: 'string' } }, required: ['fecha_entrada_actual', 'fecha_entrada_nueva', 'fecha_salida_nueva'] } } },
       ];
+      if (tieneCat) tools.push(toolCatalogo);
+      return tools;
     }
-    return [
+    const tools = [
       { type: 'function', function: { name: 'consultar_disponibilidad', description: 'Busca horarios libres. Úsala SIEMPRE ante preguntas de disponibilidad.', parameters: { type: 'object', properties: { fecha: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['fecha'] } } },
       { type: 'function', function: { name: 'agendar_turno',            description: 'SOLO llamar si: (1) se consultó disponibilidad, (2) cliente eligió día Y hora, (3) cliente confirmó con sí/dale/reservame.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' }, hora_fin: { type: 'string' } }, required: ['fecha', 'hora'] } } },
       { type: 'function', function: { name: 'cancelar_turno',           description: 'Cancela turno YA PAGADO.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' } }, required: ['fecha', 'hora'] } } },
       { type: 'function', function: { name: 'reagendar_turno',          description: 'Mueve turno pagado sin cobrar de nuevo.', parameters: { type: 'object', properties: { fecha_actual: { type: 'string' }, hora_actual: { type: 'string' }, hora_fin_actual: { type: 'string' }, fecha_nueva: { type: 'string' }, hora_nueva: { type: 'string' } }, required: ['fecha_actual', 'hora_actual', 'fecha_nueva', 'hora_nueva'] } } },
     ];
+    if (tieneCat) tools.push(toolCatalogo);
+    return tools;
   }
 
   async function llamarGroq(msgs, conTools = true) {
