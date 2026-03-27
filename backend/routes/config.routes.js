@@ -148,7 +148,7 @@ router.put('/negocio', [
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
-    const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia, bancoTransferencia, serviciosList } = req.body;
+    const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia, bancoTransferencia, serviciosList, tipoNegocio, checkInHora, checkOutHora, minimaEstadia, precioPorNoche } = req.body;
 
     const config = await Config.findOneAndUpdate(
       { userId: req.user._id },
@@ -164,7 +164,12 @@ router.put('/negocio', [
         aliasTransferencia: (aliasTransferencia || '').trim(),
         cbuTransferencia:   (cbuTransferencia   || '').trim(),
         bancoTransferencia: (bancoTransferencia  || '').trim(),
-        ...(serviciosList !== undefined ? { serviciosList } : {}),
+        ...(serviciosList  !== undefined ? { serviciosList }  : {}),
+        ...(tipoNegocio    ? { tipoNegocio }    : {}),
+        ...(checkInHora    ? { checkInHora }    : {}),
+        ...(checkOutHora   ? { checkOutHora }   : {}),
+        ...(minimaEstadia  !== undefined ? { minimaEstadia:  parseInt(minimaEstadia)  } : {}),
+        ...(precioPorNoche !== undefined ? { precioPorNoche: parseFloat(precioPorNoche) } : {}),
         configurado: true,
       },
       { upsert: true, new: true }

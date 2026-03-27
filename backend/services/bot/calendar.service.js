@@ -119,7 +119,26 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     } catch { return false; }
   }
 
-  return { crearFecha, obtenerEventos, horariosLibres, crearEvento, eliminarEvento };
+  // ── Disponibilidad por rango de fechas (alojamiento) ─────────
+  async function consultarRango(fechaEntrada, fechaSalida) {
+    const [ye, me, de] = fechaEntrada.split('-').map(Number);
+    const [ys, ms, ds] = fechaSalida.split('-').map(Number);
+    // Verificar días bloqueados: si algún día del rango está bloqueado
+    if (Array.isArray(diasBloqueados) && diasBloqueados.length > 0) {
+      const ini = new Date(ye, me - 1, de);
+      const fin = new Date(ys, ms - 1, ds);
+      for (let d = new Date(ini); d < fin; d.setDate(d.getDate() + 1)) {
+        const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (diasBloqueados.includes(iso)) return { disponible: false, motivo: `El ${iso} no hay disponibilidad.` };
+      }
+    }
+    const iniDate = new Date(Date.UTC(ye, me - 1, de));
+    const finDate = new Date(Date.UTC(ys, ms - 1, ds));
+    const eventos = await obtenerEventos(calendarId, iniDate, finDate);
+    return { disponible: eventos.length === 0, eventos };
+  }
+
+  return { crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento };
 }
 
 module.exports = crearCalendarService;

@@ -77,6 +77,15 @@ const ConfigSchema = new mongoose.Schema(
     // Días específicamente bloqueados: ['YYYY-MM-DD', ...]
     diasBloqueados: { type: [String], default: [] },
 
+    // Tipo de negocio — cambia el flujo del bot
+    // 'turnos'       → slots horarios (barbería, médico, etc.)
+    // 'alojamiento'  → check-in / check-out (cabañas, depts, hospedajes)
+    tipoNegocio:   { type: String, enum: ['turnos', 'alojamiento'], default: 'turnos' },
+    checkInHora:   { type: String, default: '14:00', trim: true },
+    checkOutHora:  { type: String, default: '10:00', trim: true },
+    minimaEstadia: { type: Number, default: 1, min: 1 },  // noches mínimas
+    precioPorNoche:{ type: Number, default: 0, min: 0 },  // 0 = usar precioTurno
+
     // Estado de configuración
     configurado: { type: Boolean, default: false },
     credentialsGoogleB64: { ...EncryptedField }, // credentials.json de Google cifrado

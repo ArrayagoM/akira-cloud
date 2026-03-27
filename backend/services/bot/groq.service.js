@@ -4,11 +4,19 @@
 
 const Groq = require('groq-sdk');
 
-function crearGroqService({ apiKey, modelo, log }) {
+function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos' }) {
   const groq = new Groq({ apiKey });
   let groqBloqueadoHasta = 0;
 
   function herramientas() {
+    if (tipoNegocio === 'alojamiento') {
+      return [
+        { type: 'function', function: { name: 'consultar_disponibilidad_alojamiento', description: 'Verifica si las fechas solicitadas están disponibles. Úsala SIEMPRE cuando el cliente pregunte por disponibilidad o quiera reservar.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string', description: 'YYYY-MM-DD' }, fecha_salida: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['fecha_entrada', 'fecha_salida'] } } },
+        { type: 'function', function: { name: 'agendar_alojamiento',                  description: 'Confirma y registra la reserva. SOLO llamar si: (1) se consultó disponibilidad, (2) está disponible, (3) cliente confirmó.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string' }, fecha_salida: { type: 'string' } }, required: ['fecha_entrada', 'fecha_salida'] } } },
+        { type: 'function', function: { name: 'cancelar_alojamiento',                 description: 'Cancela una reserva de alojamiento existente.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string' } }, required: ['fecha_entrada'] } } },
+        { type: 'function', function: { name: 'reagendar_alojamiento',                description: 'Cambia las fechas de una reserva existente.', parameters: { type: 'object', properties: { fecha_entrada_actual: { type: 'string' }, fecha_entrada_nueva: { type: 'string' }, fecha_salida_nueva: { type: 'string' } }, required: ['fecha_entrada_actual', 'fecha_entrada_nueva', 'fecha_salida_nueva'] } } },
+      ];
+    }
     return [
       { type: 'function', function: { name: 'consultar_disponibilidad', description: 'Busca horarios libres. Úsala SIEMPRE ante preguntas de disponibilidad.', parameters: { type: 'object', properties: { fecha: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['fecha'] } } },
       { type: 'function', function: { name: 'agendar_turno',            description: 'SOLO llamar si: (1) se consultó disponibilidad, (2) cliente eligió día Y hora, (3) cliente confirmó con sí/dale/reservame.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' }, hora_fin: { type: 'string' } }, required: ['fecha', 'hora'] } } },

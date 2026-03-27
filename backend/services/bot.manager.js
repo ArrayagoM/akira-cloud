@@ -102,6 +102,11 @@ async function startBot(userId) {
       DIAS_BLOQUEADOS:           JSON.stringify(config.diasBloqueados || []),
       MODO_PAUSA:                String(config.modoPausa || false),
       CELULAR_NOTIFICACIONES:    config.celularNotificaciones || '',
+      TIPO_NEGOCIO:              config.tipoNegocio    || 'turnos',
+      CHECK_IN_HORA:             config.checkInHora    || '14:00',
+      CHECK_OUT_HORA:            config.checkOutHora   || '10:00',
+      MINIMA_ESTADIA:            String(config.minimaEstadia  || 1),
+      PRECIO_POR_NOCHE:          String(config.precioPorNoche || 0),
       PORT:                    String(asignarPuerto(uid)),
     };
 
