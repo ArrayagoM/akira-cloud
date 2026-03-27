@@ -816,27 +816,44 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // ── Sincronizar catálogo desde WA Business ───────────────────
   async function sincronizarCatalogoWA() {
     try {
-      if (!sock) return;
-      const myJid = sock.user?.id;
-      if (!myJid) return;
-      log('[Catálogo] 🔄 Obteniendo catálogo desde WhatsApp Business...');
-      const { products } = await sock.getCatalog({ jid: myJid, limit: 100 });
-      if (!products?.length) { log('[Catálogo] Sin productos en catálogo WA.'); return; }
+      if (!sock) { log('[Catálogo] ⚠️ Socket no disponible'); return; }
+      log(`[Catálogo] 🔄 Obteniendo catálogo WA Business (user: ${sock.user?.id || '?'})...`);
+
+      // Pasar undefined → Baileys usa authState.creds.me?.id internamente (más confiable)
+      const result = await sock.getCatalog({ limit: 100 });
+      log(`[Catálogo] Raw result keys: ${Object.keys(result || {}).join(', ')}`);
+
+      const products = result?.products;
+      log(`[Catálogo] Productos recibidos: ${products?.length ?? 'null'}`);
+
+      if (!products?.length) {
+        log('[Catálogo] Sin productos en catálogo WA. ¿Cuenta es WhatsApp Business con catálogo publicado?');
+        emitter.emit('catalog:update', []);
+        return;
+      }
+
+      // Log del primer producto para verificar campos
+      log(`[Catálogo] Muestra primer producto: ${JSON.stringify(products[0]).slice(0, 200)}`);
+
       const catalogo = products.map(p => ({
         waProductId:  String(p.id || ''),
         nombre:       p.name        || 'Sin nombre',
         descripcion:  p.description || '',
+        // price viene como entero directo (no en centavos)
         precio:       parseFloat(p.price) || 0,
         moneda:       p.currency    || 'ARS',
         categoria:    p.category    || '',
         stock:        -1,
-        imagen:       p.imageUrls?.[0] || p.thumbnailUrl || '',
+        // imageUrls es un objeto { "0": "url", "1": "url" } — no un array
+        imagen:       Object.values(p.imageUrls || {})[0] || '',
         disponible:   p.isHidden !== true,
         fuente:       'wa_catalog',
       }));
+
+      log(`[Catálogo] ✅ ${catalogo.length} productos mapeados correctamente`);
       emitter.emit('catalog:update', catalogo);
     } catch (e) {
-      log(`[Catálogo] ⚠️ No se pudo sincronizar catálogo WA Business: ${e.message}`);
+      log(`[Catálogo] ⚠️ Error sincronizando catálogo WA: ${e.message}`);
     }
   }
 

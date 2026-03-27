@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { useSocket } from '../hooks/useSocket';
+import { AuthContext } from '../context/AuthContext';
 import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin, RefreshCw } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
@@ -187,6 +189,8 @@ function KeyField({ campo, label, placeholder, keys, onSave, onDelete }) {
 }
 
 export default function ConfigPage() {
+  const { user } = useContext(AuthContext);
+  const { on }   = useSocket(user?._id);
   const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig]   = useState({});
   const [keys,   setKeys]     = useState({});
@@ -309,7 +313,26 @@ export default function ConfigPage() {
         setCatalogoSyncInfo({ ts: r.data.keys.catalogoSincronizadoEn, count: r.data.keys.catalogoProductos || 0 });
       }
     }).catch(() => toast.error('Error cargando configuración'));
-  }, []);
+
+    // Socket: catálogo sincronizado desde WA Business
+    const offSynced = on('catalog:synced', ({ count, total }) => {
+      setSyncingCatalogo(false);
+      setCatalogoSyncInfo({ ts: new Date().toISOString(), count: total ?? count });
+      toast.success(`✅ Catálogo sincronizado — ${count} producto(s) desde WA`);
+      // Recargar catálogo desde la API
+      api.get('/config').then(r => {
+        if (Array.isArray(r.data.config?.catalogo)) setCatalogo(r.data.config.catalogo);
+      }).catch(() => {});
+    });
+
+    // Socket: producto nuevo detectado desde un estado WA
+    const offNew = on('catalog:new-product', (prod) => {
+      toast.success(`📸 Nuevo producto detectado en estado: "${prod.nombre}"`);
+      setCatalogo(c => [...c, { ...prod, disponible: true, fuente: 'status' }]);
+    });
+
+    return () => { offSynced(); offNew(); };
+  }, [on]);
 
   const handleForm = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -385,13 +408,14 @@ export default function ConfigPage() {
   const syncCatalogo = async () => {
     setSyncingCatalogo(true);
     try {
-      const r = await api.post('/config/catalogo/sync');
-      toast.success(r.data.msg || 'Sincronizando desde WhatsApp Business...');
-      setCatalogoSyncInfo({ ts: new Date().toISOString(), count: catalogo.length });
+      await api.post('/config/catalogo/sync');
+      toast('🔄 Sincronizando catálogo WA Business...', { icon: '⏳' });
+      // El spinner se apaga cuando llega el evento socket 'catalog:synced'
+      // Timeout de seguridad por si no llega el evento
+      setTimeout(() => setSyncingCatalogo(false), 15000);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Error al sincronizar');
-    } finally {
-      setTimeout(() => setSyncingCatalogo(false), 3000);
+      toast.error(err.response?.data?.error || 'Error al sincronizar — ¿el bot está activo?');
+      setSyncingCatalogo(false);
     }
   };
 
