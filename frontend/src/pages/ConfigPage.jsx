@@ -195,6 +195,8 @@ export default function ConfigPage() {
     horasCancelacion: '24', promptPersonalizado: '', dominioNgrok: '', mpWebhookUrl: '',
     aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '',
     serviciosList: [],
+    tipoNegocio: 'turnos', checkInHora: '14:00', checkOutHora: '10:00',
+    minimaEstadia: '1', precioPorNoche: '0',
   });
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60' });
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
@@ -278,6 +280,11 @@ export default function ConfigPage() {
         cbuTransferencia:    c.cbuTransferencia    || '',
         bancoTransferencia:  c.bancoTransferencia  || '',
         serviciosList:       Array.isArray(c.serviciosList) ? c.serviciosList : [],
+        tipoNegocio:         c.tipoNegocio    || 'turnos',
+        checkInHora:         c.checkInHora    || '14:00',
+        checkOutHora:        c.checkOutHora   || '10:00',
+        minimaEstadia:       String(c.minimaEstadia  || 1),
+        precioPorNoche:      String(c.precioPorNoche || 0),
       });
       if (c.horariosAtencion && Object.keys(c.horariosAtencion).length > 0) {
         setHorarios({ ...HORARIOS_DEFAULT, ...c.horariosAtencion });
@@ -413,6 +420,55 @@ export default function ConfigPage() {
         {/* Datos del negocio */}
         <SeccionCollapsible titulo="🏢 Datos del negocio" defaultOpen>
           <form onSubmit={saveNegocio} className="space-y-4">
+
+            {/* Tipo de negocio */}
+            <div>
+              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Tipo de negocio</label>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { value: 'turnos',      label: '📅 Turnos / Citas', desc: 'Barbería, médico, uñas, etc.' },
+                  { value: 'alojamiento', label: '🏠 Alojamiento',    desc: 'Cabañas, departamentos, hospedajes' },
+                ].map(op => (
+                  <button
+                    key={op.value}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, tipoNegocio: op.value }))}
+                    className={`p-3 rounded-xl border text-left transition-colors ${form.tipoNegocio === op.value ? 'border-indigo-500 bg-indigo-500/10' : 'border-gray-700 bg-gray-800/40 hover:border-gray-600'}`}
+                  >
+                    <p className="text-sm font-semibold text-white">{op.label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{op.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Configuración de alojamiento */}
+            {form.tipoNegocio === 'alojamiento' && (
+              <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wide">Configuración de alojamiento</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Check-in</label>
+                    <input type="time" name="checkInHora" value={form.checkInHora} onChange={handleForm} className="input-base" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Check-out</label>
+                    <input type="time" name="checkOutHora" value={form.checkOutHora} onChange={handleForm} className="input-base" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Estadía mínima (noches)</label>
+                    <input type="number" name="minimaEstadia" value={form.minimaEstadia} onChange={handleForm} min="1" className="input-base" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Precio por noche (ARS)</label>
+                    <input type="number" name="precioPorNoche" value={form.precioPorNoche} onChange={handleForm} min="0" className="input-base" />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Tu nombre *</label>
@@ -710,8 +766,8 @@ export default function ConfigPage() {
           </div>
         </SeccionCollapsible>
 
-        {/* Horarios de atención */}
-        <SeccionCollapsible titulo="⏰ Horarios de atención">
+        {/* Horarios de atención — solo para modo turnos */}
+        {form.tipoNegocio !== 'alojamiento' && <SeccionCollapsible titulo="⏰ Horarios de atención">
           <div className="space-y-4">
             <p className="text-xs text-gray-500">Configurá en qué días y horarios recibís clientes. El bot solo ofrecerá turnos en los horarios activos.</p>
             <div className="space-y-2">
@@ -769,7 +825,7 @@ export default function ConfigPage() {
                 : <><Save size={15} />Guardar horarios</>}
             </button>
           </div>
-        </SeccionCollapsible>
+        </SeccionCollapsible>}
 
         {/* Disponibilidad */}
         <SeccionCollapsible titulo="⏸️ Disponibilidad">
