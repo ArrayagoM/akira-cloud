@@ -827,7 +827,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       log(`[Catálogo] Productos recibidos: ${products?.length ?? 'null'}`);
 
       if (!products?.length) {
-        log('[Catálogo] Sin productos en catálogo WA. ¿Cuenta es WhatsApp Business con catálogo publicado?');
+        log('[Catálogo] Sin productos en catálogo WA.');
+        log(`[Catálogo] Raw result: ${JSON.stringify(result).slice(0, 400)}`);
+        log('[Catálogo] Verificá: (1) la cuenta es WA Business, (2) el catálogo tiene productos publicados, (3) el catálogo no está oculto.');
         emitter.emit('catalog:update', []);
         return;
       }

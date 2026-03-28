@@ -196,10 +196,11 @@ async function startBot(userId) {
         const merged   = [...manuales, ...catalogo];
         await Config.findOneAndUpdate(
           { userId: uid },
-          { catalogo: merged, catalogoSincronizadoEn: new Date() }
+          { catalogo: merged, catalogoSincronizadoEn: new Date() },
+          { upsert: true }
         );
         emitirAlUsuario(uid, 'catalog:synced', { count: catalogo.length, total: merged.length });
-        logger.info(`[BotMgr] Catálogo WA sincronizado para user ${uid}: ${catalogo.length} productos`);
+        logger.info(`[BotMgr] Catálogo WA sincronizado para user ${uid}: ${catalogo.length} producto(s) de WA + ${manuales.length} manual(es) = ${merged.length} total`);
       } catch (e) {
         logger.warn(`[BotMgr] Error guardando catálogo para user ${uid}: ${e.message}`);
       }

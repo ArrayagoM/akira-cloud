@@ -461,20 +461,47 @@ export default function ConfigPage() {
 
   const syncCatalogo = async () => {
     setSyncingCatalogo(true);
+    const toastId = toast.loading('🔄 Contactando WA Business...', { duration: 20000 });
     try {
       await api.post('/config/catalogo/sync');
-      toast('🔄 Sincronizando catálogo desde WA Business...', { icon: '⏳' });
       setBotStatus(s => ({ ...s, activo: true, conectado: true }));
-      // El spinner se apaga cuando llega el evento socket 'catalog:synced'
-      // Timeout de seguridad por si no llega el evento
-      setTimeout(() => setSyncingCatalogo(false), 20000);
+
+      // Polling: recargar catálogo cada 3 s hasta que aparezcan productos nuevos (máx 18 s)
+      let intentos = 0;
+      const prevCount = catalogo.length;
+      const poll = setInterval(async () => {
+        intentos++;
+        try {
+          const r = await api.get('/config');
+          const nuevos = r.data.config?.catalogo;
+          if (Array.isArray(nuevos) && nuevos.length > prevCount) {
+            // Llegaron productos nuevos
+            setCatalogo(nuevos);
+            setCatalogoSyncInfo({ ts: new Date().toISOString(), count: nuevos.filter(p => p.fuente === 'wa_catalog').length });
+            toast.success(`✅ ${nuevos.filter(p => p.fuente === 'wa_catalog').length} producto(s) importados desde WA Business`, { id: toastId });
+            setSyncingCatalogo(false);
+            clearInterval(poll);
+          } else if (intentos >= 6) {
+            // 6 × 3 s = 18 s sin cambios
+            if (Array.isArray(nuevos)) setCatalogo(nuevos);
+            const waProds = (nuevos || []).filter(p => p.fuente === 'wa_catalog').length;
+            if (waProds > 0) {
+              toast.success(`✅ ${waProds} producto(s) encontrados en WA Business`, { id: toastId });
+            } else {
+              toast('⚠️ Sync completado pero no se encontraron productos en el catálogo de WA Business.\n¿El catálogo está publicado en la cuenta?', { id: toastId, duration: 6000, icon: '⚠️' });
+            }
+            setSyncingCatalogo(false);
+            clearInterval(poll);
+          }
+        } catch { /* ignorar errores de polling */ }
+      }, 3000);
+
     } catch (err) {
       const data = err.response?.data || {};
-      // Si el backend intentó reconectar y está esperando → mostrar info, no error
       if (data.botConectado) {
-        toast('⏳ Bot reconectando… intentá sincronizar en 30 segundos.', { icon: '🔄', duration: 5000 });
+        toast('⏳ Bot reconectando… intentá sincronizar en 30 segundos.', { id: toastId, icon: '🔄', duration: 5000 });
       } else {
-        toast.error(data.error || 'Error al sincronizar — iniciá el bot desde el Dashboard primero.');
+        toast.error(data.error || 'Error al sincronizar — iniciá el bot desde el Dashboard primero.', { id: toastId });
       }
       setSyncingCatalogo(false);
     }
