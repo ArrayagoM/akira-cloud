@@ -56,10 +56,12 @@ router.get('/google/connect', (req, res) => {
 router.get('/google/callback', async (req, res) => {
   const { code, state: userToken, error } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || '';
+  const redirectUri = `${process.env.BACKEND_URL}/api/config/google/callback`;
 
   if (error || !code || !userToken) {
-    logger.warn(`[Config] Google OAuth callback — error o datos faltantes: ${error || 'sin code/state'}`);
-    return res.redirect(`${frontendUrl}/config?calendar=error`);
+    const reason = error || 'missing_params';
+    logger.warn(`[Config] Google OAuth callback — error: ${reason}`);
+    return res.redirect(`${frontendUrl}/config?calendar=error&reason=${encodeURIComponent(reason)}`);
   }
 
   try {
@@ -67,6 +69,8 @@ router.get('/google/callback', async (req, res) => {
     const userId  = payload.id;
 
     const oauth2Client = crearOAuth2Client();
+    logger.info(`[Config] Google OAuth usando redirect_uri: ${redirectUri}`);
+
     const { tokens }   = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
 
@@ -86,9 +90,34 @@ router.get('/google/callback', async (req, res) => {
     res.redirect(`${frontendUrl}/config?calendar=ok`);
 
   } catch (err) {
-    logger.error('[Config] Google OAuth callback error:', err.message);
-    res.redirect(`${process.env.FRONTEND_URL || ''}/config?calendar=error`);
+    // Detectar el tipo de error para dar mejor feedback al frontend
+    const msg = err.message || '';
+    let reason = 'unknown';
+    if (msg.includes('redirect_uri_mismatch')) reason = 'redirect_uri_mismatch';
+    else if (msg.includes('invalid_client'))   reason = 'invalid_client';
+    else if (msg.includes('invalid_grant'))    reason = 'invalid_grant';
+    else if (msg.includes('access_denied'))    reason = 'access_denied';
+    else if (msg.includes('expired'))          reason = 'token_expired';
+
+    logger.error(`[Config] Google OAuth callback error (${reason}): ${msg}`);
+    logger.error(`[Config] redirect_uri usado: ${redirectUri}`);
+    res.redirect(`${process.env.FRONTEND_URL || ''}/config?calendar=error&reason=${encodeURIComponent(reason)}&redirect_uri=${encodeURIComponent(redirectUri)}`);
   }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/config/google/check — diagnóstico de configuración OAuth
+// ─────────────────────────────────────────────────────────────
+router.get('/google/check', (req, res) => {
+  const redirectUri = `${process.env.BACKEND_URL}/api/config/google/callback`;
+  res.json({
+    configurado:  !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uri: redirectUri,
+    backend_url:  process.env.BACKEND_URL || '(no configurado)',
+    frontend_url: process.env.FRONTEND_URL || '(no configurado)',
+    client_id_ok: !!process.env.GOOGLE_CLIENT_ID,
+    client_secret_ok: !!process.env.GOOGLE_CLIENT_SECRET,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────

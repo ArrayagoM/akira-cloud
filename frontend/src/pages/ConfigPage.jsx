@@ -294,7 +294,20 @@ export default function ConfigPage() {
       setSearchParams({});
     }
     if (searchParams.get('calendar') === 'error') {
-      toast.error('No se pudo conectar Google Calendar. Intentá de nuevo.');
+      const reason      = searchParams.get('reason') || '';
+      const redirectUri = searchParams.get('redirect_uri') || '';
+
+      const MENSAJES = {
+        redirect_uri_mismatch: `URI de redirección no registrada en Google Cloud Console.\nAgregá esta URL en "Credenciales → URIs de redirección autorizadas":\n${redirectUri || '(revisá los logs de Render)'}`,
+        invalid_client:        'Client ID o Client Secret incorrectos. Verificá las variables GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Render.',
+        invalid_grant:         'El código de autorización expiró. Intentá conectar de nuevo.',
+        access_denied:         'Permiso denegado por el usuario.',
+        token_expired:         'Tu sesión expiró. Volvé a iniciar sesión e intentá de nuevo.',
+        access_blocked:        'App bloqueada por Google. Agregá tu cuenta como "Usuario de prueba" en Google Cloud Console → Pantalla de consentimiento OAuth.',
+      };
+
+      const msg = MENSAJES[reason] || `Error desconocido conectando Google Calendar${reason ? ` (${reason})` : ''}. Revisá los logs de Render.`;
+      toast.error(msg, { duration: 10000 });
       setSearchParams({});
     }
   }, []);
@@ -992,10 +1005,39 @@ export default function ConfigPage() {
               </div>
             ) : (
               /* Botón principal: conectar con Google */
-              <div className="space-y-3">
-                <p className="text-sm text-gray-300">
+              <div className="space-y-4">
+                <p className="text-sm" style={{ color: 'var(--text2)' }}>
                   Conectá tu Google Calendar con un click. El bot podrá ver horarios disponibles y crear turnos automáticamente.
                 </p>
+
+                {/* Checklist de requisitos antes de conectar */}
+                <div className="rounded-xl p-4 space-y-3 text-xs" style={{ background: 'rgba(0,232,123,0.04)', border: '1px solid rgba(0,232,123,0.15)' }}>
+                  <p className="font-semibold" style={{ color: 'var(--accent)' }}>⚙️ Requisitos en Google Cloud Console</p>
+                  <div className="space-y-2" style={{ color: 'var(--text2)' }}>
+                    <div>
+                      <p className="font-medium text-white mb-1">1. Credenciales → URIs de redirección autorizadas</p>
+                      <p className="mb-1">Esta URL debe estar registrada exactamente así:</p>
+                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg font-mono break-all" style={{ background: 'var(--surface3)', border: '1px solid var(--border2)', color: '#7dd3fc', fontSize: 11 }}>
+                        <span className="flex-1">
+                          {(() => {
+                            const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '');
+                            return base || 'https://akira-cloud.onrender.com';
+                          })()}/api/config/google/callback
+                        </span>
+                        <CopiarTexto texto={`${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || 'https://akira-cloud.onrender.com'}/api/config/google/callback`} />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">2. Pantalla de consentimiento → Usuarios de prueba</p>
+                      <p>Agregá el Gmail que vas a conectar (necesario mientras la app esté en modo Testing).</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">3. Variables en Render</p>
+                      <p><code className="px-1 py-0.5 rounded" style={{ background: 'var(--surface3)' }}>GOOGLE_CLIENT_ID</code> y <code className="px-1 py-0.5 rounded" style={{ background: 'var(--surface3)' }}>GOOGLE_CLIENT_SECRET</code> configuradas.</p>
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   onClick={conectarGoogleCalendar}
                   className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg bg-white hover:bg-gray-100 text-gray-800 font-medium text-sm transition-colors shadow"
@@ -1008,7 +1050,7 @@ export default function ConfigPage() {
                   </svg>
                   Conectar con Google Calendar
                 </button>
-                <p className="text-xs text-gray-500 text-center">
+                <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
                   Solo pedimos permiso para ver y editar tu calendario. Podés desconectarlo cuando quieras.
                 </p>
               </div>
