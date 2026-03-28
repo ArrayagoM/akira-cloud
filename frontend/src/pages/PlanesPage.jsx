@@ -141,64 +141,74 @@ export default function PlanesPage() {
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto space-y-7">
+      <div className="max-w-5xl mx-auto space-y-6 animate-page-in">
 
-        <div>
+        {/* Header */}
+        <div className="animate-fade-up">
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Crown size={22} className="text-yellow-400" /> Planes y suscripción
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Elegí el plan que mejor se adapta a tu negocio.</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text2)' }}>Elegí el plan que mejor se adapta a tu negocio.</p>
         </div>
 
         {/* Estado actual */}
         {suscripcion && !esAdmin && (
-          <div className={`card flex items-center gap-4 ${!suscripcion.planVigente ? 'border-red-500/30 bg-red-500/5' : planActual === 'trial' ? 'border-yellow-500/30 bg-yellow-500/5' : planActual === 'admin' ? 'border-purple-500/30 bg-purple-500/5' : 'border-green-500/30 bg-green-500/5'}`}>
+          <div className="card flex items-center gap-4 animate-fade-up delay-50"
+            style={!suscripcion.planVigente
+              ? { borderColor: 'rgba(244,63,94,0.25)', background: 'rgba(244,63,94,0.04)' }
+              : planActual === 'trial'
+              ? { borderColor: 'rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.04)' }
+              : { borderColor: 'rgba(0,232,123,0.2)', background: 'rgba(0,232,123,0.04)' }}>
             {!suscripcion.planVigente
-              ? <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
-              : <Zap size={20} className="text-green-400 flex-shrink-0" />}
+              ? <AlertCircle size={20} style={{ color: '#f43f5e', flexShrink: 0 }} />
+              : <Zap size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
             <div className="flex-1">
               {planActual === 'admin'
-                ? <p className="font-semibold text-purple-400">Plan Administrador — Acceso ilimitado y gratuito</p>
+                ? <p className="font-semibold" style={{ color: '#a78bfa' }}>Plan Administrador — Acceso ilimitado y gratuito</p>
                 : !suscripcion.planVigente
-                ? <p className="font-semibold text-red-400">Plan vencido — El bot está desactivado</p>
+                ? <p className="font-semibold" style={{ color: '#f43f5e' }}>Plan vencido — El bot está desactivado</p>
                 : planActual === 'trial'
-                ? <p className="font-semibold text-yellow-400">Prueba gratuita — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>
-                : <p className="font-semibold text-green-400">Plan {planActual} activo — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>
-              }
-              {planActual !== 'admin' && <p className="text-xs text-gray-500 mt-0.5">
-                {suscripcion.planVigente ? 'La suscripción se renueva automáticamente.' : 'Elegí un plan para reactivar el bot.'}
-              </p>}
+                ? <p className="font-semibold" style={{ color: '#f59e0b' }}>Prueba gratuita — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>
+                : <p className="font-semibold" style={{ color: 'var(--accent)' }}>Plan {planActual} activo — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>}
+              {planActual !== 'admin' && (
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>
+                  {suscripcion.planVigente ? 'La suscripción se renueva automáticamente.' : 'Elegí un plan para reactivar el bot.'}
+                </p>
+              )}
             </div>
-            <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${planActual === 'admin' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : planActual === 'trial' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : 'bg-green-500/10 text-green-400 border border-green-500/20'}`}>
-              {planActual}
-            </span>
+            <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${
+              planActual === 'admin' ? 'badge-gray' : planActual === 'trial' ? 'badge-yellow' : 'badge-green'
+            }`}>{planActual}</span>
           </div>
         )}
 
         {/* Badge admin */}
         {esAdmin && (
-          <div className="flex items-center gap-3 rounded-xl px-4 py-3 border border-yellow-500/30 bg-yellow-500/5 text-sm text-yellow-400">
+          <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm animate-fade-up delay-50"
+            style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b' }}>
             <span>👑</span>
             <div>
               <p className="font-semibold">Acceso Admin — Ilimitado y gratuito</p>
-              <p className="text-xs text-gray-500 mt-0.5">Tenés todas las funciones activas. No necesitás suscripción.</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Tenés todas las funciones activas. No necesitás suscripción.</p>
             </div>
           </div>
         )}
 
         {/* Toggle mensual/anual */}
         {planActual !== 'admin' && (
-          <div className="flex items-center justify-center gap-4">
-            <span className={`text-sm font-medium ${!anual ? 'text-white' : 'text-gray-500'}`}>Mensual</span>
+          <div className="flex items-center justify-center gap-4 animate-fade-up delay-100">
+            <span className="text-sm font-medium" style={{ color: !anual ? 'var(--text)' : 'var(--muted)' }}>Mensual</span>
             <button
               onClick={() => setAnual(!anual)}
-              className={`relative w-14 h-7 rounded-full transition-colors ${anual ? 'bg-green-500' : 'bg-gray-700'}`}
+              className="relative w-12 h-6 rounded-full transition-all duration-300"
+              style={{ background: anual ? 'var(--accent)' : 'var(--surface3)', border: '1px solid var(--border)' }}
             >
-              <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${anual ? 'translate-x-7' : 'translate-x-0.5'}`} />
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-300 ${anual ? 'translate-x-6' : 'translate-x-0.5'}`} />
             </button>
-            <span className={`text-sm font-medium flex items-center gap-1.5 ${anual ? 'text-white' : 'text-gray-500'}`}>
+            <span className="text-sm font-medium flex items-center gap-1.5" style={{ color: anual ? 'var(--text)' : 'var(--muted)' }}>
               Anual
-              <span className="bg-green-500/20 text-green-400 border border-green-500/30 text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+                style={{ background: 'rgba(0,232,123,0.1)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.2)' }}>
                 <TrendingDown size={10} /> 20% OFF
               </span>
             </span>
@@ -207,62 +217,84 @@ export default function PlanesPage() {
 
         {/* Cards de planes */}
         {planActual !== 'admin' && (
-          <div className="grid md:grid-cols-3 gap-5">
-            {PLANES_INFO.map((p) => {
+          <div className="grid md:grid-cols-3 gap-4">
+            {PLANES_INFO.map((p, idx) => {
               const precioMensual = p.mensual;
               const precioAnual   = Math.round(p.mensual * 12 * (1 - DESCUENTO));
               const precioMostrar = anual ? precioAnual : precioMensual;
               const esPlanActual  = planActual === p.key && suscripcion?.planVigente;
+              const isPro = p.key === 'pro';
 
               return (
-                <div key={p.key} className={`relative rounded-2xl border p-6 transition-all ${p.color} ${esPlanActual ? 'bg-green-500/5' : 'bg-gray-900'}`}>
+                <div key={p.key}
+                  className="relative rounded-2xl p-6 transition-all duration-200 animate-fade-up"
+                  style={{
+                    animationDelay: `${idx * 80}ms`,
+                    background: isPro
+                      ? 'linear-gradient(135deg, rgba(0,232,123,0.07) 0%, var(--surface) 60%)'
+                      : 'var(--surface)',
+                    border: isPro
+                      ? '1px solid rgba(0,232,123,0.28)'
+                      : esPlanActual ? '1px solid rgba(0,232,123,0.18)' : '1px solid var(--border)',
+                    boxShadow: isPro ? '0 0 32px rgba(0,232,123,0.08)' : 'none',
+                  }}>
+                  {/* Badge superior */}
                   {p.badge && (
-                    <div className={`absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 ${p.key === 'pro' ? 'bg-green-500 text-black' : 'bg-purple-500 text-white'}`}>
-                      <Star size={10} /> {p.badge}
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"
+                      style={isPro
+                        ? { background: 'var(--accent)', color: '#020f08' }
+                        : { background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white' }}>
+                      <Star size={9} /> {p.badge}
                     </div>
                   )}
-                  {esPlanActual && (
-                    <div className="absolute -top-3 right-4 bg-green-500/20 border border-green-500/40 text-green-400 text-xs font-bold px-3 py-1 rounded-full">
-                      Plan actual ✓
+                  {esPlanActual && !p.badge && (
+                    <div className="absolute -top-3 right-4 text-xs font-bold px-3 py-1 rounded-full"
+                      style={{ background: 'rgba(0,232,123,0.12)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.25)' }}>
+                      ✓ Plan actual
                     </div>
                   )}
 
-                  <div className="mb-5">
-                    <div className="flex items-center gap-2 text-gray-400 mb-2">
-                      {p.icon} <span className="text-sm font-medium">{p.nombre}</span>
+                  {/* Info */}
+                  <div className="mb-5 mt-1">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                        style={{ background: isPro ? 'rgba(0,232,123,0.12)' : 'var(--surface3)', color: isPro ? 'var(--accent)' : 'var(--text2)' }}>
+                        {p.icon}
+                      </div>
+                      <span className="font-semibold text-white">{p.nombre}</span>
                     </div>
                     <div className="flex items-baseline gap-1">
                       <span className="text-3xl font-extrabold text-white">${formatPrecio(precioMostrar)}</span>
-                      <span className="text-gray-500 text-xs">ARS/{anual ? 'año' : 'mes'}</span>
+                      <span className="text-xs" style={{ color: 'var(--muted)' }}>ARS/{anual ? 'año' : 'mes'}</span>
                     </div>
                     {anual && (
-                      <p className="text-green-400 text-xs mt-1">
+                      <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>
                         = ${formatPrecio(Math.round(precioAnual/12))}/mes · Ahorrás ${formatPrecio(Math.round(p.mensual*12*DESCUENTO))}
                       </p>
                     )}
                   </div>
 
-                  <ul className="space-y-2 mb-6">
+                  {/* Features */}
+                  <ul className="space-y-2 mb-5">
                     {p.features.map((f, i) => (
-                      <li key={i} className={`flex items-center gap-2 text-xs ${f.ok ? 'text-gray-300' : 'text-gray-600'}`}>
-                        <CheckCircle size={12} className={f.ok ? 'text-green-400 flex-shrink-0' : 'text-gray-700 flex-shrink-0'} />
+                      <li key={i} className="flex items-center gap-2 text-xs"
+                        style={{ color: f.ok ? 'var(--text)' : 'var(--muted)' }}>
+                        <CheckCircle size={12} className="flex-shrink-0"
+                          style={{ color: f.ok ? 'var(--accent)' : 'var(--border2)' }} />
                         {f.texto}
-                        {!f.ok && <span className="ml-auto text-gray-700 text-[10px]">no incluido</span>}
+                        {!f.ok && <span className="ml-auto text-[10px]" style={{ color: 'var(--muted)' }}>no incluido</span>}
                       </li>
                     ))}
                   </ul>
 
+                  {/* CTA */}
                   <button
                     onClick={() => handleElegir(p.key)}
                     disabled={loadingPlan === p.key || esPlanActual}
-                    className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                      esPlanActual ? 'bg-green-500/10 text-green-400 border border-green-500/20 cursor-default'
-                      : p.key === 'pro' ? 'bg-green-500 hover:bg-green-400 text-black disabled:opacity-50'
-                      : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 disabled:opacity-50'
-                    }`}
-                  >
+                    className={isPro ? 'btn-primary w-full' : 'btn-secondary w-full'}
+                    style={esPlanActual ? { opacity: 0.7, cursor: 'default' } : {}}>
                     {loadingPlan === p.key ? (
-                      <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Procesando...</>
+                      <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Procesando...</>
                     ) : esPlanActual ? '✓ Plan activo' : `Elegir ${p.nombre}`}
                   </button>
                 </div>
@@ -271,37 +303,43 @@ export default function PlanesPage() {
           </div>
         )}
 
-        {/* Comparativa de limitaciones */}
-        <div className="card">
+        {/* Comparativa */}
+        <div className="card animate-fade-up delay-200">
           <h3 className="font-semibold text-white mb-4 text-sm flex items-center gap-2">
-            <MessageSquare size={15} className="text-green-400" /> Comparativa completa de funciones
+            <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,232,123,0.1)' }}>
+              <MessageSquare size={12} style={{ color: 'var(--accent)' }} />
+            </div>
+            Comparativa completa de funciones
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-gray-800">
-                  <th className="text-left py-2 pr-4 text-gray-500 font-medium">Función</th>
-                  <th className="text-center py-2 px-3 text-gray-400">Trial</th>
-                  <th className="text-center py-2 px-3 text-gray-400">Básico</th>
-                  <th className="text-center py-2 px-3 text-green-400">Pro</th>
-                  <th className="text-center py-2 px-3 text-purple-400">Agencia</th>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <th className="text-left py-2.5 pr-4 font-medium" style={{ color: 'var(--text2)' }}>Función</th>
+                  <th className="text-center py-2.5 px-3" style={{ color: 'var(--text2)' }}>Trial</th>
+                  <th className="text-center py-2.5 px-3" style={{ color: 'var(--text2)' }}>Básico</th>
+                  <th className="text-center py-2.5 px-3 font-bold" style={{ color: 'var(--accent)' }}>Pro</th>
+                  <th className="text-center py-2.5 px-3 font-bold" style={{ color: '#a78bfa' }}>Agencia</th>
                 </tr>
               </thead>
               <tbody>
                 {[
-                  ['Mensajes/mes',        '100',  '500',  'Ilimitado', 'Ilimitado'],
-                  ['Números WhatsApp',    '1',    '1',    '1',         'Hasta 5'],
-                  ['IA LLaMA 3.3 70B',   '✓',    '✓',    '✓',         '✓'],
-                  ['Recordatorios',       '✓',    '✓',    '✓',         '✓'],
-                  ['Google Calendar',     '✗',    '✗',    '✓',         '✓'],
-                  ['Cobros MercadoPago',  '✗',    '✗',    '✓',         '✓'],
-                  ['Respuestas por audio','✗',    '✗',    '✓',         '✓'],
-                  ['Duración',           '7 días','Mensual','Mensual/Anual','Mensual/Anual'],
+                  ['Mensajes/mes',         '100',    '500',    'Ilimitado', 'Ilimitado'],
+                  ['Números WhatsApp',     '1',      '1',      '1',         'Hasta 5'],
+                  ['IA LLaMA 3.3 70B',    '✓',      '✓',      '✓',         '✓'],
+                  ['Recordatorios',        '✓',      '✓',      '✓',         '✓'],
+                  ['Google Calendar',      '✗',      '✗',      '✓',         '✓'],
+                  ['Cobros MercadoPago',   '✗',      '✗',      '✓',         '✓'],
+                  ['Respuestas por audio', '✗',      '✗',      '✓',         '✓'],
+                  ['Duración',             '7 días', 'Mensual','Mensual/Anual','Mensual/Anual'],
                 ].map(([func, trial, basico, pro, agencia], i) => (
-                  <tr key={i} className={`border-b border-gray-800/50 ${i%2===0?'bg-black/20':''}`}>
-                    <td className="py-2 pr-4 text-gray-300">{func}</td>
+                  <tr key={i} style={{ borderBottom: '1px solid rgba(30,45,61,0.5)', background: i%2===0 ? 'rgba(0,0,0,0.15)' : '' }}>
+                    <td className="py-2 pr-4" style={{ color: 'var(--text)' }}>{func}</td>
                     {[trial, basico, pro, agencia].map((v, j) => (
-                      <td key={j} className={`text-center py-2 px-3 ${v==='✓'?'text-green-400':v==='✗'?'text-gray-700':j===2?'text-green-300':j===3?'text-purple-300':'text-gray-400'}`}>{v}</td>
+                      <td key={j} className="text-center py-2 px-3 font-medium"
+                        style={{ color: v==='✓' ? 'var(--accent)' : v==='✗' ? 'var(--border2)' : j===2 ? 'var(--accent)' : j===3 ? '#a78bfa' : 'var(--text2)' }}>
+                        {v}
+                      </td>
                     ))}
                   </tr>
                 ))}
@@ -310,58 +348,64 @@ export default function PlanesPage() {
           </div>
         </div>
 
-        {/* Programa de referidos */}
-        <div className="card border border-indigo-800/30 bg-indigo-950/20">
+        {/* Referidos */}
+        <div className="card animate-fade-up delay-250" style={{ borderColor: 'rgba(0,232,123,0.15)' }}>
           <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-            <GitBranch size={15} className="text-indigo-400" /> Programa de referidos
+            <GitBranch size={15} style={{ color: 'var(--accent)' }} /> Programa de referidos
           </h3>
-          <p className="text-xs text-gray-500 mb-4">Compartí tu código y ambos ganan <strong className="text-white">$5.000 ARS</strong> de descuento cuando tu referido pague un plan.</p>
+          <p className="text-xs mb-4" style={{ color: 'var(--text2)' }}>
+            Compartí tu código y ambos ganan <strong className="text-white">$5.000 ARS</strong> de descuento cuando tu referido pague un plan.
+          </p>
 
           <div className="flex items-center gap-3 mb-4">
             <div className="flex-1">
-              <p className="text-xs text-gray-500 mb-1">Tu código de referido</p>
-              <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2">
-                <span className="font-mono text-sm text-indigo-300 tracking-widest flex-1 select-all">
+              <p className="text-xs mb-1" style={{ color: 'var(--text2)' }}>Tu código de referido</p>
+              <div className="flex items-center gap-2 rounded-lg px-3 py-2"
+                style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
+                <span className="font-mono text-sm tracking-widest flex-1 select-all" style={{ color: 'var(--accent)' }}>
                   {user?.codigoReferido || '—'}
                 </span>
                 {user?.codigoReferido && (
                   <button
                     onClick={() => { navigator.clipboard.writeText(user.codigoReferido); toast.success('Código copiado'); }}
-                    className="text-gray-500 hover:text-white transition-colors"
-                  >
+                    className="transition-colors" style={{ color: 'var(--muted)' }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--text2)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
                     <Copy size={13} />
                   </button>
                 )}
               </div>
             </div>
             {(user?.creditoReferidos > 0 || user?.descuentoReferido > 0) && (
-              <div className="text-center">
+              <div className="space-y-2">
                 {user?.creditoReferidos > 0 && (
-                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
-                    <p className="text-lg font-bold text-green-400">${user.creditoReferidos.toLocaleString('es-AR')}</p>
-                    <p className="text-xs text-gray-500">Crédito ganado</p>
+                  <div className="rounded-lg px-3 py-2 text-center"
+                    style={{ background: 'rgba(0,232,123,0.06)', border: '1px solid rgba(0,232,123,0.15)' }}>
+                    <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>${user.creditoReferidos.toLocaleString('es-AR')}</p>
+                    <p className="text-xs" style={{ color: 'var(--text2)' }}>Crédito ganado</p>
                   </div>
                 )}
                 {user?.descuentoReferido > 0 && (
-                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-3 py-2 mt-2">
-                    <p className="text-lg font-bold text-indigo-400">${user.descuentoReferido.toLocaleString('es-AR')}</p>
-                    <p className="text-xs text-gray-500">Tu descuento</p>
+                  <div className="rounded-lg px-3 py-2 text-center"
+                    style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                    <p className="text-lg font-bold text-blue-400">${user.descuentoReferido.toLocaleString('es-AR')}</p>
+                    <p className="text-xs" style={{ color: 'var(--text2)' }}>Tu descuento</p>
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          <p className="text-xs text-gray-600">
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Compartí tu código al registrarse en Akira Cloud. Cuando paguen su primer plan, vos ganás crédito y ellos obtienen descuento automáticamente.
           </p>
         </div>
 
         {/* Info de pago */}
-        <div className="text-xs text-gray-600 space-y-1">
-          <p>✓ Pagos seguros vía <strong className="text-gray-400">MercadoPago</strong> — tarjeta, transferencia, Rapipago o Pago Fácil</p>
+        <div className="text-xs space-y-1.5" style={{ color: 'var(--muted)' }}>
+          <p>✓ Pagos seguros vía <strong style={{ color: 'var(--text2)' }}>MercadoPago</strong> — tarjeta, transferencia, Rapipago o Pago Fácil</p>
           <p>✓ Cancelá cuando quieras · Sin permanencia · Los planes anuales se pagan en un solo pago</p>
-          <p>✓ ¿Dudas? <a href="https://martin-arrayago.com" target="_blank" rel="noreferrer" className="text-green-400 hover:underline">Contactá al soporte</a></p>
+          <p>✓ ¿Dudas? <a href="https://martin-arrayago.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }} className="hover:underline">Contactá al soporte</a></p>
         </div>
 
       </div>

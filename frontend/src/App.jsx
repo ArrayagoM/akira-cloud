@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Pages
@@ -13,13 +13,30 @@ import AdminPanel    from './pages/AdminPanel';
 import PlanesPage    from './pages/PlanesPage';
 import NotFound      from './pages/NotFound';
 
-function ProtectedRoute({ children, adminOnly = false }) {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+// ── Loading spinner ────────────────────────────────────────
+function GlobalLoader() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4"
+      style={{ background: 'var(--bg)' }}>
+      <div className="relative">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+          style={{ background: 'rgba(0,232,123,0.1)', border: '1px solid rgba(0,232,123,0.2)' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00e87b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <div className="absolute -inset-1 rounded-2xl border-2 border-t-transparent animate-spin"
+          style={{ borderColor: 'rgba(0,232,123,0.25)', borderTopColor: 'transparent' }} />
+      </div>
+      <p className="text-xs animate-pulse" style={{ color: 'var(--muted)' }}>Cargando...</p>
     </div>
   );
+}
+
+// ── Route guards ───────────────────────────────────────────
+function ProtectedRoute({ children, adminOnly = false }) {
+  const { user, loading } = useAuth();
+  if (loading) return <GlobalLoader />;
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && user.rol !== 'admin') return <Navigate to="/dashboard" replace />;
   return children;
@@ -32,14 +49,15 @@ function PublicRoute({ children }) {
   return children;
 }
 
+// ── App routes ─────────────────────────────────────────────
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
         {/* Públicas */}
-        <Route path="/"              element={<Landing />} />
-        <Route path="/login"         element={<PublicRoute><Login /></PublicRoute>} />
-        <Route path="/register"      element={<PublicRoute><Register /></PublicRoute>} />
+        <Route path="/"               element={<Landing />} />
+        <Route path="/login"          element={<PublicRoute><Login /></PublicRoute>} />
+        <Route path="/register"       element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
 
         {/* Usuario autenticado */}

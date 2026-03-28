@@ -10,13 +10,16 @@ import OnboardingChecklist from '../components/OnboardingChecklist';
 import ReferralCard from '../components/ReferralCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
-function StatCard({ icon, label, value, color = 'text-green-400' }) {
+function StatCard({ icon, label, value, color = 'text-green-400', accentBg = 'rgba(0,232,123,0.08)' }) {
   return (
-    <div className="card flex items-center gap-4">
-      <div className={`w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center ${color}`}>{icon}</div>
+    <div className="card card-glow flex items-center gap-4 animate-fade-up">
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+        style={{ background: accentBg, border: '1px solid rgba(255,255,255,0.06)' }}>
+        <span className={color}>{icon}</span>
+      </div>
       <div>
         <p className="text-2xl font-bold text-white">{value}</p>
-        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>{label}</p>
       </div>
     </div>
   );
@@ -134,76 +137,95 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-5 animate-page-in">
 
         {/* Checklist de onboarding */}
         <OnboardingChecklist user={user} botStatus={botStatus} />
 
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 animate-fade-up">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Bienvenido, {user?.nombre} 👋</p>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text2)' }}>Bienvenido de nuevo, <span className="text-white font-medium">{user?.nombre}</span> 👋</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <BotStatusBadge activo={botStatus.activo} conectado={botStatus.conectado} />
             {!botStatus.activo ? (
               <button onClick={startBot} disabled={loading.start || !planVigente} className="btn-primary">
-                {loading.start ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />Iniciando...</> : <><Play size={15} />Iniciar bot</>}
+                {loading.start
+                  ? <><span className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Iniciando...</>
+                  : <><Play size={14} />Iniciar bot</>}
               </button>
             ) : (
               <button onClick={stopBot} disabled={loading.stop} className="btn-danger">
-                {loading.stop ? <span className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" /> : <Square size={15} />}
+                {loading.stop
+                  ? <span className="w-3.5 h-3.5 border-2 border-red-400/40 border-t-red-400 rounded-full animate-spin" />
+                  : <Square size={14} />}
                 Detener
               </button>
             )}
           </div>
         </div>
 
-        {/* Alerta trial — no mostrar para admins */}
+        {/* Alertas */}
         {user?.plan === 'trial' && user?.rol !== 'admin' && (
-          <div className={`flex items-center gap-3 rounded-xl px-4 py-3 border text-sm ${diasTrial <= 2 ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'}`}>
-            <Clock size={16} />
+          <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm animate-fade-up delay-50"
+            style={diasTrial <= 2
+              ? { background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }
+              : { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b' }}>
+            <Clock size={15} className="flex-shrink-0" />
             {diasTrial > 0
               ? `Tu prueba gratuita vence en ${diasTrial} día${diasTrial !== 1 ? 's' : ''}. Elegí un plan para no perder el acceso.`
               : 'Tu prueba gratuita venció. Elegí un plan para reactivar el bot.'}
           </div>
         )}
-        {/* Badge admin */}
         {user?.rol === 'admin' && (
-          <div className="flex items-center gap-3 rounded-xl px-4 py-3 border border-yellow-500/30 bg-yellow-500/5 text-sm text-yellow-400">
-            <span>👑</span>
-            Acceso administrador — todas las funciones activas sin límite.
+          <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm animate-fade-up delay-50"
+            style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.18)', color: '#f59e0b' }}>
+            <span>👑</span> Acceso administrador — todas las funciones activas sin límite.
           </div>
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={<MessageSquare size={18} />} label="Mensajes hoy" value={stats.mensajes} />
-          <StatCard icon={<Calendar size={18} />}      label="Reservas" value={stats.reservas} color="text-blue-400" />
-          <StatCard icon={<DollarSign size={18} />}    label="Cobros del bot" value={stats.pagos} color="text-purple-400" />
-          <StatCard icon={<Wifi size={18} />}          label="Estado bot" value={botStatus.conectado ? 'Activo' : 'Inactivo'} color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={<MessageSquare size={18}/>} label="Mensajes hoy"  value={stats.mensajes}
+            color="text-green-400"  accentBg="rgba(0,232,123,0.08)"  />
+          <StatCard icon={<Calendar size={18}/>}      label="Reservas"      value={stats.reservas}
+            color="text-blue-400"   accentBg="rgba(59,130,246,0.1)"   />
+          <StatCard icon={<DollarSign size={18}/>}    label="Cobros del bot" value={stats.pagos}
+            color="text-purple-400" accentBg="rgba(168,85,247,0.1)"  />
+          <StatCard icon={<Wifi size={18}/>}          label="Estado"         value={botStatus.conectado ? 'Activo' : 'Inactivo'}
+            color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'}
+            accentBg={botStatus.conectado ? 'rgba(0,232,123,0.08)' : 'rgba(74,98,120,0.15)'} />
         </div>
 
-        {/* Modo pausa rápido */}
-        <div className={`flex items-center justify-between rounded-xl px-4 py-3 border transition-colors ${modoPausa ? 'bg-red-950/40 border-red-800/60' : 'bg-gray-800/30 border-gray-700/60'}`}>
+        {/* Modo pausa */}
+        <div className="flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-300 animate-fade-up delay-100"
+          style={modoPausa
+            ? { background: 'rgba(244,63,94,0.07)', border: '1px solid rgba(244,63,94,0.2)' }
+            : { background: 'var(--surface2)', border: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2.5">
             {modoPausa
-              ? <PauseCircle size={18} className="text-red-400 flex-shrink-0" />
-              : <PlayCircle size={18} className="text-green-400 flex-shrink-0" />}
+              ? <PauseCircle size={17} style={{ color: '#f43f5e', flexShrink: 0 }} />
+              : <PlayCircle  size={17} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
             <div>
-              <p className="text-sm font-medium text-white">{modoPausa ? 'Bot en pausa — no acepta nuevos turnos' : 'Recibiendo turnos'}</p>
-              {modoPausa && <p className="text-xs text-red-400/80">Los clientes verán un mensaje de no disponibilidad.</p>}
+              <p className="text-sm font-medium text-white">
+                {modoPausa ? 'Bot en pausa — no acepta nuevos turnos' : 'Recibiendo turnos'}
+              </p>
+              {modoPausa && <p className="text-xs mt-0.5" style={{ color: 'rgba(244,63,94,0.7)' }}>Los clientes verán un mensaje de no disponibilidad.</p>}
             </div>
           </div>
           <button
             onClick={togglePausa}
             disabled={savingPausa}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${modoPausa ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-red-700/80 hover:bg-red-700 text-white'}`}
+            className="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 flex-shrink-0 flex items-center gap-1.5"
+            style={modoPausa
+              ? { background: 'var(--accent)', color: '#020f08' }
+              : { background: 'rgba(244,63,94,0.15)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.25)' }}
           >
             {savingPausa
-              ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
-              : modoPausa ? 'Reactivar' : 'Pausar'}
+              ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              : modoPausa ? 'Reactivar' : 'Pausar bot'}
           </button>
         </div>
 
@@ -211,20 +233,27 @@ export default function Dashboard() {
         <ReferralCard />
 
         <div className="grid md:grid-cols-2 gap-5">
-          {/* QR / Estado */}
-          <div className="card">
+          {/* QR / Estado conexión */}
+          <div className="card card-glow animate-fade-up delay-150">
             <h2 className="font-semibold text-white mb-4 flex items-center gap-2">
-              <Wifi size={16} className="text-green-400" /> Conexión WhatsApp
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,232,123,0.1)' }}>
+                <Wifi size={13} style={{ color: 'var(--accent)' }} />
+              </div>
+              Conexión WhatsApp
             </h2>
 
             {!botStatus.activo && !qrData && (
               <div className="text-center py-10">
-                <WifiOff size={36} className="text-gray-700 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">El bot está detenido.</p>
-                <p className="text-gray-600 text-xs mt-1">Presioná "Iniciar bot" para arrancarlo.</p>
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                  style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
+                  <WifiOff size={24} style={{ color: 'var(--muted)' }} />
+                </div>
+                <p className="font-medium text-white text-sm">Bot detenido</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text2)' }}>Presioná "Iniciar bot" para arrancarlo.</p>
                 {!planVigente && (
-                  <div className="flex items-center gap-2 mt-4 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-xs text-red-400 justify-center">
-                    <AlertCircle size={13} /> Plan vencido — renovar suscripción
+                  <div className="flex items-center gap-2 mt-4 rounded-lg px-3 py-2 text-xs justify-center"
+                    style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }}>
+                    <AlertCircle size={12} /> Plan vencido — renovar suscripción
                   </div>
                 )}
               </div>
@@ -232,48 +261,67 @@ export default function Dashboard() {
 
             {botStatus.activo && !botStatus.conectado && !qrData && (
               <div className="text-center py-10">
-                <RefreshCw size={36} className="text-yellow-400 mx-auto mb-3 animate-spin" />
-                <p className="text-gray-400 text-sm">Iniciando bot...</p>
-                <p className="text-gray-600 text-xs mt-1">Esto puede tardar hasta 30 segundos.</p>
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <RefreshCw size={24} className="animate-spin" style={{ color: '#f59e0b' }} />
+                </div>
+                <p className="font-medium text-white text-sm">Iniciando bot...</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text2)' }}>Esto puede tardar hasta 30 segundos.</p>
               </div>
             )}
 
             {qrData && (
-              <div className="flex flex-col items-center">
-                <div className="bg-white p-4 rounded-xl mb-4">
+              <div className="flex flex-col items-center gap-4">
+                <div className="bg-white p-4 rounded-2xl shadow-glow">
                   <QRCodeSVG value={qrData} size={200} />
                 </div>
                 <div className="space-y-1.5 text-center">
-                  <p className="text-sm font-medium text-white">Escaneá el QR con WhatsApp</p>
-                  <p className="text-xs text-gray-500">Abrí WhatsApp → ⋮ Menú → <strong>Dispositivos vinculados</strong> → <strong>Vincular</strong></p>
-                  <p className="text-xs text-yellow-500">⏳ El QR se renueva cada 20 segundos</p>
+                  <p className="text-sm font-semibold text-white">Escaneá el QR con WhatsApp</p>
+                  <p className="text-xs" style={{ color: 'var(--text2)' }}>
+                    Abrí WhatsApp → ⋮ Menú → <strong className="text-white">Dispositivos vinculados</strong> → <strong className="text-white">Vincular</strong>
+                  </p>
+                  <p className="text-xs" style={{ color: '#f59e0b' }}>⏳ El QR se renueva cada 20 segundos</p>
                 </div>
               </div>
             )}
 
             {botStatus.conectado && (
               <div className="text-center py-8">
-                <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-3 border-2 border-green-500/30">
-                  <Wifi size={28} className="text-green-400" />
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-glow-pulse"
+                  style={{ background: 'rgba(0,232,123,0.1)', border: '1px solid rgba(0,232,123,0.25)' }}>
+                  <Wifi size={26} style={{ color: 'var(--accent)' }} />
                 </div>
-                <p className="text-green-400 font-semibold">¡Bot activo y conectado!</p>
-                <p className="text-gray-500 text-xs mt-1">Atendiendo mensajes de WhatsApp en tiempo real.</p>
+                <p className="font-semibold" style={{ color: 'var(--accent)' }}>¡Bot activo y conectado!</p>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--text2)' }}>Atendiendo mensajes de WhatsApp en tiempo real.</p>
               </div>
             )}
           </div>
 
           {/* Logs en vivo */}
-          <div className="card">
+          <div className="card animate-fade-up delay-200">
             <h2 className="font-semibold text-white mb-4 flex items-center justify-between">
-              <span>📋 Actividad en vivo</span>
-              <button onClick={() => setLogs([])} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">Limpiar</button>
+              <span className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.1)' }}>
+                  <span style={{ fontSize: '11px' }}>📋</span>
+                </div>
+                Actividad en vivo
+              </span>
+              <button onClick={() => setLogs([])}
+                className="text-xs transition-colors px-2 py-1 rounded-md"
+                style={{ color: 'var(--muted)' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text2)'; e.currentTarget.style.background = 'var(--surface3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = ''; }}>
+                Limpiar
+              </button>
             </h2>
-            <div ref={logsRef} className="h-72 overflow-y-auto bg-black/50 rounded-lg p-3 font-mono text-xs space-y-0.5 border border-gray-800">
+            <div ref={logsRef}
+              className="h-72 overflow-y-auto rounded-xl p-3 font-mono text-xs space-y-0.5"
+              style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border)' }}>
               {logs.length === 0 ? (
-                <p className="text-gray-700 text-center pt-10">Sin actividad aún...</p>
+                <p className="text-center pt-10" style={{ color: 'var(--muted)' }}>Sin actividad aún...</p>
               ) : logs.map((l, i) => (
-                <div key={l._id || i} className="flex gap-2">
-                  <span className="text-gray-700 flex-shrink-0 w-14">{l.ts || ''}</span>
+                <div key={l._id || i} className="flex gap-2 leading-relaxed">
+                  <span className="flex-shrink-0 w-14" style={{ color: 'var(--muted)' }}>{l.ts || ''}</span>
                   <span className={logColor(l.mensaje)}>{l.mensaje}</span>
                 </div>
               ))}
