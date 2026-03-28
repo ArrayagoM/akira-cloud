@@ -1441,7 +1441,7 @@ export default function Landing() {
       </HorizontalScroll>
 
       {/* 6. Industrias — para quién es */}
-      <IndustriesSection />
+      <IndustriasSection />
 
       {/* 7. Beneficios grid */}
       <BeneficiosSection />
