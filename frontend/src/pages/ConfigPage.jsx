@@ -1,10 +1,10 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useSocket } from '../hooks/useSocket';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin, RefreshCw } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
@@ -189,7 +189,7 @@ function KeyField({ campo, label, placeholder, keys, onSave, onDelete }) {
 }
 
 export default function ConfigPage() {
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const { on }   = useSocket(user?._id);
   const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig]   = useState({});
