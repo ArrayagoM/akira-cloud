@@ -280,7 +280,7 @@ function HeroSection() {
               style={{ background: 'rgba(0,232,123,0.08)', border: '1px solid rgba(0,232,123,0.2)', color: 'var(--accent)' }}>
               <Sparkles size={13} />
               <span>
-                <span className="font-bold text-white" style={{ tabularNums: true }}>{liveUsers}</span> negocios activos ahora mismo
+                <span className="font-bold text-white tabular-nums">{liveUsers}</span> negocios activos ahora mismo
               </span>
               <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
             </div>
@@ -929,11 +929,11 @@ function ResenasSection() {
   const [resenasUsuarios, setResenasUsuarios] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('akira_resenas') || '[]');
-    } catch { return []; }
+    } catch (e) { return []; }
   });
 
   const [likedIds, setLikedIds] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('akira_liked') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('akira_liked') || '[]'); } catch (e) { return []; }
   });
 
   const [mostrarTodas, setMostrarTodas] = useState(false);
