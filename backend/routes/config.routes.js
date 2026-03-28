@@ -43,7 +43,11 @@ router.get('/google/connect', (req, res) => {
   const oauth2Client = crearOAuth2Client();
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/calendar'],
+    scope: [
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/userinfo.profile',
+    ],
     state: token,   // pasamos el JWT como state para identificar al usuario en el callback
     prompt: 'consent',
   });
