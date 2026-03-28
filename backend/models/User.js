@@ -60,9 +60,20 @@ const UserSchema = new mongoose.Schema(
     trialExpira: { type: Date, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
     planExpira:  { type: Date },
 
-    // Estado del bot
-    botActivo:   { type: Boolean, default: false },
+    // Estado del bot (slot 0 — backward compat)
+    botActivo:    { type: Boolean, default: false },
     botConectado: { type: Boolean, default: false },
+
+    // Cuentas WhatsApp múltiples (plan Agencia: hasta 5 slots)
+    cuentasWA: {
+      type: [{
+        slot:      { type: Number, required: true, min: 0, max: 4 },
+        nombre:    { type: String, default: '' },
+        activo:    { type: Boolean, default: false },
+        conectado: { type: Boolean, default: false },
+      }],
+      default: [],
+    },
 
     // Metadatos
     ultimoLogin: { type: Date },

@@ -14,16 +14,33 @@ const crearAkiraBot  = require('./akira.bot');
 const workerHandler  = require('./worker.handler');
 
 // ── Mapa de instancias activas ───────────────────────────────
-// clave: userId (string), valor: instancia del bot
+// clave: "${userId}:${slot}" — slot 0 es la cuenta principal
 const instancias = new Map();
 
 // ── Locks para evitar arrancar dos veces el mismo bot ────────
 const arranqueEnProceso = new Set();
 
+// ── Clave de instancia ───────────────────────────────────────
+const botKey = (uid, slot) => `${uid}:${slot}`;
+
+// ── Helper: actualizar estado en DB ─────────────────────────
+async function updateBotStatus(uid, slot, activo, conectado) {
+  const topLevel = slot === 0 ? { botActivo: activo, botConectado: conectado } : {};
+  // Actualizar elemento del array si existe
+  await User.findOneAndUpdate(
+    { _id: uid, 'cuentasWA.slot': slot },
+    { $set: { ...topLevel, 'cuentasWA.$.activo': activo, 'cuentasWA.$.conectado': conectado } }
+  ).catch(() => {});
+  // Si no existe en cuentasWA, al menos actualizar campos top-level (slot 0)
+  if (slot === 0) {
+    await User.findByIdAndUpdate(uid, topLevel).catch(() => {});
+  }
+}
+
 // ── Asignación de puertos sin colisiones ─────────────────────
 const PUERTO_BASE  = 3100;
 const puertosEnUso = new Set();
-const puertosAsignados = new Map(); // userId → puerto
+const puertosAsignados = new Map(); // botKey → puerto
 
 function asignarPuerto(uid) {
   if (puertosAsignados.has(uid)) return puertosAsignados.get(uid);
@@ -47,26 +64,27 @@ const SESSIONS_PATH = process.env.WA_SESSIONS_PATH || './sessions';
 // ────────────────────────────────────────────────────────────
 //  ARRANCAR BOT
 // ────────────────────────────────────────────────────────────
-async function startBot(userId) {
-  const uid = String(userId);
+async function startBot(userId, slot = 0) {
+  const uid  = String(userId);
+  const key  = botKey(uid, slot);
 
-  if (instancias.has(uid)) {
-    logger.warn(`[BotMgr] Bot ${uid} ya está corriendo`);
+  if (instancias.has(key)) {
+    logger.warn(`[BotMgr] Bot ${key} ya está corriendo`);
     return { ok: false, msg: 'El bot ya está activo' };
   }
 
-  if (arranqueEnProceso.has(uid)) {
+  if (arranqueEnProceso.has(key)) {
     return { ok: false, msg: 'El bot ya está iniciando' };
   }
 
-  arranqueEnProceso.add(uid);
+  arranqueEnProceso.add(key);
 
   try {
     // ── Modo híbrido: delegar al worker si está conectado ──
     if (workerHandler.isWorkerAvailable()) {
-      logger.info(`[BotMgr] Delegando bot ${uid} al worker local`);
-      workerHandler.sendToWorker('worker:start-bot', { userId: uid });
-      arranqueEnProceso.delete(uid);
+      logger.info(`[BotMgr] Delegando bot ${key} al worker local`);
+      workerHandler.sendToWorker('worker:start-bot', { userId: uid, slot });
+      arranqueEnProceso.delete(key);
       return { ok: true, msg: 'Bot iniciando en worker local — esperá el QR' };
     }
 
@@ -110,17 +128,18 @@ async function startBot(userId) {
       DIRECCION_PROPIEDAD:       config.direccionPropiedad || '',
       LINK_UBICACION:            config.linkUbicacion  || '',
       CATALOGO:                  JSON.stringify(config.catalogo || []),
-      PORT:                    String(asignarPuerto(uid)),
+      PORT:                    String(asignarPuerto(key)),
     };
 
     if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada o inválida');
 
-    // Directorio de sesión aislado por usuario
-    const sessionDir = path.resolve(SESSIONS_PATH, uid);
+    // Directorio de sesión — slot 0 usa path legacy para backward compat
+    const sessionDirName = slot === 0 ? uid : `${uid}_slot${slot}`;
+    const sessionDir = path.resolve(SESSIONS_PATH, sessionDirName);
     if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
 
     // Directorio de memoria del bot
-    const dataDir = path.resolve(SESSIONS_PATH, uid, 'data');
+    const dataDir = path.resolve(SESSIONS_PATH, sessionDirName, 'data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
     // Tokens Google Calendar OAuth (prioridad sobre service account)
@@ -151,39 +170,38 @@ async function startBot(userId) {
 
     // Crear instancia del bot
     const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
-    instancias.set(uid, bot);
+    instancias.set(key, bot);
 
     // ── Eventos del bot → Socket.io + DB ────────────────────
     bot.on('log', (msg) => {
-      emitirAlUsuario(uid, 'bot:log', { msg, ts: new Date().toLocaleTimeString('es-AR') });
+      emitirAlUsuario(uid, 'bot:log', { msg, ts: new Date().toLocaleTimeString('es-AR'), slot });
     });
 
     bot.on('qr', async (qr) => {
-      logger.info(`[BotMgr] QR generado para user ${uid}`);
-      emitirAlUsuario(uid, 'bot:qr', { qr });
-      await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: 'QR generado — esperando escaneo' });
+      logger.info(`[BotMgr] QR generado para user ${uid} slot ${slot}`);
+      emitirAlUsuario(uid, 'bot:qr', { qr, slot });
+      await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: `Slot ${slot}: QR generado — esperando escaneo` });
     });
 
     bot.on('ready', async () => {
-      logger.info(`[BotMgr] Bot listo para user ${uid}`);
-      await User.findByIdAndUpdate(uid, { botActivo: true, botConectado: true });
-      emitirAlUsuario(uid, 'bot:ready', {});
-      await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: 'WhatsApp conectado y listo' });
+      logger.info(`[BotMgr] Bot listo para user ${uid} slot ${slot}`);
+      await updateBotStatus(uid, slot, true, true);
+      emitirAlUsuario(uid, 'bot:ready', { slot });
+      await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: `Slot ${slot}: WhatsApp conectado y listo` });
     });
 
     bot.on('disconnected', async (reason) => {
-      logger.warn(`[BotMgr] Bot desconectado para user ${uid}: ${reason}`);
-      await User.findByIdAndUpdate(uid, { botConectado: false });
-      emitirAlUsuario(uid, 'bot:disconnected', { reason });
-      await Log.registrar({ userId: uid, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Desconectado: ${reason}` });
-      // Limpiar instancia y puerto
-      instancias.delete(uid);
-      liberarPuerto(uid);
+      logger.warn(`[BotMgr] Bot desconectado para user ${uid} slot ${slot}: ${reason}`);
+      await updateBotStatus(uid, slot, false, false);
+      emitirAlUsuario(uid, 'bot:disconnected', { reason, slot });
+      await Log.registrar({ userId: uid, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Slot ${slot}: Desconectado: ${reason}` });
+      instancias.delete(key);
+      liberarPuerto(key);
     });
 
     bot.on('error', async (err) => {
-      logger.error(`[BotMgr] Error en bot de user ${uid}: ${err.message}`);
-      emitirAlUsuario(uid, 'bot:error', { msg: err.message });
+      logger.error(`[BotMgr] Error en bot de user ${uid} slot ${slot}: ${err.message}`);
+      emitirAlUsuario(uid, 'bot:error', { msg: err.message, slot });
       await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: err.message });
     });
 
@@ -222,56 +240,57 @@ async function startBot(userId) {
 
     // ── Iniciar ──────────────────────────────────────────────
     await bot.iniciar();
-    await User.findByIdAndUpdate(uid, { botActivo: true });
-    await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: 'Bot iniciado' });
+    await updateBotStatus(uid, slot, true, false); // activo pero aún no conectado
+    await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: `Slot ${slot}: Bot iniciado` });
 
-    logger.info(`[BotMgr] ✅ Bot iniciado para user ${uid}`);
+    logger.info(`[BotMgr] ✅ Bot iniciado para user ${uid} slot ${slot}`);
     return { ok: true, msg: 'Bot iniciando — esperá el QR' };
 
   } catch (err) {
-    logger.error(`[BotMgr] Error iniciando bot ${uid}: ${err.message}`);
-    instancias.delete(uid);
-    liberarPuerto(uid);
-    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
-    await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Error al iniciar: ${err.message}` }).catch(() => {});
+    logger.error(`[BotMgr] Error iniciando bot ${uid} slot ${slot}: ${err.message}`);
+    instancias.delete(key);
+    liberarPuerto(key);
+    await updateBotStatus(uid, slot, false, false).catch(() => {});
+    await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Error al iniciar slot ${slot}: ${err.message}` }).catch(() => {});
     return { ok: false, msg: err.message };
   } finally {
-    arranqueEnProceso.delete(uid);
+    arranqueEnProceso.delete(key);
   }
 }
 
 // ────────────────────────────────────────────────────────────
 //  DETENER BOT
 // ────────────────────────────────────────────────────────────
-async function stopBot(userId) {
+async function stopBot(userId, slot = 0) {
   const uid = String(userId);
+  const key = botKey(uid, slot);
 
   // ── Modo híbrido: delegar al worker ───────────────────────
   if (workerHandler.isWorkerAvailable()) {
     try {
-      workerHandler.sendToWorker('worker:stop-bot', { userId: uid });
+      workerHandler.sendToWorker('worker:stop-bot', { userId: uid, slot });
       return { ok: true, msg: 'Señal de parada enviada al worker' };
     } catch (err) {
       logger.warn(`[BotMgr] No se pudo enviar stop al worker: ${err.message}`);
     }
   }
 
-  const bot = instancias.get(uid);
+  const bot = instancias.get(key);
   if (!bot) return { ok: false, msg: 'El bot no está activo' };
 
   try {
     await bot.detener();
-    instancias.delete(uid);
-    liberarPuerto(uid);
-    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false });
-    await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: 'Bot detenido' });
-    logger.info(`[BotMgr] Bot detenido para user ${uid}`);
-    emitirAlUsuario(uid, 'bot:stopped', {});
+    instancias.delete(key);
+    liberarPuerto(key);
+    await updateBotStatus(uid, slot, false, false);
+    await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: `Slot ${slot}: Bot detenido` });
+    logger.info(`[BotMgr] Bot detenido para user ${uid} slot ${slot}`);
+    emitirAlUsuario(uid, 'bot:stopped', { slot });
     return { ok: true, msg: 'Bot detenido' };
   } catch (err) {
-    logger.error(`[BotMgr] Error deteniendo bot ${uid}: ${err.message}`);
-    instancias.delete(uid);
-    liberarPuerto(uid);
+    logger.error(`[BotMgr] Error deteniendo bot ${uid} slot ${slot}: ${err.message}`);
+    instancias.delete(key);
+    liberarPuerto(key);
     return { ok: false, msg: err.message };
   }
 }
@@ -312,15 +331,17 @@ async function panicStop(userId, motivo = 'Bloqueado por administrador') {
 // ────────────────────────────────────────────────────────────
 async function restoreActiveBots() {
   try {
-    const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id');
+    const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id cuentasWA');
     if (!usuarios.length) return;
 
-    logger.info(`[BotMgr] Restaurando ${usuarios.length} bot(s)...`);
+    logger.info(`[BotMgr] Restaurando bots...`);
     for (const u of usuarios) {
-      try {
-        await startBot(u._id.toString());
-      } catch (e) {
-        logger.error(`[BotMgr] Error restaurando bot ${u._id}: ${e.message}`);
+      const uid = u._id.toString();
+      // Slot 0 (principal)
+      try { await startBot(uid, 0); } catch (e) { logger.error(`[BotMgr] Error restaurando bot ${uid} slot 0: ${e.message}`); }
+      // Slots adicionales (Agencia)
+      for (const cuenta of (u.cuentasWA || []).filter(c => c.slot > 0 && c.activo)) {
+        try { await startBot(uid, cuenta.slot); } catch (e) { logger.error(`[BotMgr] Error restaurando bot ${uid} slot ${cuenta.slot}: ${e.message}`); }
       }
     }
   } catch (err) {
@@ -331,11 +352,13 @@ async function restoreActiveBots() {
 // ────────────────────────────────────────────────────────────
 //  HELPERS
 // ────────────────────────────────────────────────────────────
-function getBotStatus(userId) {
+function getBotStatus(userId, slot = 0) {
   const uid = String(userId);
-  const bot = instancias.get(uid);
+  const key = botKey(uid, slot);
+  const bot = instancias.get(key);
   return {
     activo: !!bot,
+    slot,
     instancias: instancias.size,
   };
 }
@@ -345,13 +368,17 @@ function getActiveCount() {
 }
 
 function getActiveUserIds() {
+  // Devuelve pares únicos userId:slot
   return Array.from(instancias.keys());
 }
 
 async function stopAllBots() {
-  const uids = Array.from(instancias.keys());
-  logger.info(`[BotMgr] Deteniendo ${uids.length} bot(s)...`);
-  await Promise.allSettled(uids.map(uid => stopBot(uid)));
+  const keys = Array.from(instancias.keys());
+  logger.info(`[BotMgr] Deteniendo ${keys.length} bot(s)...`);
+  await Promise.allSettled(keys.map(key => {
+    const [uid, slot] = key.split(':');
+    return stopBot(uid, parseInt(slot) || 0);
+  }));
 }
 
 function emitirAlUsuario(userId, evento, datos) {
@@ -361,11 +388,12 @@ function emitirAlUsuario(userId, evento, datos) {
 }
 
 // ─── Disparar sincronización de catálogo WA en un bot activo ──
-function triggerCatalogSync(userId) {
+function triggerCatalogSync(userId, slot = 0) {
   const uid = String(userId);
+  const key = botKey(uid, slot);
 
   // Modo local: bot corre en este proceso
-  const bot = instancias.get(uid);
+  const bot = instancias.get(key);
   if (bot) {
     bot.emit('catalog:sync');
     return true;
@@ -374,7 +402,7 @@ function triggerCatalogSync(userId) {
   // Modo híbrido: delegar al worker si está conectado
   if (workerHandler.isWorkerAvailable()) {
     try {
-      workerHandler.sendToWorker('worker:catalog-sync', { userId: uid });
+      workerHandler.sendToWorker('worker:catalog-sync', { userId: uid, slot });
       return true;
     } catch (e) {
       logger.warn(`[BotMgr] No se pudo enviar catalog:sync al worker: ${e.message}`);

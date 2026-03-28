@@ -11,13 +11,98 @@ const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
 
+// ── Límites de cuentas por plan ───────────────────────────────
+const SLOTS_POR_PLAN = { trial: 1, basico: 1, pro: 1, agencia: 5, admin: 5 };
+
+function getSlot(req) {
+  const s = parseInt(req.query.slot ?? req.body?.slot ?? '0');
+  return isNaN(s) ? 0 : Math.max(0, Math.min(4, s));
+}
+
+// GET /api/bot/accounts — listar cuentas WhatsApp del usuario
+router.get('/accounts', async (req, res) => {
+  try {
+    const uid    = String(req.user._id);
+    const maxSlots = SLOTS_POR_PLAN[req.user.plan] || 1;
+    const cuentas  = req.user.cuentasWA || [];
+
+    // Combinar con estado en memoria
+    const result = Array.from({ length: maxSlots }, (_, slot) => {
+      const db     = cuentas.find(c => c.slot === slot) || {};
+      const status = botManager.getBotStatus(uid, slot);
+      return {
+        slot,
+        nombre:    db.nombre || (slot === 0 ? 'Principal' : `Cuenta ${slot + 1}`),
+        activo:    slot === 0 ? (req.user.botActivo    || status.activo)    : (db.activo    || status.activo),
+        conectado: slot === 0 ? (req.user.botConectado || false)            : (db.conectado || false),
+        enMemoria: status.activo,
+      };
+    });
+
+    res.json({ accounts: result, maxSlots });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bot/accounts — agregar/nombrar una cuenta (requiere plan Agencia)
+router.post('/accounts', async (req, res) => {
+  try {
+    const uid      = String(req.user._id);
+    const maxSlots = SLOTS_POR_PLAN[req.user.plan] || 1;
+    const { slot, nombre } = req.body;
+    const slotNum  = parseInt(slot);
+
+    if (isNaN(slotNum) || slotNum < 0 || slotNum >= maxSlots) {
+      return res.status(400).json({ error: `Tu plan permite hasta ${maxSlots} cuenta(s) (slots 0–${maxSlots - 1})` });
+    }
+
+    const User = require('../models/User');
+    // Upsert slot en el array
+    await User.findOneAndUpdate(
+      { _id: uid, 'cuentasWA.slot': slotNum },
+      { $set: { 'cuentasWA.$.nombre': nombre || `Cuenta ${slotNum + 1}` } }
+    );
+    // Si no existía el slot, agregarlo
+    await User.findOneAndUpdate(
+      { _id: uid, 'cuentasWA.slot': { $ne: slotNum } },
+      { $addToSet: { cuentasWA: { slot: slotNum, nombre: nombre || `Cuenta ${slotNum + 1}`, activo: false, conectado: false } } }
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/bot/accounts/:slot — eliminar una cuenta (detiene el bot primero)
+router.delete('/accounts/:slot', async (req, res) => {
+  try {
+    const uid     = String(req.user._id);
+    const slotNum = parseInt(req.params.slot);
+    if (slotNum === 0) return res.status(400).json({ error: 'No podés eliminar la cuenta principal (slot 0)' });
+
+    await botManager.stopBot(uid, slotNum).catch(() => {});
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(uid, { $pull: { cuentasWA: { slot: slotNum } } });
+    await WAAuth.deleteMany({ _id: new RegExp(`^${uid}_slot${slotNum}:`) });
+
+    res.json({ ok: true, msg: `Cuenta ${slotNum} eliminada` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/bot/status
 router.get('/status', async (req, res) => {
   try {
-    const status = botManager.getBotStatus(req.user._id);
+    const slot   = getSlot(req);
+    const status = botManager.getBotStatus(req.user._id, slot);
+    const cuenta = (req.user.cuentasWA || []).find(c => c.slot === slot) || {};
     res.json({
-      activo: req.user.botActivo,
-      conectado: req.user.botConectado,
+      slot,
+      activo:           slot === 0 ? req.user.botActivo    : (cuenta.activo    || status.activo),
+      conectado:        slot === 0 ? req.user.botConectado : (cuenta.conectado || false),
       instanciaEnMemoria: status.activo,
     });
   } catch (err) {
@@ -27,25 +112,32 @@ router.get('/status', async (req, res) => {
 
 // POST /api/bot/start
 router.post('/start', async (req, res) => {
-  const result = await botManager.startBot(req.user._id);
+  const slot   = getSlot(req);
+  const maxSlots = SLOTS_POR_PLAN[req.user.plan] || 1;
+  if (slot >= maxSlots) {
+    return res.status(403).json({ ok: false, msg: `Tu plan solo permite ${maxSlots} cuenta(s) de WhatsApp` });
+  }
+  const result = await botManager.startBot(req.user._id, slot);
   res.json(result);
 });
 
 // POST /api/bot/stop
 router.post('/stop', async (req, res) => {
-  const result = await botManager.stopBot(req.user._id);
+  const slot   = getSlot(req);
+  const result = await botManager.stopBot(req.user._id, slot);
   res.json(result);
 });
 
 // POST /api/bot/reset-session — borra la sesión WhatsApp de MongoDB (fuerza QR nuevo)
 router.post('/reset-session', async (req, res) => {
   try {
-    const uid = String(req.user._id);
-    // Detener bot si está activo
-    await botManager.stopBot(uid).catch(() => {});
-    // Borrar todos los documentos wa_auth del usuario
-    const result = await WAAuth.deleteMany({ _id: new RegExp(`^${uid}:`) });
-    await Log.registrar({ userId: uid, tipo: 'bot_reset', mensaje: `Sesión WhatsApp reiniciada (${result.deletedCount} docs eliminados)` });
+    const uid  = String(req.user._id);
+    const slot = getSlot(req);
+    await botManager.stopBot(uid, slot).catch(() => {});
+    // Borrar sesión del slot correspondiente
+    const sessionPrefix = slot === 0 ? `${uid}:` : `${uid}_slot${slot}:`;
+    const result = await WAAuth.deleteMany({ _id: new RegExp(`^${sessionPrefix}`) });
+    await Log.registrar({ userId: uid, tipo: 'bot_reset', mensaje: `Slot ${slot}: Sesión reiniciada (${result.deletedCount} docs eliminados)` });
     res.json({ ok: true, msg: 'Sesión eliminada. Iniciá el bot de nuevo para escanear el QR.', deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ error: err.message });
