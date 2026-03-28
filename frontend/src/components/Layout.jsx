@@ -59,7 +59,7 @@ export default function Layout({ children }) {
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
 
       {/* ── Desktop Sidebar ──────────────────────────── */}
-      <aside className="sidebar hidden md:flex">
+      <aside className="sidebar">
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-5 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid var(--border)' }}>
@@ -210,7 +210,7 @@ export default function Layout({ children }) {
       </div>
 
       {/* ── Mobile bottom nav ─────────────────────────── */}
-      <nav className="bottom-nav md:hidden">
+      <nav className="bottom-nav">
         {navItems.map((item) => {
           const Icon   = item.icon;
           const active = isActive(item.to);
