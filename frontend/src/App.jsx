@@ -12,6 +12,8 @@ import AgendaPage    from './pages/AgendaPage';
 import AdminPanel    from './pages/AdminPanel';
 import PlanesPage    from './pages/PlanesPage';
 import NotFound      from './pages/NotFound';
+import Privacidad    from './pages/Privacidad';
+import Terminos      from './pages/Terminos';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -68,6 +70,9 @@ export default function App() {
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />
+
+        <Route path="/privacidad" element={<Privacidad />} />
+        <Route path="/terminos"   element={<Terminos />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
