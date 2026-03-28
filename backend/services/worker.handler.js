@@ -90,6 +90,17 @@ function inicializarWorkerHandler(io) {
       Log.registrar({ userId, tipo: 'error', nivel: 'error', mensaje: msg }).catch(() => {});
     });
 
+    // ── Catálogo: resultado de sincronización WA Business ──
+    socket.on('worker:catalog-synced', ({ userId, count, total }) => {
+      logger.info(`[WorkerHandler] Catálogo sincronizado user ${userId}: ${count} prod(s)`);
+      _emitirAlUsuario(io, userId, 'catalog:synced', { count, total });
+    });
+
+    socket.on('worker:catalog-new-product', ({ userId, product }) => {
+      logger.info(`[WorkerHandler] Nuevo producto detectado user ${userId}: ${product?.nombre}`);
+      _emitirAlUsuario(io, userId, 'catalog:new-product', product);
+    });
+
     // ── Desconexión del worker ─────────────────────────────
     socket.on('disconnect', (reason) => {
       logger.warn(`[WorkerHandler] ⚠️ Worker desconectado: ${reason}`);

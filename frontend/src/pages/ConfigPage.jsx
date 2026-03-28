@@ -264,6 +264,7 @@ export default function ConfigPage() {
   const [catalogoSyncInfo,  setCatalogoSyncInfo]  = useState(null); // { count, ts }
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
+  const [botStatus, setBotStatus] = useState({ activo: false, conectado: false, cargando: true });
 
   // Horarios de atención
   const DIAS_ORDEN = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo'];
@@ -325,6 +326,11 @@ export default function ConfigPage() {
   };
 
   useEffect(() => {
+    // Verificar estado del bot
+    api.get('/bot/status')
+      .then(r => setBotStatus({ activo: !!r.data.botActivo, conectado: !!r.data.botConectado, cargando: false }))
+      .catch(() => setBotStatus({ activo: false, conectado: false, cargando: false }));
+
     api.get('/config').then(r => {
       setConfig(r.data.config);
       setKeys(r.data.keys);
@@ -457,12 +463,19 @@ export default function ConfigPage() {
     setSyncingCatalogo(true);
     try {
       await api.post('/config/catalogo/sync');
-      toast('🔄 Sincronizando catálogo WA Business...', { icon: '⏳' });
+      toast('🔄 Sincronizando catálogo desde WA Business...', { icon: '⏳' });
+      setBotStatus(s => ({ ...s, activo: true, conectado: true }));
       // El spinner se apaga cuando llega el evento socket 'catalog:synced'
       // Timeout de seguridad por si no llega el evento
-      setTimeout(() => setSyncingCatalogo(false), 15000);
+      setTimeout(() => setSyncingCatalogo(false), 20000);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Error al sincronizar — ¿el bot está activo?');
+      const data = err.response?.data || {};
+      // Si el backend intentó reconectar y está esperando → mostrar info, no error
+      if (data.botConectado) {
+        toast('⏳ Bot reconectando… intentá sincronizar en 30 segundos.', { icon: '🔄', duration: 5000 });
+      } else {
+        toast.error(data.error || 'Error al sincronizar — iniciá el bot desde el Dashboard primero.');
+      }
       setSyncingCatalogo(false);
     }
   };
@@ -1049,6 +1062,19 @@ export default function ConfigPage() {
               Si usás <strong>WhatsApp Business</strong> con catálogo, podés sincronizarlo automáticamente. También se detectan productos publicados en tus <strong>estados de WA</strong>.
             </p>
 
+            {/* Estado del bot + botón sync */}
+            {!botStatus.cargando && !botStatus.activo && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
+                style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }}>
+                <Ban size={12} />
+                <span>
+                  {botStatus.conectado
+                    ? 'El bot tiene sesión guardada pero no está corriendo. Inicialo desde el Dashboard, esperá que conecte y luego sincronizá.'
+                    : 'El bot no está activo. Inicialo desde el Dashboard primero.'}
+                </span>
+              </div>
+            )}
+
             {/* Botón sync desde WA Business */}
             <div className="flex items-center gap-3 flex-wrap">
               <button onClick={syncCatalogo} disabled={syncingCatalogo}
@@ -1056,6 +1082,11 @@ export default function ConfigPage() {
                 <RefreshCw size={13} className={syncingCatalogo ? 'animate-spin' : ''} />
                 {syncingCatalogo ? 'Sincronizando...' : 'Sincronizar desde WA Business'}
               </button>
+              {botStatus.activo && (
+                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--accent)' }}>
+                  <CheckCircle size={11} /> Bot activo
+                </span>
+              )}
               {catalogoSyncInfo?.ts && (
                 <span className="text-xs text-gray-600">
                   Última sync: {new Date(catalogoSyncInfo.ts).toLocaleString('es-AR')} · {catalogoSyncInfo.count} producto(s)

@@ -357,8 +357,25 @@ router.put('/catalogo', async (req, res) => {
 router.post('/catalogo/sync', async (req, res) => {
   try {
     const botManager = require('../services/bot.manager');
-    const ok = botManager.triggerCatalogSync(req.user._id);
-    if (!ok) return res.status(400).json({ error: 'El bot no está activo. Inicialo primero para sincronizar el catálogo WA.' });
+    let ok = botManager.triggerCatalogSync(req.user._id);
+
+    // Bot no en memoria pero tiene sesión guardada → intentar reconectar
+    if (!ok && req.user.botConectado) {
+      const started = await botManager.startBot(req.user._id.toString());
+      if (started.ok) {
+        // Esperar brevemente a que el bot cargue la sesión y luego disparar sync
+        await new Promise(r => setTimeout(r, 4000));
+        ok = botManager.triggerCatalogSync(req.user._id);
+      }
+    }
+
+    if (!ok) {
+      const msg = req.user.botConectado
+        ? 'El bot está reconectando. Esperá unos segundos e intentá de nuevo.'
+        : 'El bot no está activo. Inicialo desde el Dashboard primero.';
+      return res.status(400).json({ error: msg, botConectado: req.user.botConectado });
+    }
+
     res.json({ ok: true, msg: 'Sincronizando catálogo desde WhatsApp Business...' });
   } catch (err) {
     res.status(500).json({ error: err.message });

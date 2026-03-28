@@ -362,10 +362,26 @@ function emitirAlUsuario(userId, evento, datos) {
 // ─── Disparar sincronización de catálogo WA en un bot activo ──
 function triggerCatalogSync(userId) {
   const uid = String(userId);
+
+  // Modo local: bot corre en este proceso
   const bot = instancias.get(uid);
-  if (!bot) return false;
-  bot.emit('catalog:sync');
-  return true;
+  if (bot) {
+    bot.emit('catalog:sync');
+    return true;
+  }
+
+  // Modo híbrido: delegar al worker si está conectado
+  if (workerHandler.isWorkerAvailable()) {
+    try {
+      workerHandler.sendToWorker('worker:catalog-sync', { userId: uid });
+      return true;
+    } catch (e) {
+      logger.warn(`[BotMgr] No se pudo enviar catalog:sync al worker: ${e.message}`);
+      return false;
+    }
+  }
+
+  return false;
 }
 
 module.exports = {
