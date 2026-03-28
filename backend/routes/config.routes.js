@@ -98,10 +98,17 @@ router.get('/google/callback', async (req, res) => {
     else if (msg.includes('invalid_grant'))    reason = 'invalid_grant';
     else if (msg.includes('access_denied'))    reason = 'access_denied';
     else if (msg.includes('expired'))          reason = 'token_expired';
+    else if (msg.includes('invalid signature') || msg.includes('jwt'))  reason = 'jwt_error';
+    else if (msg.includes('ENCRYPTION') || msg.includes('CRITICO'))     reason = 'encryption_error';
+    else if (msg.includes('ECONNREFUSED') || msg.includes('network'))   reason = 'network_error';
 
     logger.error(`[Config] Google OAuth callback error (${reason}): ${msg}`);
+    logger.error(`[Config] Stack: ${err.stack}`);
     logger.error(`[Config] redirect_uri usado: ${redirectUri}`);
-    res.redirect(`${process.env.FRONTEND_URL || ''}/config?calendar=error&reason=${encodeURIComponent(reason)}&redirect_uri=${encodeURIComponent(redirectUri)}`);
+
+    // Pasar mensaje de debug (primeros 120 chars) para diagnosticar desde frontend
+    const debugMsg = msg.slice(0, 120).replace(/[^a-zA-Z0-9 :._\-\[\]]/g, '');
+    res.redirect(`${process.env.FRONTEND_URL || ''}/config?calendar=error&reason=${encodeURIComponent(reason)}&redirect_uri=${encodeURIComponent(redirectUri)}&debug=${encodeURIComponent(debugMsg)}`);
   }
 });
 

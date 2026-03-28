@@ -296,6 +296,7 @@ export default function ConfigPage() {
     if (searchParams.get('calendar') === 'error') {
       const reason      = searchParams.get('reason') || '';
       const redirectUri = searchParams.get('redirect_uri') || '';
+      const debugMsg    = searchParams.get('debug') || '';
 
       const MENSAJES = {
         redirect_uri_mismatch: `URI de redirección no registrada en Google Cloud Console.\nAgregá esta URL en "Credenciales → URIs de redirección autorizadas":\n${redirectUri || '(revisá los logs de Render)'}`,
@@ -304,10 +305,14 @@ export default function ConfigPage() {
         access_denied:         'Permiso denegado por el usuario.',
         token_expired:         'Tu sesión expiró. Volvé a iniciar sesión e intentá de nuevo.',
         access_blocked:        'App bloqueada por Google. Agregá tu cuenta como "Usuario de prueba" en Google Cloud Console → Pantalla de consentimiento OAuth.',
+        jwt_error:             'Error de autenticación (JWT inválido). Cerrá sesión, volvé a entrar e intentá de nuevo.',
+        encryption_error:      'Error de cifrado en el servidor. Verificá que ENCRYPTION_KEY esté configurada en Render.',
+        network_error:         'Error de red en el servidor. Verificá la conexión de Render con los servicios de Google.',
       };
 
-      const msg = MENSAJES[reason] || `Error desconocido conectando Google Calendar${reason ? ` (${reason})` : ''}. Revisá los logs de Render.`;
-      toast.error(msg, { duration: 10000 });
+      const base = MENSAJES[reason] || `Error (${reason || 'unknown'}) conectando Google Calendar.`;
+      const msg  = debugMsg ? `${base}\n\nDetalle: ${debugMsg}` : base;
+      toast.error(msg, { duration: 15000 });
       setSearchParams({});
     }
   }, []);
