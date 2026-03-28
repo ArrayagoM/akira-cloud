@@ -558,3 +558,91 @@ select.input-base option { background: var(--surface2); color: var(--text); }
 .content-enter {
   animation: fadeIn 0.25s ease-out;
 }
+
+/* ── Scroll reveal — estado inicial (invisible) ─────────────  */
+.reveal-up {
+  opacity: 0;
+  transform: translateY(36px);
+  transition: opacity 0.65s cubic-bezier(0.22,1,0.36,1), transform 0.65s cubic-bezier(0.22,1,0.36,1);
+}
+.reveal-right {
+  opacity: 0;
+  transform: translateX(60px);
+  transition: opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1);
+}
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-60px);
+  transition: opacity 0.7s cubic-bezier(0.22,1,0.36,1), transform 0.7s cubic-bezier(0.22,1,0.36,1);
+}
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.55s ease-out, transform 0.55s cubic-bezier(0.34,1.56,0.64,1);
+}
+.reveal-fade {
+  opacity: 0;
+  transition: opacity 0.8s ease-out;
+}
+
+/* Activado por IntersectionObserver */
+.reveal-up.is-visible,
+.reveal-right.is-visible,
+.reveal-left.is-visible,
+.reveal-scale.is-visible,
+.reveal-fade.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Delays para grupos */
+.reveal-d1 { transition-delay: 80ms; }
+.reveal-d2 { transition-delay: 160ms; }
+.reveal-d3 { transition-delay: 240ms; }
+.reveal-d4 { transition-delay: 320ms; }
+.reveal-d5 { transition-delay: 400ms; }
+
+/* ── Horizontal scroll section ───────────────────────────────  */
+.hscroll-track {
+  position: relative;
+  /* La altura total define cuánto se scrollea verticalmente
+     antes de salir del modo horizontal */
+}
+.hscroll-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.hscroll-inner {
+  display: flex;
+  will-change: transform;
+  transition: transform 0.05s linear;
+}
+
+/* ── Línea decorativa animada ───────────────────────────────── */
+@keyframes lineGrow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.line-grow {
+  transform-origin: left;
+  animation: lineGrow 1.2s ease-out forwards;
+}
+
+/* ── Hover link subrayado animado ────────────────────────────── */
+.link-underline {
+  position: relative;
+  display: inline-block;
+}
+.link-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0;
+  width: 0; height: 1px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.link-underline:hover::after { width: 100%; }

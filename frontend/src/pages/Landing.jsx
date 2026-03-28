@@ -1,29 +1,106 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import api from '../services/api';
-import toast from 'react-hot-toast';
-import { Bot, Calendar, CreditCard, Mic, Zap, Shield, BarChart3, CheckCircle, XCircle, ArrowRight, MessageSquare, Clock, Star, Github, Linkedin, Facebook, Globe, Code2, PauseCircle, BellRing, CalendarX2, GitBranch } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Bot, Calendar, CreditCard, Mic, Zap, Shield, CheckCircle, ArrowRight,
+  MessageSquare, Clock, Star, Github, Linkedin, Facebook, Globe, Code2,
+  PauseCircle, BellRing, GitBranch, ChevronRight, Sparkles } from 'lucide-react';
+import { useScrollReveal, useScrollRevealGroup } from '../hooks/useScrollReveal';
 
-// ── Componentes auxiliares ───────────────────────────────────
-function NavBar() {
+// ─────────────────────────────────────────────────────────────
+// HORIZONTAL SCROLL SECTION
+// Convierte scroll vertical en movimiento horizontal
+// ─────────────────────────────────────────────────────────────
+function HorizontalScroll({ children, bgColor = '#070c12' }) {
+  const trackRef = useRef(null);
+  const innerRef = useRef(null);
+  const slides   = Array.isArray(children) ? children : [children];
+  const count    = slides.length;
+
+  useEffect(() => {
+    const onScroll = () => {
+      const el = trackRef.current;
+      if (!el) return;
+      const rect     = el.getBoundingClientRect();
+      const progress = Math.max(0, Math.min(1, -rect.top / (el.offsetHeight - window.innerHeight)));
+      if (innerRef.current) {
+        innerRef.current.style.transform = `translateX(-${progress * (count - 1) * 100}vw)`;
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [count]);
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-gray-800">
+    <div ref={trackRef} style={{ height: `${count * 100}vh`, background: bgColor }}>
+      <div className="sticky top-0 h-screen overflow-hidden">
+        <div ref={innerRef} className="flex h-full"
+          style={{ width: `${count * 100}vw`, willChange: 'transform', transition: 'transform 0.06s linear' }}>
+          {slides.map((slide, i) => (
+            <div key={i} className="flex-shrink-0 flex items-center justify-center"
+              style={{ width: '100vw', height: '100vh' }}>
+              {slide}
+            </div>
+          ))}
+        </div>
+        {/* Indicador de progreso */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+          {slides.map((_, i) => (
+            <div key={i} className="w-2 h-2 rounded-full transition-all duration-300"
+              style={{ background: 'rgba(0,232,123,0.4)' }} />
+          ))}
+        </div>
+        {/* Flecha siguiente */}
+        <div className="absolute right-8 top-1/2 -translate-y-1/2 text-xs font-semibold flex items-center gap-1 animate-bounce-soft"
+          style={{ color: 'var(--accent)', opacity: 0.6 }}>
+          <ChevronRight size={16} /> scroll
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// NAVBAR
+// ─────────────────────────────────────────────────────────────
+function NavBar() {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 40);
+    window.addEventListener('scroll', fn, { passive: true });
+    return () => window.removeEventListener('scroll', fn);
+  }, []);
+
+  return (
+    <nav className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
+      style={{
+        background: scrolled ? 'rgba(7,12,18,0.92)' : 'transparent',
+        backdropFilter: scrolled ? 'blur(16px)' : 'none',
+        borderBottom: scrolled ? '1px solid rgba(30,45,61,0.8)' : 'none',
+      }}>
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bot className="text-green-400" size={24} />
-          <span className="font-bold text-lg text-white">Akira <span className="text-green-400">Cloud</span></span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: 'rgba(0,232,123,0.12)', border: '1px solid rgba(0,232,123,0.25)' }}>
+            <Bot size={16} style={{ color: 'var(--accent)' }} />
+          </div>
+          <span className="font-bold text-white">Akira <span style={{ color: 'var(--accent)' }}>Cloud</span></span>
         </div>
-        <div className="hidden md:flex items-center gap-8 text-sm text-gray-400">
-          <a href="#como-funciona" className="hover:text-white transition-colors">Cómo funciona</a>
-          <a href="#beneficios" className="hover:text-white transition-colors">Beneficios</a>
-          <a href="#comparativa" className="hover:text-white transition-colors">Comparativa</a>
-          <a href="#precios" className="hover:text-white transition-colors">Precios</a>
+
+        <div className="hidden md:flex items-center gap-7 text-sm" style={{ color: 'var(--text2)' }}>
+          {['#como-funciona','#beneficios','#comparativa','#precios'].map((href, i) => (
+            <a key={i} href={href} className="link-underline hover:text-white transition-colors duration-150"
+              style={{ color: 'var(--text2)' }}>
+              {['Cómo funciona','Beneficios','Comparativa','Precios'][i]}
+            </a>
+          ))}
         </div>
+
         <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm text-gray-400 hover:text-white transition-colors px-4 py-2">
+          <Link to="/login" className="text-sm font-medium transition-colors duration-150 hidden sm:block"
+            style={{ color: 'var(--text2)' }}>
             Iniciar sesión
           </Link>
-          <Link to="/register" className="btn-primary text-sm py-2 px-5">
+          <Link to="/register" className="btn-primary text-sm py-2 px-4">
             Empezar gratis
           </Link>
         </div>
@@ -32,66 +109,110 @@ function NavBar() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// HERO
+// ─────────────────────────────────────────────────────────────
 function HeroSection() {
+  const badgeRef = useScrollReveal('is-visible');
+  const h1Ref   = useScrollReveal('is-visible');
+  const pRef    = useScrollReveal('is-visible');
+  const ctaRef  = useScrollReveal('is-visible');
+  const mockRef = useScrollReveal('is-visible');
+
   return (
-    <section className="min-h-screen flex items-center pt-16 bg-black relative overflow-hidden">
-      {/* Glow de fondo */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-green-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-green-500/3 rounded-full blur-2xl pointer-events-none" />
+    <section className="min-h-screen flex items-center pt-16 relative overflow-hidden"
+      style={{ background: 'var(--bg)' }}>
+      {/* orbs de fondo */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full blur-3xl pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(0,232,123,0.06) 0%, transparent 70%)' }} />
+      <div className="absolute top-1/4 right-1/4 w-64 h-64 rounded-full blur-2xl pointer-events-none"
+        style={{ background: 'rgba(59,130,246,0.04)' }} />
+      {/* Grid */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
 
-      <div className="max-w-6xl mx-auto px-6 py-24 text-center relative z-10">
-        <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-full px-4 py-1.5 text-green-400 text-sm font-medium mb-8">
-          <Zap size={14} /> Impulsado por LLaMA 3.3 70B — el modelo más potente
-        </div>
-
-        <h1 className="text-5xl md:text-7xl font-extrabold text-white leading-tight mb-6">
-          Tu negocio funciona<br />
-          <span className="text-green-400">mientras dormís</span>
-        </h1>
-
-        <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Akira es la asistente de WhatsApp con IA que agenda turnos, cobra con MercadoPago
-          y atiende a tus clientes las 24 horas. Sin código, sin servidores, sin complicaciones.
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
-          <Link to="/register" className="btn-primary text-base py-3.5 px-8">
-            Empezar gratis — 7 días <ArrowRight size={18} />
-          </Link>
-          <a href="#como-funciona" className="btn-secondary text-base py-3.5 px-8">
-            Ver cómo funciona <ArrowRight size={18} />
-          </a>
-        </div>
-
-        {/* Mockup WhatsApp */}
-        <div className="relative max-w-sm mx-auto">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-4 text-left shadow-2xl">
-            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-800">
-              <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center">
-                <Bot size={18} className="text-green-400" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-white">Akira — Peluquería Estilo</p>
-                <p className="text-xs text-green-400">● en línea</p>
-              </div>
+      <div className="max-w-6xl mx-auto px-6 py-24 w-full relative z-10">
+        <div className="grid md:grid-cols-2 gap-16 items-center">
+          <div>
+            <div ref={badgeRef} className="reveal-up inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium mb-8"
+              style={{ background: 'rgba(0,232,123,0.08)', border: '1px solid rgba(0,232,123,0.2)', color: 'var(--accent)' }}>
+              <Sparkles size={13} /> Impulsado por LLaMA 3.3 70B
             </div>
-            {[
-              { from: 'client', text: 'Hola, ¿tienen turno el martes?', time: '10:02' },
-              { from: 'bot',    text: '¡Hola Lucía! 😊 Sí, el martes tenemos disponible: 10:00, 14:00 y 16:00. ¿Cuál te queda mejor?', time: '10:02' },
-              { from: 'client', text: 'Las 14:00 perfecto', time: '10:03' },
-              { from: 'bot',    text: '¡Genial! 🎉 Tu turno del martes a las 14:00 quedó confirmado.\n\n💳 Pagá aquí para reservarlo:\nhttps://mp.com/tu-turno\n\n⏳ El link vence en 30 min.', time: '10:03' },
-            ].map((m, i) => (
-              <div key={i} className={`flex mb-3 ${m.from === 'client' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line ${m.from === 'client' ? 'bg-green-600 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}>
-                  {m.text}
-                  <p className={`text-right mt-1 opacity-60 text-[10px] ${m.from === 'client' ? 'text-green-200' : 'text-gray-500'}`}>{m.time}</p>
-                </div>
+
+            <h1 ref={h1Ref} className="reveal-up text-5xl md:text-6xl font-extrabold text-white leading-tight mb-6 reveal-d1">
+              Tu negocio funciona<br />
+              <span style={{ color: 'var(--accent)' }}>mientras dormís</span>
+            </h1>
+
+            <p ref={pRef} className="reveal-up text-lg mb-10 leading-relaxed reveal-d2"
+              style={{ color: 'var(--text2)' }}>
+              Akira agenda turnos, cobra con MercadoPago y atiende a tus clientes
+              las 24hs por WhatsApp. Sin código, sin servidores.
+            </p>
+
+            <div ref={ctaRef} className="reveal-up flex flex-col sm:flex-row gap-3 reveal-d3">
+              <Link to="/register" className="btn-primary text-base py-3.5 px-8">
+                Empezar gratis — 7 días <ArrowRight size={17} />
+              </Link>
+              <a href="#como-funciona" className="btn-secondary text-base py-3.5 px-8">
+                Ver cómo funciona
+              </a>
+            </div>
+
+            {/* Social proof */}
+            <div className="mt-8 flex items-center gap-4 reveal-up reveal-d4" style={{ color: 'var(--muted)' }}>
+              <div className="flex -space-x-2">
+                {['#00e87b','#3b82f6','#f59e0b','#a78bfa'].map((c, i) => (
+                  <div key={i} className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold"
+                    style={{ background: `${c}22`, borderColor: 'var(--bg)', color: c }}>
+                    {['A','M','C','L'][i]}
+                  </div>
+                ))}
               </div>
-            ))}
+              <p className="text-sm"><strong className="text-white">+200</strong> negocios automatizados</p>
+            </div>
           </div>
-          {/* Badge flotante */}
-          <div className="absolute -right-4 -bottom-4 bg-green-500 text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
-            IA 24/7 ✓
+
+          {/* Mockup WhatsApp */}
+          <div ref={mockRef} className="reveal-right reveal-d2">
+            <div className="relative">
+              <div className="rounded-2xl p-5 text-left"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 8px 48px rgba(0,0,0,0.5)' }}>
+                <div className="flex items-center gap-3 mb-4 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0,232,123,0.12)' }}>
+                    <Bot size={17} style={{ color: 'var(--accent)' }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Akira — Peluquería Estilo</p>
+                    <p className="text-xs" style={{ color: 'var(--accent)' }}>● en línea</p>
+                  </div>
+                </div>
+                {[
+                  { from: 'client', text: 'Hola, ¿tienen turno el martes?', time: '10:02' },
+                  { from: 'bot',    text: '¡Hola Lucía! 😊 Sí, el martes tenemos: 10:00, 14:00 y 16:00. ¿Cuál te queda mejor?', time: '10:02' },
+                  { from: 'client', text: 'Las 14:00 perfecto', time: '10:03' },
+                  { from: 'bot',    text: '🎉 Turno confirmado — martes 14:00.\n\n💳 Pagá aquí:\nhttps://mp.com/tu-turno\n\n⏳ Link válido 30 min.', time: '10:03' },
+                ].map((m, i) => (
+                  <div key={i} className={`flex mb-3 ${m.from === 'client' ? 'justify-end' : 'justify-start'}`}>
+                    <div className="max-w-[82%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line"
+                      style={m.from === 'client'
+                        ? { background: 'var(--accent)', color: '#020f08', borderTopRightRadius: '4px' }
+                        : { background: 'var(--surface3)', color: 'var(--text)', border: '1px solid var(--border)', borderTopLeftRadius: '4px' }}>
+                      {m.text}
+                      <p className="text-right mt-0.5 text-[10px] opacity-50">{m.time}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="absolute -right-3 -bottom-3 text-xs font-bold px-3 py-1.5 rounded-full"
+                style={{ background: 'var(--accent)', color: '#020f08', boxShadow: '0 4px 12px rgba(0,232,123,0.4)' }}>
+                IA 24/7 ✓
+              </div>
+              {/* Glow bajo la tarjeta */}
+              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-8 blur-xl"
+                style={{ background: 'rgba(0,232,123,0.15)' }} />
+            </div>
           </div>
         </div>
       </div>
@@ -99,50 +220,47 @@ function HeroSection() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// COMO FUNCIONA — scroll reveal de arriba (pasos)
+// ─────────────────────────────────────────────────────────────
 const pasos = [
-  {
-    num: '01',
-    titulo: 'Creá tu cuenta',
-    desc: 'Registrate en menos de un minuto con Google o email. Tenés 7 días de prueba gratis, sin tarjeta.',
-  },
-  {
-    num: '02',
-    titulo: 'Configurá tu negocio',
-    desc: 'Cargá tu Groq API Key (gratis), definí tus servicios, precios y horarios de atención por día.',
-  },
-  {
-    num: '03',
-    titulo: 'Conectá WhatsApp',
-    desc: 'Hacé clic en "Iniciar bot" y escaneá el QR con tu WhatsApp. En 30 segundos el bot está activo.',
-  },
-  {
-    num: '04',
-    titulo: 'Tu negocio trabaja solo',
-    desc: 'Akira agenda, cobra y avisa. Vos controlás todo desde el panel: pausás, desbloqueás días y revisás la actividad en tiempo real.',
-  },
+  { num: '01', titulo: 'Creá tu cuenta', desc: 'Registrate en un minuto con Google o email. 7 días de prueba gratis, sin tarjeta.' },
+  { num: '02', titulo: 'Configurá tu negocio', desc: 'Cargá tu Groq API Key (gratis), servicios, precios y horarios por día.' },
+  { num: '03', titulo: 'Conectá WhatsApp', desc: 'Click en "Iniciar bot" y escaneá el QR. En 30 segundos el bot está activo.' },
+  { num: '04', titulo: 'Tu negocio trabaja solo', desc: 'Akira agenda, cobra y avisa. Vos controlás todo desde el panel en tiempo real.' },
 ];
 
 function ComoFuncionaSection() {
+  const titleRef = useScrollReveal('is-visible');
+  const gridRef  = useScrollRevealGroup('is-visible');
+
   return (
-    <section id="como-funciona" className="py-24 bg-gray-950 border-t border-gray-900">
+    <section id="como-funciona" className="py-28 relative"
+      style={{ background: 'var(--surface)' }}>
       <div className="max-w-5xl mx-auto px-6">
-        <div className="text-center mb-16">
-          <span className="text-green-400 text-sm font-semibold uppercase tracking-widest">Paso a paso</span>
-          <h2 className="text-4xl font-bold text-white mt-3 mb-4">En 10 minutos estás operando</h2>
-          <p className="text-gray-400 text-lg max-w-xl mx-auto">Sin instalar nada. Sin servidores. Sin conocimientos técnicos.</p>
+        <div ref={titleRef} className="reveal-up text-center mb-16">
+          <span className="text-xs font-semibold uppercase tracking-widest mb-3 block" style={{ color: 'var(--accent)' }}>
+            Paso a paso
+          </span>
+          <h2 className="text-4xl font-bold text-white mb-4">En 10 minutos estás operando</h2>
+          <p className="text-lg max-w-xl mx-auto" style={{ color: 'var(--text2)' }}>
+            Sin instalar nada. Sin servidores. Sin conocimientos técnicos.
+          </p>
         </div>
-        <div className="grid md:grid-cols-4 gap-6">
+        <div ref={gridRef} className="grid md:grid-cols-4 gap-6">
           {pasos.map((p, i) => (
-            <div key={i} className="relative">
+            <div key={i} className="reveal-up relative">
               {i < pasos.length - 1 && (
-                <div className="hidden md:block absolute top-7 left-full w-full h-px bg-gradient-to-r from-green-500/30 to-transparent z-0" />
+                <div className="hidden md:block absolute top-7 left-full w-full h-px z-0"
+                  style={{ background: 'linear-gradient(90deg, rgba(0,232,123,0.3), transparent)' }} />
               )}
               <div className="relative z-10 flex flex-col gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-                  <span className="text-green-400 font-extrabold text-lg">{p.num}</span>
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                  style={{ background: 'rgba(0,232,123,0.08)', border: '1px solid rgba(0,232,123,0.18)' }}>
+                  <span className="font-extrabold text-lg" style={{ color: 'var(--accent)' }}>{p.num}</span>
                 </div>
                 <h3 className="font-semibold text-white">{p.titulo}</h3>
-                <p className="text-sm text-gray-500 leading-relaxed">{p.desc}</p>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--text2)' }}>{p.desc}</p>
               </div>
             </div>
           ))}
@@ -152,34 +270,122 @@ function ComoFuncionaSection() {
   );
 }
 
-const beneficios = [
-  { icon: <Bot size={22} />, title: 'IA con LLaMA 3.3 70B', desc: 'El modelo de lenguaje más potente disponible. Entiende contexto, tono y responde como una persona real.' },
-  { icon: <Calendar size={22} />, title: 'Agenda en tiempo real', desc: 'Se conecta a tu Google Calendar. Consulta disponibilidad, agenda y reagenda sin que vos intervengas.' },
-  { icon: <CreditCard size={22} />, title: 'Cobros con MercadoPago', desc: 'Genera links de pago automáticamente. El turno se confirma solo cuando el cliente paga.' },
-  { icon: <Mic size={22} />, title: 'Responde audios', desc: 'Transcribe mensajes de voz con Whisper y puede responder también con voz usando RIME AI.' },
-  { icon: <Clock size={22} />, title: 'Horarios configurables', desc: 'Definí día a día tus horarios de atención desde el panel. El bot solo ofrece turnos en los horarios activos.' },
-  { icon: <BellRing size={22} />, title: 'Te avisa en WhatsApp', desc: 'Cada vez que se confirma un turno, recibís un mensaje en tu propio WhatsApp con todos los detalles.' },
-  { icon: <PauseCircle size={22} />, title: 'Modo pausa en un click', desc: 'Vacaciones, feriado o día libre: pausás el bot en segundos y bloqueás las fechas que necesitás.' },
-  { icon: <Shield size={22} />, title: 'Control total', desc: 'Silenciás el bot cuando querés tomar el control de una conversación. Vos siempre tenés la última palabra.' },
-  { icon: <GitBranch size={22} />, title: 'Programa de referidos', desc: 'Compartí tu código único y ganás créditos por cada amigo que se registra. Ellos también reciben un descuento.' },
+// ─────────────────────────────────────────────────────────────
+// HORIZONTAL SCROLL — Slides de features (de derecha → izquierda)
+// ─────────────────────────────────────────────────────────────
+const featureSlides = [
+  {
+    tag: 'IA de última generación',
+    title: 'Responde como una persona real',
+    desc: 'LLaMA 3.3 70B entiende contexto, tono y sarcasmo. Recuerda la conversación anterior y responde con naturalidad, incluso a mensajes de audio.',
+    icon: <Bot size={40} />,
+    color: 'var(--accent)',
+    bg: 'rgba(0,232,123,0.06)',
+    items: ['Contexto multi-turno', 'Transcribe audios (Whisper)', 'Responde por voz (RIME AI)', 'Personalizable por negocio'],
+  },
+  {
+    tag: 'Agenda inteligente',
+    title: 'Nunca más un doble turno',
+    desc: 'Se conecta a tu Google Calendar y consulta disponibilidad en tiempo real. Agenda, reagenda y cancela turnos automáticamente sin que vos intervengas.',
+    icon: <Calendar size={40} />,
+    color: '#60a5fa',
+    bg: 'rgba(59,130,246,0.06)',
+    items: ['Google Calendar real', 'Horarios configurables por día', 'Días y fechas bloqueadas', 'Recordatorios automáticos'],
+  },
+  {
+    tag: 'Cobros automáticos',
+    title: 'El turno se confirma cuando pagan',
+    desc: 'Genera links de MercadoPago al instante. El turno queda reservado solo cuando el pago está acreditado. Cero deudores, cero ausentismo.',
+    icon: <CreditCard size={40} />,
+    color: '#a78bfa',
+    bg: 'rgba(167,139,250,0.06)',
+    items: ['MercadoPago integrado', 'Alias / CBU / transferencia', 'Confirmación automática', 'Te avisa por WhatsApp'],
+  },
+  {
+    tag: 'Control total',
+    title: 'Vos siempre tenés la última palabra',
+    desc: 'Pausá el bot en un click, bloqueá fechas, silenciá conversaciones y tomá el control cuando lo necesitás. Panel web y mobile incluido.',
+    icon: <Shield size={40} />,
+    color: '#f59e0b',
+    bg: 'rgba(245,158,11,0.06)',
+    items: ['Modo pausa instantáneo', 'Actividad en tiempo real', 'Silenciar conversaciones', 'Panel desde el celular'],
+  },
+];
+
+function FeatureSlide({ tag, title, desc, icon, color, bg, items }) {
+  return (
+    <div className="max-w-5xl mx-auto px-6 w-full">
+      <div className="grid md:grid-cols-2 gap-12 items-center">
+        {/* Ícono + título */}
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold mb-6"
+            style={{ background: `${color}18`, color, border: `1px solid ${color}30` }}>
+            {tag}
+          </div>
+          <h2 className="text-4xl md:text-5xl font-extrabold text-white leading-tight mb-5">{title}</h2>
+          <p className="text-lg leading-relaxed mb-8" style={{ color: 'var(--text2)' }}>{desc}</p>
+          <ul className="space-y-3">
+            {items.map((item, i) => (
+              <li key={i} className="flex items-center gap-3 text-sm font-medium" style={{ color: 'var(--text)' }}>
+                <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: `${color}18`, color }}>
+                  <CheckCircle size={12} />
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Visual card */}
+        <div className="flex justify-center">
+          <div className="w-64 h-64 md:w-80 md:h-80 rounded-3xl flex items-center justify-center relative"
+            style={{ background: bg, border: `1px solid ${color}25`, boxShadow: `0 0 60px ${color}18` }}>
+            <span style={{ color, filter: `drop-shadow(0 0 20px ${color})`, opacity: 0.9 }}>{icon}</span>
+            {/* Anillos decorativos */}
+            <div className="absolute inset-4 rounded-2xl border opacity-20" style={{ borderColor: color }} />
+            <div className="absolute inset-8 rounded-xl border opacity-10" style={{ borderColor: color }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// BENEFICIOS GRID — reveal desde la izquierda
+// ─────────────────────────────────────────────────────────────
+const beneficiosGrid = [
+  { icon: <Mic size={20} />,        title: 'Responde audios',          desc: 'Transcribe con Whisper y responde por voz con RIME AI.' },
+  { icon: <Clock size={20} />,      title: 'Horarios configurables',   desc: 'Definí horarios por día. El bot solo ofrece turnos disponibles.' },
+  { icon: <BellRing size={20} />,   title: 'Te avisa en WhatsApp',     desc: 'Cada turno confirmado te llega directo a tu celular.' },
+  { icon: <PauseCircle size={20} />, title: 'Modo pausa',              desc: 'Vacaciones o feriado: pausás en segundos.' },
+  { icon: <Shield size={20} />,     title: 'Control total',            desc: 'Silenciás el bot cuando querés tomar una conversación.' },
+  { icon: <GitBranch size={20} />,  title: 'Programa de referidos',    desc: 'Compartí tu código y ganá crédito por cada amigo.' },
 ];
 
 function BeneficiosSection() {
+  const titleRef = useScrollReveal('is-visible');
+  const gridRef  = useScrollRevealGroup('is-visible');
+
   return (
-    <section id="beneficios" className="py-24 bg-black">
+    <section id="beneficios" className="py-28" style={{ background: 'var(--bg)' }}>
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-white mb-4">Todo lo que necesitás, integrado</h2>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">No es un bot de respuestas automáticas. Es un asistente que piensa, agenda y cobra por vos.</p>
+        <div ref={titleRef} className="reveal-left text-center mb-14">
+          <h2 className="text-4xl font-bold text-white mb-4">Y mucho más incluido</h2>
+          <p className="text-lg max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
+            No es un bot de respuestas fijas. Es un asistente que piensa, agenda y cobra por vos.
+          </p>
         </div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {beneficios.map((b, i) => (
-            <div key={i} className="card hover:border-green-500/30 transition-colors group">
-              <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center text-green-400 mb-4 group-hover:bg-green-500/20 transition-colors">
+        <div ref={gridRef} className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {beneficiosGrid.map((b, i) => (
+            <div key={i} className="reveal-left card card-glow group cursor-default">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 transition-all duration-200"
+                style={{ background: 'rgba(0,232,123,0.08)', color: 'var(--accent)' }}>
                 {b.icon}
               </div>
               <h3 className="font-semibold text-white mb-2">{b.title}</h3>
-              <p className="text-sm text-gray-500 leading-relaxed">{b.desc}</p>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text2)' }}>{b.desc}</p>
             </div>
           ))}
         </div>
@@ -188,50 +394,53 @@ function BeneficiosSection() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// COMPARATIVA
+// ─────────────────────────────────────────────────────────────
 const comparativa = [
-  { feature: 'Modelo de IA',               akira: 'LLaMA 3.3 70B',          trad: 'Respuestas fijas' },
-  { feature: 'Agenda real',                akira: 'Google Calendar',          trad: '❌ No incluye' },
-  { feature: 'Cobros integrados',          akira: 'MercadoPago',              trad: '❌ No incluye' },
-  { feature: 'Responde audios',            akira: '✓ Whisper + RIME',         trad: '❌ Solo texto' },
-  { feature: 'Recordatorios',              akira: '24h / 4h / 30min',         trad: '❌ Manual' },
-  { feature: 'Contexto de conversación',   akira: '✓ Multi-turno',            trad: 'Limitado' },
-  { feature: 'Cancelar / reagendar',       akira: '✓ Automático',             trad: '❌ Manual' },
-  { feature: 'Horarios por día',           akira: '✓ Panel visual',           trad: '❌ No incluye' },
-  { feature: 'Modo pausa / días libres',   akira: '✓ Un click',               trad: '❌ No incluye' },
-  { feature: 'Aviso al dueño por WA',      akira: '✓ Cada turno confirmado',  trad: '❌ No incluye' },
-  { feature: 'Control del dueño',          akira: '✓ Silenciar/activar',      trad: 'Básico' },
-  { feature: 'Multi-negocio',              akira: '✓ Un número x cliente',    trad: 'Varía' },
+  ['Modelo de IA',              'LLaMA 3.3 70B',         'Respuestas fijas'],
+  ['Agenda real',               'Google Calendar',        '❌ No incluye'],
+  ['Cobros integrados',         'MercadoPago',            '❌ No incluye'],
+  ['Responde audios',           '✓ Whisper + RIME',       '❌ Solo texto'],
+  ['Recordatorios',             '24h / 4h / 30min',       '❌ Manual'],
+  ['Cancelar / reagendar',      '✓ Automático',           '❌ Manual'],
+  ['Horarios por día',          '✓ Panel visual',         '❌ No incluye'],
+  ['Aviso al dueño por WA',     '✓ Cada confirmación',    '❌ No incluye'],
 ];
 
 function ComparativaSection() {
+  const titleRef = useScrollReveal('is-visible');
+  const tableRef = useScrollReveal('is-visible');
+
   return (
-    <section id="comparativa" className="py-24 bg-gray-950">
+    <section id="comparativa" className="py-28" style={{ background: 'var(--surface)' }}>
       <div className="max-w-5xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div ref={titleRef} className="reveal-up text-center mb-14">
           <h2 className="text-4xl font-bold text-white mb-4">Akira vs Bots tradicionales</h2>
-          <p className="text-gray-400 text-lg">No es solo un bot. Es la diferencia entre un negocio que crece y uno que se queda atrás.</p>
+          <p className="text-lg" style={{ color: 'var(--text2)' }}>
+            No es solo un bot. Es la diferencia entre crecer y quedarse atrás.
+          </p>
         </div>
-        <div className="overflow-hidden rounded-2xl border border-gray-800">
+        <div ref={tableRef} className="reveal-up overflow-hidden rounded-2xl"
+          style={{ border: '1px solid var(--border)', boxShadow: '0 4px 32px rgba(0,0,0,0.3)' }}>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-900">
-                <th className="text-left px-6 py-4 text-gray-400 font-medium">Característica</th>
-                <th className="px-6 py-4 text-center">
-                  <span className="text-green-400 font-bold text-base">Akira Cloud</span>
-                </th>
-                <th className="px-6 py-4 text-center text-gray-500 font-medium">Bots tradicionales</th>
+              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                <th className="text-left px-6 py-4 font-medium" style={{ color: 'var(--text2)' }}>Característica</th>
+                <th className="px-6 py-4 text-center font-bold text-base" style={{ color: 'var(--accent)' }}>Akira Cloud</th>
+                <th className="px-6 py-4 text-center font-medium" style={{ color: 'var(--muted)' }}>Bots tradicionales</th>
               </tr>
             </thead>
             <tbody>
-              {comparativa.map((row, i) => (
-                <tr key={i} className={`border-t border-gray-800 ${i % 2 === 0 ? 'bg-black' : 'bg-gray-950'}`}>
-                  <td className="px-6 py-3.5 text-gray-300">{row.feature}</td>
+              {comparativa.map(([feat, akira, trad], i) => (
+                <tr key={i} style={{ borderTop: '1px solid rgba(30,45,61,0.5)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.15)' }}>
+                  <td className="px-6 py-3.5" style={{ color: 'var(--text)' }}>{feat}</td>
                   <td className="px-6 py-3.5 text-center">
-                    <span className="inline-flex items-center gap-1.5 text-green-400 font-medium">
-                      <CheckCircle size={14} /> {row.akira}
+                    <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: 'var(--accent)' }}>
+                      <CheckCircle size={13} /> {akira}
                     </span>
                   </td>
-                  <td className="px-6 py-3.5 text-center text-gray-500">{row.trad}</td>
+                  <td className="px-6 py-3.5 text-center" style={{ color: 'var(--muted)' }}>{trad}</td>
                 </tr>
               ))}
             </tbody>
@@ -242,133 +451,120 @@ function ComparativaSection() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// PRECIOS
+// ─────────────────────────────────────────────────────────────
 const planes = [
   {
-    planKey:  'basico',
-    nombre:   'Básico',
-    mensual:  15000,
-    anual:    144000,
-    desc:     'Para negocios que empiezan',
-    features: ['1 número de WhatsApp', 'IA con LLaMA 3.3 70B', 'Hasta 500 msgs/mes', 'Horarios configurables', 'Modo pausa + días bloqueados'],
-    cta:      'Empezar gratis',
+    planKey: 'basico', nombre: 'Básico', mensual: 15000, anual: 144000,
+    desc: 'Para negocios que empiezan',
+    features: ['1 número de WhatsApp','IA con LLaMA 3.3 70B','500 msgs/mes','Horarios configurables','Modo pausa'],
     destacado: false,
   },
   {
-    planKey:  'pro',
-    nombre:   'Pro',
-    mensual:  35000,
-    anual:    336000,
-    desc:     'El más popular',
-    features: ['1 número de WhatsApp', 'Mensajes ilimitados', 'Google Calendar + MercadoPago', 'Respuesta por audio', 'Notificaciones al dueño', 'Soporte prioritario'],
-    cta:      'Empezar gratis',
+    planKey: 'pro', nombre: 'Pro', mensual: 35000, anual: 336000,
+    desc: 'El más popular',
+    features: ['1 número de WhatsApp','Mensajes ilimitados','Google Calendar + MercadoPago','Respuesta por audio','Notificaciones al dueño'],
     destacado: true,
   },
   {
-    planKey:  'agencia',
-    nombre:   'Agencia',
-    mensual:  80000,
-    anual:    768000,
-    desc:     'Para agencias',
-    features: ['Hasta 5 WhatsApp', 'Todo el plan Pro', 'Panel multi-cliente', 'Marca blanca', 'Programa de referidos', 'Soporte dedicado'],
-    cta:      'Elegir Agencia',
+    planKey: 'agencia', nombre: 'Agencia', mensual: 80000, anual: 768000,
+    desc: 'Para agencias y revendedores',
+    features: ['Hasta 5 WhatsApp','Todo el plan Pro','Panel multi-cliente','Soporte dedicado','Programa de referidos'],
     destacado: false,
   },
 ];
 
 function PreciosSection() {
-  const navigate       = useNavigate();
-  const [loadingPlan, setLoadingPlan] = useState(null);
-  const [periodo, setPeriodo]         = useState('mensual');
-
-  const formatP = (n) => '$' + n.toLocaleString('es-AR');
-
-  const handleElegirPlan = async (planKey) => {
-    const periodoActual = periodo || 'mensual';
-    const fullKey = `${planKey}_${periodoActual}`;
-    const token = localStorage.getItem('akira_token');
-
-    if (!token) {
-      // No logueado → registrarse primero
-      navigate(`/register?plan=${fullKey}`);
-      return;
-    }
-
-    // Logueado → ir a /planes con el plan preseleccionado
-    // Más seguro que hacer el checkout desde la landing
-    navigate(`/planes?plan=${fullKey}`);
-  };
+  const navigate = useNavigate();
+  const [periodo, setPeriodo] = useState('mensual');
+  const titleRef = useScrollReveal('is-visible');
+  const gridRef  = useScrollRevealGroup('is-visible');
+  const fmt = (n) => '$' + n.toLocaleString('es-AR');
 
   return (
-    <section id="precios" className="py-24 bg-black">
+    <section id="precios" className="py-28" style={{ background: 'var(--bg)' }}>
       <div className="max-w-6xl mx-auto px-6">
-        <div className="text-center mb-16">
+        <div ref={titleRef} className="reveal-scale text-center mb-12">
           <h2 className="text-4xl font-bold text-white mb-4">Precios simples, sin sorpresas</h2>
-          <p className="text-gray-400 text-lg">7 días gratis en todos los planes. Cancelá cuando quieras.</p>
+          <p className="text-lg" style={{ color: 'var(--text2)' }}>7 días gratis en todos los planes. Cancelá cuando quieras.</p>
         </div>
-        {/* Toggle mensual/anual */}
-        <div className="flex justify-center mb-8">
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-1 flex gap-1">
-            <button onClick={() => setPeriodo('mensual')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${periodo === 'mensual' ? 'bg-green-500 text-black' : 'text-gray-400 hover:text-white'}`}>Mensual</button>
-            <button onClick={() => setPeriodo('anual')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${periodo === 'anual' ? 'bg-green-500 text-black' : 'text-gray-400 hover:text-white'}`}>
-              Anual <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${periodo === 'anual' ? 'bg-black/20 text-black' : 'bg-green-500/20 text-green-400'}`}>−20%</span>
-            </button>
+
+        {/* Toggle */}
+        <div className="flex justify-center mb-10">
+          <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+            {['mensual','anual'].map(p => (
+              <button key={p} onClick={() => setPeriodo(p)}
+                className="px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200"
+                style={periodo === p
+                  ? { background: 'var(--accent)', color: '#020f08' }
+                  : { color: 'var(--text2)' }}>
+                {p === 'mensual' ? 'Mensual' : <span className="flex items-center gap-2">Anual <span className="text-xs font-bold px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(0,232,123,0.15)', color: 'var(--accent)' }}>−20%</span></span>}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+
+        <div ref={gridRef} className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
           {planes.map((p, i) => (
-            <div key={i} className={`relative rounded-2xl p-6 border transition-all ${p.destacado ? 'bg-green-500/5 border-green-500/40 shadow-lg shadow-green-500/10' : 'bg-gray-900 border-gray-800'}`}>
+            <div key={i} className="reveal-up relative rounded-2xl p-6 transition-all duration-200"
+              style={{
+                background: p.destacado ? 'linear-gradient(135deg, rgba(0,232,123,0.06) 0%, var(--surface) 60%)' : 'var(--surface)',
+                border: p.destacado ? '1px solid rgba(0,232,123,0.28)' : '1px solid var(--border)',
+                boxShadow: p.destacado ? '0 0 40px rgba(0,232,123,0.08)' : 'none',
+              }}>
               {p.destacado && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-black text-xs font-bold px-4 py-1 rounded-full flex items-center gap-1">
-                  <Star size={11} /> Más popular
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"
+                  style={{ background: 'var(--accent)', color: '#020f08' }}>
+                  <Star size={10} /> Más popular
                 </div>
               )}
-              <div className="mb-6">
-                <p className="text-gray-400 text-sm mb-1">{p.nombre}</p>
-                <div className="flex items-baseline gap-1">
-                  <span className={`text-4xl font-extrabold ${p.destacado ? 'text-green-400' : 'text-white'}`}>
-                    {formatP(periodo === 'mensual' ? p.mensual : p.anual)}
-                  </span>
-                  <span className="text-gray-500 text-sm">{periodo === 'mensual' ? '/mes' : '/año'}</span>
-                </div>
-                {periodo === 'anual' && <p className="text-green-400 text-xs mt-1">Ahorrás {formatP(p.mensual * 12 - p.anual)}</p>}
-                <p className="text-gray-500 text-xs mt-1">{p.desc}</p>
+              <p className="text-sm mb-1 mt-1" style={{ color: 'var(--text2)' }}>{p.nombre}</p>
+              <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-4xl font-extrabold text-white">{fmt(periodo === 'mensual' ? p.mensual : p.anual)}</span>
+                <span className="text-sm" style={{ color: 'var(--muted)' }}>{periodo === 'mensual' ? '/mes' : '/año'}</span>
               </div>
-              <ul className="space-y-3 mb-8">
+              {periodo === 'anual' && <p className="text-xs mb-3" style={{ color: 'var(--accent)' }}>Ahorrás {fmt(p.mensual * 12 - p.anual)}</p>}
+              <p className="text-xs mb-5" style={{ color: 'var(--muted)' }}>{p.desc}</p>
+              <ul className="space-y-2.5 mb-6">
                 {p.features.map((f, j) => (
-                  <li key={j} className="flex items-start gap-2.5 text-sm text-gray-300">
-                    <CheckCircle size={15} className="text-green-400 mt-0.5 flex-shrink-0" /> {f}
+                  <li key={j} className="flex items-start gap-2.5 text-sm" style={{ color: 'var(--text)' }}>
+                    <CheckCircle size={14} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} /> {f}
                   </li>
                 ))}
               </ul>
-              <button
-                onClick={() => handleElegirPlan(p.planKey)}
-                disabled={loadingPlan === `${p.planKey}_${periodo}`}
-                className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${p.destacado ? 'bg-green-500 hover:bg-green-400 text-black disabled:opacity-60' : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 disabled:opacity-60'}`}
-              >
-                {loadingPlan === `${p.planKey}_${periodo}` ? (
-                  <><span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> Procesando...</>
-                ) : p.cta}
+              <button onClick={() => navigate(localStorage.getItem('akira_token') ? `/planes?plan=${p.planKey}_${periodo}` : `/register?plan=${p.planKey}_${periodo}`)}
+                className={p.destacado ? 'btn-primary w-full' : 'btn-secondary w-full'}>
+                Empezar gratis
               </button>
             </div>
           ))}
         </div>
-        {/* Garantía */}
-        <div className="text-center mt-10 flex items-center justify-center gap-2 text-gray-600 text-sm">
-          <CheckCircle size={14} className="text-green-500" />
-          7 días gratis · Sin tarjeta de crédito · Cancelá cuando quieras
-        </div>
+
+        <p className="text-center mt-8 text-sm" style={{ color: 'var(--muted)' }}>
+          <CheckCircle size={13} className="inline mr-1.5" style={{ color: 'var(--accent)' }} />
+          7 días gratis · Sin tarjeta · Cancelá cuando quieras
+        </p>
       </div>
     </section>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// CTA FINAL
+// ─────────────────────────────────────────────────────────────
 function CTASection() {
+  const ref = useScrollReveal('is-visible');
   return (
-    <section className="py-24 bg-gray-950 border-t border-gray-800">
-      <div className="max-w-3xl mx-auto px-6 text-center">
-        <h2 className="text-4xl font-bold text-white mb-4">Empezá hoy. Es gratis por 7 días.</h2>
-        <p className="text-gray-400 text-lg mb-10">Sin tarjeta de crédito. Sin instalaciones. Conectás tu WhatsApp en menos de 2 minutos.</p>
-        <Link to="/register" className="btn-primary text-base py-4 px-10 inline-flex">
+    <section className="py-28 relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+      <div className="absolute inset-0 pointer-events-none"
+        style={{ background: 'radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0,232,123,0.06) 0%, transparent 70%)' }} />
+      <div ref={ref} className="reveal-scale max-w-3xl mx-auto px-6 text-center relative z-10">
+        <h2 className="text-5xl font-extrabold text-white mb-4">Empezá hoy. Es gratis.</h2>
+        <p className="text-xl mb-10 leading-relaxed" style={{ color: 'var(--text2)' }}>
+          Sin tarjeta de crédito. Conectás tu WhatsApp en menos de 2 minutos.
+        </p>
+        <Link to="/register" className="btn-primary text-base py-4 px-10 inline-flex animate-glow-pulse">
           Crear cuenta gratis <ArrowRight size={18} />
         </Link>
       </div>
@@ -376,216 +572,136 @@ function CTASection() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// CREADOR
+// ─────────────────────────────────────────────────────────────
 function CreadorSection() {
-  const stack = [
-    'React', 'Node.js', 'MongoDB', 'TypeScript',
-    'Python', 'Arduino', 'IoT', 'React Native',
-    'PostgreSQL', 'Google Cloud', 'C++', 'Linux',
-  ];
+  const ref = useScrollReveal('is-visible');
+  const stack = ['React','Node.js','MongoDB','TypeScript','Python','Arduino','IoT','React Native','PostgreSQL','Google Cloud'];
 
   return (
-    <section className="py-24 bg-black border-t border-gray-900">
+    <section className="py-28" style={{ background: 'var(--bg)' }}>
       <div className="max-w-5xl mx-auto px-6">
-
-        {/* Título */}
-        <div className="text-center mb-16">
-          <span className="text-green-400 text-sm font-semibold uppercase tracking-widest">
-            Quién está detrás
-          </span>
-          <h2 className="text-4xl font-bold text-white mt-3 mb-4">
-            Construido por alguien que entiende tu realidad
-          </h2>
-          <p className="text-gray-500 text-lg max-w-2xl mx-auto">
-            Akira Cloud no nació en una oficina de Silicon Valley. Nació en Argentina,
-            entendiendo cómo trabajan los negocios reales de acá.
-          </p>
+        <div className="text-center mb-14 reveal-up" ref={useScrollReveal('is-visible')}>
+          <span className="text-xs font-semibold uppercase tracking-widest mb-3 block" style={{ color: 'var(--accent)' }}>Quién está detrás</span>
+          <h2 className="text-4xl font-bold text-white mb-4">Construido por alguien que entiende tu realidad</h2>
         </div>
 
-        {/* Card principal */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+        <div ref={ref} className="reveal-up rounded-2xl overflow-hidden"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <div className="flex flex-col md:flex-row">
-
-            {/* Columna izquierda — foto y datos */}
-            <div className="md:w-72 bg-gray-950 border-b md:border-b-0 md:border-r border-gray-800 p-8 flex flex-col items-center text-center gap-5">
-              {/* Avatar con foto de GitHub */}
+            <div className="md:w-72 p-8 flex flex-col items-center text-center gap-5"
+              style={{ background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
               <div className="relative">
-                <img
-                  src="https://avatars.githubusercontent.com/u/100850538?v=4"
-                  alt="Juan Martín Arrayago"
-                  className="w-28 h-28 rounded-full border-2 border-green-500/40 object-cover"
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    e.target.nextSibling.style.display = 'flex';
-                  }}
-                />
-                <div className="w-28 h-28 rounded-full bg-green-500/10 border-2 border-green-500/40 items-center justify-center text-green-400 font-bold text-3xl hidden">
-                  JA
-                </div>
-                {/* Badge verde */}
-                <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-green-500 rounded-full border-2 border-gray-950 flex items-center justify-center">
+                <img src="https://avatars.githubusercontent.com/u/100850538?v=4" alt="JMA"
+                  className="w-28 h-28 rounded-full object-cover"
+                  style={{ border: '2px solid rgba(0,232,123,0.35)' }} />
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center"
+                  style={{ background: 'var(--accent)', border: '2px solid var(--surface2)' }}>
                   <Code2 size={13} className="text-black" />
                 </div>
               </div>
-
               <div>
-                <h3 className="text-xl font-bold text-white">Juan Martín Arrayago</h3>
-                <p className="text-green-400 text-sm font-medium mt-0.5">TinchoDev</p>
-                <p className="text-gray-500 text-xs mt-1">Full Stack Developer · Buenos Aires, AR 🇦🇷</p>
+                <h3 className="text-lg font-bold text-white">Juan Martín Arrayago</h3>
+                <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--accent)' }}>TinchoDev</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Full Stack · Buenos Aires 🇦🇷</p>
               </div>
-
-              {/* Redes sociales */}
-              <div className="flex gap-3">
-                <a
-                  href="https://github.com/ArrayagoM"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-white transition-all"
-                  title="GitHub"
-                >
-                  <Github size={16} />
-                </a>
-                <a
-                  href="https://www.linkedin.com/in/juan-martin-arrayago"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-blue-400 transition-all"
-                  title="LinkedIn"
-                >
-                  <Linkedin size={16} />
-                </a>
-                <a
-                  href="https://www.facebook.com/juan.arrayago"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-blue-500 transition-all"
-                  title="Facebook"
-                >
-                  <Facebook size={16} />
-                </a>
-                <a
-                  href="https://martin-arrayago.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-9 h-9 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 flex items-center justify-center text-gray-400 hover:text-green-400 transition-all"
-                  title="Portfolio"
-                >
-                  <Globe size={16} />
-                </a>
-              </div>
-
-              {/* Stats GitHub */}
-              <div className="w-full grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
-                <div className="text-center">
-                  <p className="text-white font-bold text-lg">43</p>
-                  <p className="text-gray-600 text-xs">Repos</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-white font-bold text-lg">5+</p>
-                  <p className="text-gray-600 text-xs">Años exp.</p>
-                </div>
+              <div className="flex gap-2">
+                {[{href:'https://github.com/ArrayagoM',icon:<Github size={15}/>},{href:'https://www.linkedin.com/in/juan-martin-arrayago',icon:<Linkedin size={15}/>},{href:'https://martin-arrayago.com',icon:<Globe size={15}/>}].map((s,i)=>(
+                  <a key={i} href={s.href} target="_blank" rel="noreferrer"
+                    className="w-9 h-9 rounded-lg flex items-center justify-center transition-colors duration-150"
+                    style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text2)' }}>
+                    {s.icon}
+                  </a>
+                ))}
               </div>
             </div>
-
-            {/* Columna derecha — historia y stack */}
-            <div className="flex-1 p-8 flex flex-col justify-between gap-7">
-
-              {/* Historia */}
-              <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-1 h-14 bg-green-500 rounded-full flex-shrink-0" />
-                  <blockquote className="text-gray-300 text-lg leading-relaxed italic">
-                    "Vengo de una familia humilde. Me recibí en programación, robótica,
-                    automatización e impresión 3D por esfuerzo propio. Construí Akira Cloud
-                    porque vi cómo los negocios locales pierden clientes por no responder
-                    a tiempo — y supe que podía resolverlo."
-                  </blockquote>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-                  {[
-                    { icon: '🤖', titulo: 'Full Stack Dev', desc: 'React, Node.js, MongoDB y más de 15 tecnologías dominadas.' },
-                    { icon: '⚡', titulo: 'IoT & Robótica', desc: 'Arduino, ESP32, C++. Desde software hasta hardware.' },
-                    { icon: '🇦🇷', titulo: 'Hecho en Argentina', desc: 'Pensado para pymes locales, precios y pagos argentinos.' },
-                  ].map((item, i) => (
-                    <div key={i} className="bg-black/40 border border-gray-800 rounded-xl p-4">
-                      <div className="text-2xl mb-2">{item.icon}</div>
-                      <p className="text-white font-semibold text-sm mb-1">{item.titulo}</p>
-                      <p className="text-gray-500 text-xs leading-relaxed">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
+            <div className="flex-1 p-8">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-1 h-14 rounded-full flex-shrink-0" style={{ background: 'var(--accent)' }} />
+                <blockquote className="text-lg leading-relaxed italic" style={{ color: 'var(--text2)' }}>
+                  "Construí Akira porque vi cómo los negocios locales pierden clientes por no responder a tiempo — y supe que podía resolverlo."
+                </blockquote>
               </div>
-
-              {/* Stack de tecnologías */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                  Stack tecnológico
-                </p>
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--muted)' }}>Stack tecnológico</p>
                 <div className="flex flex-wrap gap-2">
-                  {stack.map((tech) => (
-                    <span
-                      key={tech}
-                      className="px-2.5 py-1 text-xs font-medium bg-gray-800 text-gray-300 border border-gray-700 rounded-lg hover:border-green-500/40 hover:text-green-400 transition-colors"
-                    >
+                  {stack.map(tech => (
+                    <span key={tech} className="px-2.5 py-1 text-xs font-medium rounded-lg transition-colors duration-150"
+                      style={{ background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)' }}>
                       {tech}
                     </span>
                   ))}
                 </div>
               </div>
-
             </div>
           </div>
         </div>
-
-        {/* Frase final */}
-        <p className="text-center text-gray-600 text-sm mt-8">
-          ¿Tenés un proyecto? →{' '}
-          <a
-            href="https://martin-arrayago.com"
-            target="_blank"
-            rel="noreferrer"
-            className="text-green-400 hover:text-green-300 transition-colors"
-          >
-            martin-arrayago.com
-          </a>
-        </p>
-
       </div>
     </section>
   );
 }
 
-
+// ─────────────────────────────────────────────────────────────
+// FOOTER
+// ─────────────────────────────────────────────────────────────
 function Footer() {
   return (
-    <footer className="bg-black border-t border-gray-900 py-10 px-6">
+    <footer className="py-10 px-6" style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Bot size={20} className="text-green-400" />
-          <span className="font-bold text-white">Akira Cloud</span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: 'rgba(0,232,123,0.1)', border: '1px solid rgba(0,232,123,0.2)' }}>
+            <Bot size={14} style={{ color: 'var(--accent)' }} />
+          </div>
+          <span className="font-bold text-white text-sm">Akira Cloud</span>
         </div>
-        <p className="text-gray-600 text-sm">© 2025 Akira Cloud. Todos los derechos reservados.</p>
-        <div className="flex gap-6 text-sm text-gray-600">
-          <a href="#" className="hover:text-gray-400 transition-colors">Privacidad</a>
-          <a href="#" className="hover:text-gray-400 transition-colors">Términos</a>
-          <a href="#" className="hover:text-gray-400 transition-colors">Contacto</a>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>© 2025 Akira Cloud. Todos los derechos reservados.</p>
+        <div className="flex gap-5 text-sm" style={{ color: 'var(--muted)' }}>
+          <a href="#" className="link-underline transition-colors hover:text-white">Privacidad</a>
+          <a href="#" className="link-underline transition-colors hover:text-white">Términos</a>
+          <a href="#" className="link-underline transition-colors hover:text-white">Contacto</a>
         </div>
       </div>
     </footer>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// LANDING — composición final
+// ─────────────────────────────────────────────────────────────
 export default function Landing() {
   return (
-    <div className="bg-black min-h-screen">
+    <div style={{ background: 'var(--bg)' }}>
       <NavBar />
+
+      {/* 1. Hero — scroll normal */}
       <HeroSection />
+
+      {/* 2. Cómo funciona — scroll normal con reveal arriba */}
       <ComoFuncionaSection />
+
+      {/* 3 & 4. HORIZONTAL SCROLL — 4 feature slides de derecha → izquierda */}
+      <HorizontalScroll bgColor="var(--bg)">
+        {featureSlides.map((slide, i) => <FeatureSlide key={i} {...slide} />)}
+      </HorizontalScroll>
+
+      {/* 5. Beneficios grid — reveal desde la izquierda */}
       <BeneficiosSection />
+
+      {/* 6. Comparativa — reveal desde abajo */}
       <ComparativaSection />
+
+      {/* 7. Precios — reveal scale */}
       <PreciosSection />
+
+      {/* 8. CTA final */}
       <CTASection />
+
+      {/* 9. Creador */}
       <CreadorSection />
+
+      {/* 10. Footer */}
       <Footer />
     </div>
   );
