@@ -36,19 +36,34 @@ function PasoGuia({ numero, titulo, children }) {
 function GuiaGoogleCalendar() {
   const [abierta, setAbierta] = useState(false);
   return (
-    <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 overflow-hidden">
+    <div style={{
+      borderRadius: 10,
+      border: '1px solid rgba(0,232,123,0.15)',
+      background: 'rgba(0,232,123,0.03)',
+      overflow: 'hidden',
+    }}>
       <button
-        onClick={() => setAbierta(!abierta)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-indigo-900/20 transition-colors"
+        onClick={() => setAbierta(a => !a)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors"
+        style={{ color: 'var(--accent)' }}
       >
-        <span className="flex items-center gap-2 text-sm font-medium text-indigo-300">
+        <span className="flex items-center gap-2 text-sm font-medium">
           <Info size={14} /> ¿Cómo obtener el credentials.json? — Guía paso a paso
         </span>
-        {abierta ? <ChevronUp size={14} className="text-indigo-400" /> : <ChevronDown size={14} className="text-indigo-400" />}
+        <ChevronDown size={14} style={{
+          color: 'var(--accent)',
+          transform: abierta ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 0.3s ease',
+        }} />
       </button>
 
-      {abierta && (
-        <div className="px-4 pb-5 space-y-4 border-t border-indigo-800/40">
+      <div style={{
+        display: 'grid',
+        gridTemplateRows: abierta ? '1fr' : '0fr',
+        transition: 'grid-template-rows 0.38s cubic-bezier(0.4,0,0.2,1)',
+      }}>
+      <div style={{ overflow: 'hidden' }}>
+        <div className="px-4 pb-5 space-y-4" style={{ borderTop: '1px solid rgba(0,232,123,0.12)', paddingTop: 16 }}>
           <p className="text-xs text-gray-400 pt-3">
             Google Calendar necesita un archivo de credenciales para que el bot pueda ver y crear turnos. Seguí estos pasos — no hace falta saber programar.
           </p>
@@ -112,20 +127,53 @@ function GuiaGoogleCalendar() {
             <p className="text-xs text-gray-500 mt-1">El bot va a poder ver los horarios ocupados y crear eventos automáticamente cuando un cliente confirme un turno.</p>
           </div>
         </div>
-      )}
+      </div>
+      </div>
     </div>
   );
 }
 
-function SeccionCollapsible({ titulo, children, defaultOpen = false }) {
+function SeccionCollapsible({ titulo, children, defaultOpen = false, delay = 0 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="card">
-      <button onClick={() => setOpen(!open)} className="flex items-center justify-between w-full text-left">
+    <div className="card config-section" style={{ overflow: 'hidden', animationDelay: `${delay}ms` }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center justify-between w-full text-left"
+        style={{ padding: '2px 0' }}
+      >
         <span className="font-semibold text-white text-sm">{titulo}</span>
-        {open ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+        <ChevronDown
+          size={16}
+          style={{
+            color: 'var(--muted)',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.32s cubic-bezier(0.4,0,0.2,1)',
+            flexShrink: 0,
+          }}
+        />
       </button>
-      {open && <div className="mt-5 pt-5 border-t border-gray-800">{children}</div>}
+
+      {/* CSS-grid trick: animates height without knowing exact px value */}
+      <div style={{
+        display: 'grid',
+        gridTemplateRows: open ? '1fr' : '0fr',
+        transition: 'grid-template-rows 0.38s cubic-bezier(0.4,0,0.2,1)',
+      }}>
+        <div style={{ overflow: 'hidden' }}>
+          <div
+            className="pt-5 mt-5"
+            style={{
+              borderTop: '1px solid var(--border)',
+              opacity: open ? 1 : 0,
+              transform: open ? 'translateY(0)' : 'translateY(-6px)',
+              transition: 'opacity 0.3s ease 0.05s, transform 0.3s ease 0.05s',
+            }}
+          >
+            {children}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -519,14 +567,24 @@ export default function ConfigPage() {
 
   return (
     <Layout>
+      <style>{`
+        @keyframes cfadeUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0);    }
+        }
+        .config-section {
+          animation: cfadeUp 0.45s cubic-bezier(0.22,1,0.36,1) both;
+        }
+      `}</style>
+
       <div className="max-w-2xl mx-auto space-y-5">
-        <div>
+        <div className="config-section" style={{ animationDelay: '0ms' }}>
           <h1 className="text-2xl font-bold text-white">Configuración</h1>
-          <p className="text-gray-500 text-sm mt-1">Personalizá tu bot y conectá tus servicios.</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>Personalizá tu bot y conectá tus servicios.</p>
         </div>
 
         {/* Datos del negocio */}
-        <SeccionCollapsible titulo="🏢 Datos del negocio" defaultOpen>
+        <SeccionCollapsible titulo="🏢 Datos del negocio" defaultOpen delay={60}>
           <form onSubmit={saveNegocio} className="space-y-4">
 
             {/* Tipo de negocio */}
@@ -723,7 +781,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* Groq */}
-        <SeccionCollapsible titulo="🤖 Groq API (IA) — REQUERIDO" defaultOpen={!keys.groq}>
+        <SeccionCollapsible titulo="🤖 Groq API (IA) — REQUERIDO" defaultOpen={!keys.groq} delay={120}>
           <p className="text-xs text-gray-500 mb-4">
             Conseguí tu API Key gratis en <a href="https://console.groq.com" target="_blank" rel="noreferrer" className="text-green-400 hover:underline">console.groq.com</a> → API Keys.
           </p>
@@ -731,7 +789,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* MercadoPago */}
-        <SeccionCollapsible titulo="💳 Pagos (MercadoPago o Transferencia)">
+        <SeccionCollapsible titulo="💳 Pagos (MercadoPago o Transferencia)" delay={180}>
           <div className="space-y-5">
             {/* MercadoPago */}
             <div>
@@ -780,7 +838,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* Servicios */}
-        <SeccionCollapsible titulo="🛠️ Servicios">
+        <SeccionCollapsible titulo="🛠️ Servicios" delay={240}>
           <div className="space-y-4">
             <p className="text-xs text-gray-500">Agregá los servicios que ofrecés. El bot los usará para informar precios y duraciones.</p>
 
@@ -869,7 +927,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* Google Calendar */}
-        <SeccionCollapsible titulo="📅 Google Calendar (agenda)">
+        <SeccionCollapsible titulo="📅 Google Calendar (agenda)" delay={300}>
           <div className="space-y-5">
 
             {/* Conectado via OAuth */}
@@ -961,7 +1019,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* RIME TTS */}
-        <SeccionCollapsible titulo="🔊 RIME AI (respuestas por audio)">
+        <SeccionCollapsible titulo="🔊 RIME AI (respuestas por audio)" delay={360}>
           <p className="text-xs text-gray-500 mb-4">
             Permite que Akira responda con voz. Conseguí tu key en <a href="https://rime.ai" target="_blank" rel="noreferrer" className="text-green-400 hover:underline">rime.ai</a>.
           </p>
@@ -969,7 +1027,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* Ngrok */}
-        <SeccionCollapsible titulo="🌐 Ngrok (webhook local)">
+        <SeccionCollapsible titulo="🌐 Ngrok (webhook local)" delay={420}>
           <p className="text-xs text-gray-500 mb-4">Solo necesario si tu servidor es local y no tenés dominio propio.</p>
           <div className="space-y-4">
             <KeyField campo="keyNgrok" label="Ngrok Auth Token" placeholder="de dashboard.ngrok.com" keys={keys} onSave={saveKey} onDelete={deleteKey} />
@@ -984,7 +1042,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* ── Catálogo de productos ─────────────────────────── */}
-        <SeccionCollapsible titulo={`📦 Catálogo de productos${catalogo.length > 0 ? ` (${catalogo.length})` : ''}`}>
+        <SeccionCollapsible titulo={`📦 Catálogo de productos${catalogo.length > 0 ? ` (${catalogo.length})` : ''}`} delay={480}>
           <div className="space-y-4">
             <p className="text-xs text-gray-500">
               El bot consulta este catálogo cuando un cliente pregunta por productos, precios o stock.
@@ -1096,7 +1154,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>
 
         {/* Horarios de atención — solo para modo turnos */}
-        {form.tipoNegocio !== 'alojamiento' && <SeccionCollapsible titulo="⏰ Horarios de atención">
+        {form.tipoNegocio !== 'alojamiento' && <SeccionCollapsible titulo="⏰ Horarios de atención" delay={540}>
           <div className="space-y-4">
             <p className="text-xs text-gray-500">Configurá en qué días y horarios recibís clientes. El bot solo ofrecerá turnos en los horarios activos.</p>
             <div className="space-y-2">
@@ -1157,7 +1215,7 @@ export default function ConfigPage() {
         </SeccionCollapsible>}
 
         {/* Disponibilidad */}
-        <SeccionCollapsible titulo="⏸️ Disponibilidad">
+        <SeccionCollapsible titulo="⏸️ Disponibilidad" delay={600}>
           <div className="space-y-5">
 
             {/* Modo pausa */}
