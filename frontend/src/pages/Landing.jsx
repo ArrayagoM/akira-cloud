@@ -130,6 +130,43 @@ const resenasIniciales = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// URGENCY BAR — countdown oferta lanzamiento
+// ─────────────────────────────────────────────────────────────
+function UrgencyBar() {
+  const OFFER_END = new Date('2025-04-10T23:59:00').getTime();
+  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, OFFER_END - Date.now()));
+
+  useEffect(() => {
+    const iv = setInterval(() => setTimeLeft(t => Math.max(0, OFFER_END - Date.now())), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  if (timeLeft === 0) return null;
+
+  const h = String(Math.floor(timeLeft / 3600000)).padStart(2, '0');
+  const m = String(Math.floor((timeLeft % 3600000) / 60000)).padStart(2, '0');
+  const s = String(Math.floor((timeLeft % 60000) / 1000)).padStart(2, '0');
+
+  return (
+    <div style={{
+      background: 'linear-gradient(90deg,#00e87b,#00c96a)',
+      color: '#020f08', textAlign: 'center',
+      padding: '9px 16px', fontSize: 13, fontWeight: 700,
+      position: 'relative', zIndex: 200, lineHeight: 1.5,
+    }}>
+      🔥 Oferta de lanzamiento — <strong>7 días GRATIS</strong>, sin tarjeta · Termina en&nbsp;
+      <span style={{ fontVariantNumeric: 'tabular-nums', background: 'rgba(0,0,0,0.18)', borderRadius: 4, padding: '2px 7px', letterSpacing: 1 }}>
+        {h}:{m}:{s}
+      </span>
+      &nbsp;·&nbsp;
+      <Link to="/register" style={{ textDecoration: 'underline', color: '#020f08', fontWeight: 800 }}>
+        Empezar ahora →
+      </Link>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // LIVE ACTIVITY TOAST — notificaciones de nuevos usuarios
 // ─────────────────────────────────────────────────────────────
 function LiveActivityToast() {
@@ -248,129 +285,216 @@ function NavBar() {
 // HERO
 // ─────────────────────────────────────────────────────────────
 function HeroSection() {
-  const badgeRef = useScrollReveal('is-visible');
-  const h1Ref   = useScrollReveal('is-visible');
-  const pRef    = useScrollReveal('is-visible');
-  const ctaRef  = useScrollReveal('is-visible');
-  const mockRef = useScrollReveal('is-visible');
-
-  // Contador de usuarios en tiempo real (crece cada ~22s)
   const [liveUsers, setLiveUsers] = useState(267);
+  const [chatStep, setChatStep]   = useState(0);
+  const [showPago, setShowPago]   = useState(false);
+
+  // usuarios crecen cada ~25s
   useEffect(() => {
-    const iv = setInterval(() => {
-      setLiveUsers(n => n + 1);
-    }, 22000 + Math.random() * 15000);
+    const iv = setInterval(() => setLiveUsers(n => n + 1), 25000 + Math.random() * 10000);
     return () => clearInterval(iv);
   }, []);
 
-  return (
-    <section className="min-h-screen flex items-center pt-16 relative overflow-hidden"
-      style={{ background: 'var(--bg)' }}>
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full blur-3xl pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(0,232,123,0.06) 0%, transparent 70%)' }} />
-      <div className="absolute top-1/4 right-1/4 w-64 h-64 rounded-full blur-2xl pointer-events-none"
-        style={{ background: 'rgba(59,130,246,0.04)' }} />
-      <div className="absolute inset-0 pointer-events-none"
-        style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.015) 1px,transparent 1px)', backgroundSize: '48px 48px' }} />
+  // Chat animado paso a paso
+  const chatMsgs = [
+    { from: 'client', text: '¿Tienen turno mañana a la tarde?', time: '14:31' },
+    { from: 'bot',    text: '¡Hola Lucía! 😊 Tengo disponible:\n• 15:00 — $3.500\n• 16:30 — $3.500\n¿Cuál preferís?', time: '14:31' },
+    { from: 'client', text: '16:30 perfecto 🙌', time: '14:32' },
+    { from: 'bot',    text: '✅ Turno confirmado — mañana 16:30\n\n💳 Pagá ahora:\nmp.com/akira/turno-lucia\n\n⏳ Link válido 30 min', time: '14:32' },
+  ];
 
-      <div className="max-w-6xl mx-auto px-6 py-24 w-full relative z-10">
-        <div className="grid md:grid-cols-2 gap-16 items-center">
+  useEffect(() => {
+    if (chatStep >= chatMsgs.length) {
+      setTimeout(() => setShowPago(true), 800);
+      return;
+    }
+    const delay = chatStep === 0 ? 1200 : chatStep === 1 ? 900 : 700;
+    const t = setTimeout(() => setChatStep(s => s + 1), delay);
+    return () => clearTimeout(t);
+  }, [chatStep]);
+
+  const casos = [
+    { emoji: '💈', negocio: 'Peluquería Estilo', resultado: '+$240k/mes', detalle: 'automatiznado turnos y cobros' },
+    { emoji: '🏡', negocio: 'Cabañas del Sol',   resultado: '0 reservas perdidas', detalle: 'responde a cualquier hora' },
+    { emoji: '🦷', negocio: 'Consultorio Ramírez', resultado: 'Agenda llena', detalle: 'en 2 semanas con IA' },
+  ];
+
+  return (
+    <section className="relative overflow-hidden" style={{ background: 'var(--bg)', paddingTop: 72 }}>
+      {/* Fondo */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: 'linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px)',
+        backgroundSize: '48px 48px',
+      }} />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] rounded-full blur-3xl pointer-events-none"
+        style={{ background: 'radial-gradient(ellipse, rgba(0,232,123,0.07) 0%, transparent 68%)' }} />
+
+      <div className="max-w-6xl mx-auto px-5 py-16 md:py-24 relative z-10">
+        <div className="grid md:grid-cols-2 gap-12 md:gap-16 items-center">
+
+          {/* ── LEFT ── */}
           <div>
-            <div ref={badgeRef} className="reveal-up inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium mb-8"
-              style={{ background: 'rgba(0,232,123,0.08)', border: '1px solid rgba(0,232,123,0.2)', color: 'var(--accent)' }}>
-              <Sparkles size={13} />
-              <span>
-                <span className="font-bold text-white tabular-nums">{liveUsers}</span> negocios activos ahora mismo
-              </span>
-              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
+            {/* Live badge */}
+            <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-6 text-sm font-semibold"
+              style={{ background: 'rgba(0,232,123,0.09)', border: '1px solid rgba(0,232,123,0.22)', color: 'var(--accent)' }}>
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--accent)', flexShrink: 0 }} />
+              <span><strong className="text-white">{liveUsers}</strong> negocios activos ahora mismo</span>
             </div>
 
-            <h1 ref={h1Ref} className="reveal-up text-5xl md:text-6xl font-extrabold text-white leading-tight mb-6 reveal-d1">
-              Tu negocio funciona<br />
-              <span style={{ color: 'var(--accent)' }}>mientras dormís</span>
+            {/* Headline */}
+            <h1 className="text-4xl sm:text-5xl md:text-[56px] font-extrabold text-white leading-[1.1] mb-5" style={{ letterSpacing: '-0.02em' }}>
+              Tu WhatsApp vende<br />
+              <span style={{ color: 'var(--accent)' }}>mientras dormís.</span>
             </h1>
 
-            <p ref={pRef} className="reveal-up text-lg mb-10 leading-relaxed reveal-d2"
-              style={{ color: 'var(--text2)' }}>
-              Akira responde a tus clientes, agenda turnos y cobra con MercadoPago
-              las 24hs por WhatsApp — <strong className="text-white">sin que muevas un dedo.</strong>
+            {/* Sub */}
+            <p className="text-base md:text-lg mb-8 leading-relaxed" style={{ color: 'var(--text2)', maxWidth: 480 }}>
+              Akira atiende clientes, agenda turnos y cobra con MercadoPago — <strong className="text-white">automático, 24hs, sin que vos estés</strong>. En menos de 10 minutos tu negocio funciona solo.
             </p>
 
-            <div ref={ctaRef} className="reveal-up flex flex-col sm:flex-row gap-3 reveal-d3">
-              <Link to="/register" className="btn-primary text-base py-3.5 px-8">
-                Probarlo gratis — 7 días <ArrowRight size={17} />
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-10">
+              <Link to="/register"
+                className="btn-primary text-base font-bold"
+                style={{ padding: '14px 28px', fontSize: 16, boxShadow: '0 0 32px rgba(0,232,123,0.3)' }}>
+                Empezar gratis — 7 días <ArrowRight size={18} />
               </Link>
-              <a href="#como-funciona" className="btn-secondary text-base py-3.5 px-8">
-                Ver cómo funciona
+              <a href="#como-funciona" className="btn-secondary text-base" style={{ padding: '14px 24px' }}>
+                Ver demo en 2 min
               </a>
             </div>
 
             {/* Social proof avatars */}
-            <div className="mt-8 flex flex-wrap items-center gap-4 reveal-up reveal-d4" style={{ color: 'var(--muted)' }}>
+            <div className="flex flex-wrap items-center gap-4 mb-10">
               <div className="flex -space-x-2.5">
                 {[1,5,9,12,20].map((img, i) => (
-                  <img key={i}
-                    src={`https://i.pravatar.cc/32?img=${img}`}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover"
+                  <img key={i} src={`https://i.pravatar.cc/34?img=${img}`} alt=""
+                    className="w-9 h-9 rounded-full object-cover"
                     style={{ border: '2px solid var(--bg)' }}
-                    onError={e => { e.target.style.display='none'; }}
-                  />
+                    onError={e => { e.target.style.display='none'; }} />
                 ))}
               </div>
               <div>
-                <p className="text-sm text-white font-medium">+{liveUsers} negocios ya lo usan</p>
+                <p className="text-sm font-semibold text-white">+{liveUsers} negocios ya lo usan</p>
                 <div className="flex items-center gap-1 mt-0.5">
-                  {[1,2,3,4,5].map(i => <Star key={i} size={11} fill="#f59e0b" color="#f59e0b" />)}
-                  <span className="text-xs ml-1 font-semibold text-white">4.9</span>
-                  <span className="text-xs" style={{ color: 'var(--muted)' }}>(reseñas verificadas)</span>
+                  {[1,2,3,4,5].map(i => <Star key={i} size={12} fill="#f59e0b" color="#f59e0b" />)}
+                  <span className="text-xs font-bold text-white ml-1">4.9</span>
+                  <span className="text-xs ml-1" style={{ color: 'var(--muted)' }}>reseñas verificadas</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Mini casos de éxito */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--muted)' }}>Casos reales de clientes</p>
+              <div className="flex flex-col gap-2">
+                {casos.map((c, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-xl px-4 py-3"
+                    style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 22 }}>{c.emoji}</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">{c.negocio}</p>
+                      <p className="text-xs" style={{ color: 'var(--muted)' }}>{c.detalle}</p>
+                    </div>
+                    <span className="ml-auto text-sm font-extrabold flex-shrink-0" style={{ color: 'var(--accent)' }}>{c.resultado}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
-          {/* Mockup chat */}
-          <div ref={mockRef} className="reveal-right reveal-d2">
-            <div className="relative">
-              <div className="rounded-2xl p-5 text-left"
-                style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 8px 48px rgba(0,0,0,0.5)' }}>
-                <div className="flex items-center gap-3 mb-4 pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center"
-                    style={{ background: 'rgba(0,232,123,0.12)' }}>
+          {/* ── RIGHT — chat animado ── */}
+          <div className="relative flex justify-center">
+            <div style={{ width: '100%', maxWidth: 380, position: 'relative' }}>
+
+              {/* Card chat */}
+              <div className="rounded-2xl overflow-hidden"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(0,232,123,0.12)' }}>
                     <Bot size={17} style={{ color: 'var(--accent)' }} />
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Akira — Peluquería Estilo</p>
-                    <p className="text-xs" style={{ color: 'var(--accent)' }}>● en línea</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white">Akira IA — Peluquería Estilo</p>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>● Respondiendo en este momento</p>
                   </div>
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: 'rgba(0,232,123,0.12)', color: 'var(--accent)' }}>24/7</span>
                 </div>
-                {[
-                  { from: 'client', text: 'Hola, ¿tienen turno el martes?', time: '10:02' },
-                  { from: 'bot',    text: '¡Hola Lucía! 😊 Sí, el martes tenemos: 10:00, 14:00 y 16:00. ¿Cuál te queda mejor?', time: '10:02' },
-                  { from: 'client', text: 'Las 14:00 perfecto', time: '10:03' },
-                  { from: 'bot',    text: '🎉 Turno confirmado — martes 14:00.\n\n💳 Pagá aquí:\nhttps://mp.com/tu-turno\n\n⏳ Link válido 30 min.', time: '10:03' },
-                ].map((m, i) => (
-                  <div key={i} className={`flex mb-3 ${m.from === 'client' ? 'justify-end' : 'justify-start'}`}>
-                    <div className="max-w-[82%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line"
-                      style={m.from === 'client'
-                        ? { background: 'var(--accent)', color: '#020f08', borderTopRightRadius: '4px' }
-                        : { background: 'var(--surface3)', color: 'var(--text)', border: '1px solid var(--border)', borderTopLeftRadius: '4px' }}>
-                      {m.text}
-                      <p className="text-right mt-0.5 text-[10px] opacity-50">{m.time}</p>
+
+                {/* Messages */}
+                <div className="p-4 flex flex-col gap-2.5" style={{ minHeight: 240 }}>
+                  {chatMsgs.slice(0, chatStep).map((msg, i) => (
+                    <div key={i} className={`flex ${msg.from === 'client' ? 'justify-end' : 'justify-start'}`}
+                      style={{ animation: 'fadeSlideUp 0.3s ease' }}>
+                      <div className="max-w-[84%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed whitespace-pre-line"
+                        style={msg.from === 'client'
+                          ? { background: 'var(--accent)', color: '#020f08', borderTopRightRadius: 4 }
+                          : { background: 'var(--surface3)', color: 'var(--text)', border: '1px solid var(--border)', borderTopLeftRadius: 4 }}>
+                        {msg.text}
+                        <p className="text-right mt-1 opacity-50" style={{ fontSize: 10 }}>{msg.time}</p>
+                      </div>
                     </div>
+                  ))}
+                  {/* Typing indicator */}
+                  {chatStep < chatMsgs.length && chatStep % 2 === 1 && (
+                    <div className="flex justify-start">
+                      <div className="rounded-2xl px-4 py-3" style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderTopLeftRadius: 4 }}>
+                        <div className="flex gap-1 items-center">
+                          {[0,1,2].map(d => (
+                            <span key={d} className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--muted)', animation: `bounce 1s ${d*0.18}s infinite` }} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Pago recibido notification */}
+                {showPago && (
+                  <div className="mx-4 mb-4 rounded-xl p-3 flex items-center gap-3"
+                    style={{ background: 'rgba(0,232,123,0.1)', border: '1px solid rgba(0,232,123,0.3)', animation: 'fadeSlideUp 0.4s ease' }}>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(0,232,123,0.2)' }}>
+                      <DollarSign size={15} style={{ color: 'var(--accent)' }} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold" style={{ color: 'var(--accent)' }}>💸 ¡Pago recibido!</p>
+                      <p className="text-xs font-semibold text-white">$3.500 — Turno Lucía 16:30</p>
+                    </div>
+                    <span className="ml-auto text-xs font-bold flex-shrink-0" style={{ color: 'var(--accent)' }}>✓</span>
                   </div>
-                ))}
+                )}
               </div>
-              <div className="absolute -right-3 -bottom-3 text-xs font-bold px-3 py-1.5 rounded-full"
-                style={{ background: 'var(--accent)', color: '#020f08', boxShadow: '0 4px 12px rgba(0,232,123,0.4)' }}>
-                IA 24/7 ✓
+
+              {/* Floating badges */}
+              <div className="absolute -left-4 top-8 rounded-xl px-3 py-2 text-xs font-bold flex items-center gap-2 shadow-xl"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)' }}>
+                <Clock size={13} /> Resp. en 2 seg
               </div>
-              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-8 blur-xl"
-                style={{ background: 'rgba(0,232,123,0.15)' }} />
+              <div className="absolute -right-4 bottom-20 rounded-xl px-3 py-2 text-xs font-bold flex items-center gap-2 shadow-xl"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: '#f59e0b' }}>
+                <Star size={13} fill="#f59e0b" color="#f59e0b" /> 4.9 promedio
+              </div>
+
+              {/* Glow */}
+              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-3/4 h-10 blur-2xl" style={{ background: 'rgba(0,232,123,0.18)' }} />
             </div>
           </div>
+
         </div>
       </div>
+
+      {/* CSS para animaciones del chat */}
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes bounce {
+          0%, 80%, 100% { transform: translateY(0); }
+          40%            { transform: translateY(-4px); }
+        }
+      `}</style>
     </section>
   );
 }
@@ -1418,6 +1542,7 @@ function Footer() {
 export default function Landing() {
   return (
     <div style={{ background: 'var(--bg)' }}>
+      <UrgencyBar />
       <NavBar />
 
       {/* Notificación flotante de nuevos usuarios */}
