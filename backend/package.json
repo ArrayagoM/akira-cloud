@@ -7,12 +7,18 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "start": "node --no-deprecation server.js",
-    "dev": "nodemon --ignore sessions/ --ignore logs/ server.js",
-    "seed:admin": "node scripts/seedAdmin.js",
+    "start":          "node --no-deprecation server.js",
+    "start:pm2":      "pm2 start ecosystem.config.js --env production",
+    "stop:pm2":       "pm2 stop akira-backend",
+    "reload:pm2":     "pm2 reload ecosystem.config.js --env production",
+    "logs:pm2":       "pm2 logs akira-backend",
+    "monit":          "pm2 monit",
+    "setup:pm2":      "pm2 start ecosystem.config.js --env production && pm2 save && pm2 startup",
+    "dev":            "nodemon --ignore sessions/ --ignore logs/ server.js",
+    "seed:admin":     "node scripts/seedAdmin.js",
     "clean:sessions": "node scripts/limpiarSesiones.js",
-    "gen:vercel": "node ../scripts/generar-vercel-json.js",
-    "test": "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js"
+    "gen:vercel":     "node ../scripts/generar-vercel-json.js",
+    "test":           "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js"
   },
   "dependencies": {
     "express": "^4.18.2",

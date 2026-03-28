@@ -8,6 +8,33 @@ require('dotenv').config();
 // Validar variables de entorno antes de cualquier otra cosa
 require('./config/env.validator')();
 
+// ── Manejo global de errores no capturados ───────────────────
+// Evita que un error inesperado tire abajo todo el proceso
+// PM2 se encarga de reiniciarlo si igual muere
+process.on('uncaughtException', (err) => {
+  // Intentar loggear antes de morir
+  try {
+    const logger = require('./config/logger');
+    logger.error(`[FATAL] uncaughtException: ${err.message}\n${err.stack}`);
+  } catch (_) {
+    console.error('[FATAL] uncaughtException:', err);
+  }
+  // Dar 1 segundo para que el logger escriba, luego salir
+  // PM2 reinicia el proceso automáticamente
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason) => {
+  try {
+    const logger = require('./config/logger');
+    logger.error(`[FATAL] unhandledRejection: ${reason?.message || reason}`);
+  } catch (_) {
+    console.error('[FATAL] unhandledRejection:', reason);
+  }
+  // NO salir en rechazo de promesa — solo loggear
+  // Salir causaría que un error de red tire el servidor entero
+});
+
 const express      = require('express');
 const http         = require('http');
 const cors         = require('cors');
@@ -178,12 +205,27 @@ connectDB().then(async () => {
   process.exit(1);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('[Server] SIGTERM recibido — apagando gracefully...');
-  await botManager.stopAllBots();
-  server.close(() => process.exit(0));
-});
+// ── Graceful shutdown (SIGTERM = PM2 stop/reload, SIGINT = Ctrl+C dev) ──
+async function gracefulShutdown(signal) {
+  logger.info(`[Server] ${signal} recibido — apagando gracefully...`);
+  try {
+    await botManager.stopAllBots();
+  } catch (e) {
+    logger.warn('[Server] Error deteniendo bots:', e.message);
+  }
+  server.close(() => {
+    logger.info('[Server] HTTP server cerrado');
+    process.exit(0);
+  });
+  // Forzar cierre si tarda más de 10s
+  setTimeout(() => {
+    logger.warn('[Server] Forzando cierre después de 10s');
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 // ── Keep-alive: evitar que Render entre en reposo ─────────────
 if (process.env.NODE_ENV === 'production') {
