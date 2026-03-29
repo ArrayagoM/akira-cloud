@@ -89,10 +89,13 @@ router.get('/google/callback', async (req, res) => {
     config.googleEmail = data.email || '';
     await config.save();
 
-    // Notificar al bot en memoria para que recargue los tokens sin reiniciarse
+    // Notificar al bot para que recargue los tokens sin reiniciarse
     try {
-      const botManager = require('../services/bot.manager');
-      botManager.recargarCalendar(userId);
+      const botManager    = require('../services/bot.manager');
+      const workerHandler = require('../services/worker.handler');
+      if (!botManager.recargarCalendar(userId) && workerHandler.isWorkerAvailable()) {
+        workerHandler.sendToWorker('worker:calendar-reload', { userId: String(userId) });
+      }
     } catch (e) { logger.warn('[Config] recargarCalendar: ' + e.message); }
 
     await Log.registrar({ userId, tipo: 'config_update', mensaje: `Google Calendar conectado (${data.email})` });

@@ -139,9 +139,23 @@ socket.on('worker:start-bot', async ({ userId }) => {
       SERVICIOS:                 config.servicios,
       PRECIO_TURNO:              String(config.precioTurno),
       HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
-      PROMPT_PERSONALIZADO:      config.promptPersonalizado || '',
-      ALIAS_TRANSFERENCIA:       config.aliasTransferencia  || '',
-      CBU_TRANSFERENCIA:         config.cbuTransferencia     || '',
+      PROMPT_PERSONALIZADO:      config.promptPersonalizado  || '',
+      ALIAS_TRANSFERENCIA:       config.aliasTransferencia   || '',
+      CBU_TRANSFERENCIA:         config.cbuTransferencia      || '',
+      BANCO_TRANSFERENCIA:       config.bancoTransferencia    || '',
+      SERVICIOS_LIST:            JSON.stringify(config.serviciosList        || []),
+      HORARIOS_ATENCION:         JSON.stringify(config.horariosAtencion     || {}),
+      DIAS_BLOQUEADOS:           JSON.stringify(config.diasBloqueados       || []),
+      MODO_PAUSA:                String(config.modoPausa                    || false),
+      CELULAR_NOTIFICACIONES:    config.celularNotificaciones               || '',
+      TIPO_NEGOCIO:              config.tipoNegocio    || 'turnos',
+      CHECK_IN_HORA:             config.checkInHora    || '14:00',
+      CHECK_OUT_HORA:            config.checkOutHora   || '10:00',
+      MINIMA_ESTADIA:            String(config.minimaEstadia  || 1),
+      UNIDADES_ALOJAMIENTO:      JSON.stringify(config.unidadesAlojamiento  || []),
+      DIRECCION_PROPIEDAD:       config.direccionPropiedad   || '',
+      LINK_UBICACION:            config.linkUbicacion        || '',
+      CATALOGO:                  JSON.stringify(config.catalogo             || []),
       PORT:                      String(asignarPuerto(uid)),
     };
 
@@ -152,21 +166,30 @@ socket.on('worker:start-bot', async ({ userId }) => {
     const dataDir    = path.resolve(SESSIONS_PATH, uid, 'data');
     [sessionDir, dataDir].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
-    // Google Calendar credentials
+    // Google Calendar — tokens OAuth (prioridad sobre service account)
+    const googleTokens = config.googleCalendarTokens?.encrypted
+      ? config.getKey('googleCalendarTokens')
+      : null;
+    if (googleTokens) {
+      credenciales.GOOGLE_CALENDAR_TOKENS = googleTokens;
+      credenciales.GOOGLE_EMAIL           = config.googleEmail || '';
+    }
+
+    // Google Calendar — service account (fallback)
     const credGoogle = config.credentialsGoogleB64?.encrypted ? config.getKey('credentialsGoogleB64') : null;
     if (credGoogle) {
       try {
-        JSON.parse(credGoogle); // validar JSON antes de escribir
+        JSON.parse(credGoogle);
         fs.writeFileSync(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
       } catch (e) {
         console.warn(`[Worker] Credenciales Google inválidas para ${uid} — Calendar desactivado:`, e.message);
       }
     }
 
-    const bot = crearAkiraBot(credenciales, dataDir, sessionDir);
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
     instancias.set(uid, bot);
 
-    // Eventos del bot → servidor (que los reenvía al frontend)
+    // ── Eventos del bot → servidor ────────────────────────────
     bot.on('log',          msg    => socket.emit('worker:bot-log',          { userId: uid, msg, ts: new Date().toLocaleTimeString('es-AR') }));
     bot.on('qr',           qr     => socket.emit('worker:bot-qr',           { userId: uid, qr }));
     bot.on('ready',        ()     => socket.emit('worker:bot-ready',        { userId: uid }));
@@ -176,6 +199,33 @@ socket.on('worker:start-bot', async ({ userId }) => {
       instancias.delete(uid);
       liberarPuerto(uid);
       socket.emit('worker:bot-stopped', { userId: uid });
+    });
+
+    // ── Catálogo: guardar en DB y notificar al frontend ───────
+    bot.on('catalog:update', async (catalogo) => {
+      try {
+        const waProds  = catalogo.filter(p => p.fuente === 'wa_catalog');
+        const cfg      = await Config.findOne({ userId: uid });
+        const manuales = (cfg?.catalogo || []).filter(p => p.fuente !== 'wa_catalog');
+        const merged   = [...waProds, ...manuales];
+        await Config.findOneAndUpdate({ userId: uid }, { $set: { catalogo: merged } }, { upsert: true });
+        socket.emit('worker:catalog-synced', { userId: uid, count: waProds.length, total: merged.length });
+        console.log(`[Worker] ✅ Catálogo guardado para ${uid}: ${waProds.length} WA + ${manuales.length} manuales`);
+      } catch (e) {
+        console.warn(`[Worker] Error guardando catálogo ${uid}:`, e.message);
+      }
+    });
+
+    bot.on('catalog:candidate', async (producto) => {
+      try {
+        await Config.findOneAndUpdate(
+          { userId: uid },
+          { $push: { catalogo: { ...producto, disponible: true, fuente: 'status' } } },
+        );
+        socket.emit('worker:catalog-new-product', { userId: uid, product: producto });
+      } catch (e) {
+        console.warn(`[Worker] Error guardando candidato catálogo ${uid}:`, e.message);
+      }
     });
 
     await bot.iniciar();
@@ -222,6 +272,23 @@ socket.on('worker:panic-stop', async ({ userId, motivo }) => {
   liberarPuerto(uid);
   await User.findByIdAndUpdate(uid, { status: 'bloqueado', botActivo: false, botConectado: false, bloqueadoPor: motivo }).catch(() => {});
   await Log.registrar({ userId: uid, tipo: 'security_block', nivel: 'critical', mensaje: `Pánico desde worker: ${motivo}` }).catch(() => {});
+});
+
+socket.on('worker:catalog-sync', ({ userId }) => {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+  if (!bot) {
+    console.warn(`[Worker] catalog-sync: bot ${uid} no activo`);
+    return;
+  }
+  console.log(`[Worker] 🔄 Sync catálogo solicitado para ${uid}`);
+  bot.emit('catalog:sync');
+});
+
+socket.on('worker:calendar-reload', ({ userId }) => {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+  if (bot) bot.emit('calendar:reload');
 });
 
 // ── Puerto determinístico (mismo lógica que bot.manager) ───────
