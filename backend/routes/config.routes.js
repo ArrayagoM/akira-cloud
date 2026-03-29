@@ -89,6 +89,12 @@ router.get('/google/callback', async (req, res) => {
     config.googleEmail = data.email || '';
     await config.save();
 
+    // Notificar al bot en memoria para que recargue los tokens sin reiniciarse
+    try {
+      const botManager = require('../services/bot.manager');
+      botManager.recargarCalendar(userId);
+    } catch (e) { logger.warn('[Config] recargarCalendar: ' + e.message); }
+
     await Log.registrar({ userId, tipo: 'config_update', mensaje: `Google Calendar conectado (${data.email})` });
     logger.info(`[Config] Google Calendar OAuth OK para user ${userId} — ${data.email}`);
     res.redirect(`${frontendUrl}/config?calendar=ok`);

@@ -146,7 +146,20 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     return { disponible: eventosRelevantes.length === 0, eventos: eventosRelevantes };
   }
 
-  return { crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento };
+  // Recarga tokens OAuth en caliente — sin reiniciar el bot
+  function recargarTokens(newTokens) {
+    try {
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+      );
+      oauth2Client.setCredentials(newTokens);
+      calendarAuth = oauth2Client;
+      log('✅ Google Calendar tokens recargados en caliente');
+    } catch (e) { log('⚠️ Calendar recargarTokens: ' + e.message); }
+  }
+
+  return { crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento, recargarTokens };
 }
 
 module.exports = crearCalendarService;

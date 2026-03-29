@@ -413,6 +413,18 @@ function triggerCatalogSync(userId, slot = 0) {
   return false;
 }
 
+// Notifica al bot que recargue su configuración de Calendar (tokens nuevos)
+function recargarCalendar(userId, slot = 0) {
+  const uid = String(userId);
+  const key = botKey(uid, slot);
+  const bot = instancias.get(key);
+  if (bot) {
+    bot.emit('calendar:reload');
+    return true;
+  }
+  return false;
+}
+
 module.exports = {
   startBot,
   stopBot,
@@ -423,5 +435,6 @@ module.exports = {
   getActiveCount,
   getActiveUserIds,
   triggerCatalogSync,
+  recargarCalendar,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

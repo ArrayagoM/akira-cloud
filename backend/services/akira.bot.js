@@ -22,6 +22,7 @@ const crearPersistencia         = require('./bot/persistence.service');
 const crearMongoClientesService = require('./bot/mongo-clientes.service');
 const crearCalendarService      = require('./bot/calendar.service');
 const crearMPService            = require('./bot/mercadopago.service');
+const Config                    = require('../models/Config');
 const crearAudioService         = require('./bot/audio.service');
 const crearGroqService          = require('./bot/groq.service');
 
@@ -1219,6 +1220,21 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       log('[Catálogo] 🔄 Sync solicitado manualmente...');
       catalogFallos = 0; // el usuario forzó el sync — resetear contador
       sincronizarCatalogoWA().catch(() => {});
+    });
+
+    // Recargar tokens de Google Calendar en caliente (el usuario conectó OAuth)
+    emitter.on('calendar:reload', async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID });
+        if (!cfg) return;
+        const raw = cfg.getKey('googleCalendarTokens');
+        if (!raw) return;
+        const tokens = JSON.parse(raw);
+        calendar.recargarTokens(tokens);
+        log('🗓️ Google Calendar tokens recargados sin reiniciar el bot');
+      } catch (e) {
+        log('⚠️ calendar:reload error: ' + e.message);
+      }
     });
     log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
     await conectar();
