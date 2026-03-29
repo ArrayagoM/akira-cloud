@@ -48,9 +48,25 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
     }
     const opts = { model: modelo, messages: msgs, max_tokens: 512 };
     if (conTools) { opts.tools = herramientas(); opts.tool_choice = 'auto'; }
+
+    // Timeout de 25s — si Groq no responde, lanzamos error en vez de colgar
+    const TIMEOUT_MS = 25_000;
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => {
+        const e = new Error('GROQ_TIMEOUT');
+        e.isTimeout = true;
+        reject(e);
+      }, TIMEOUT_MS)
+    );
+
     try {
-      return await groq.chat.completions.create(opts);
+      const resp = await Promise.race([groq.chat.completions.create(opts), timeout]);
+      return resp;
     } catch (err) {
+      if (err.isTimeout) {
+        log?.('[Groq] ⚠️ Timeout 25s — Groq no respondió a tiempo');
+        throw err;
+      }
       if (err.status === 429) {
         const m  = err.message.match(/try again in (\d+)m([\d.]+)s/i);
         const ms = err.message.match(/try again in ([\d.]+)s/i);
@@ -60,7 +76,7 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
           groqBloqueadoHasta = Date.now() + Math.ceil(parseFloat(ms[1])) * 1000 + 2000;
           log?.(`[Groq] Rate-limit ~${Math.ceil(parseFloat(ms[1]))}s`);
         } else {
-          groqBloqueadoHasta = Date.now() + 3 * 60000; // fallback 3 min
+          groqBloqueadoHasta = Date.now() + 3 * 60000;
           log?.('[Groq] Rate-limit sin duración — esperando 3 min');
         }
         const e = new Error('RATE_LIMIT');
@@ -68,8 +84,11 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
         throw e;
       }
       if (err.status === 400 && err.message.includes('tool_use_failed')) {
-        try { return await groq.chat.completions.create(opts); }
-        catch (e2) { const er = new Error('TOOL_USE_FAILED'); er.isToolUseFailed = true; throw er; }
+        try { return await Promise.race([groq.chat.completions.create(opts), timeout]); }
+        catch (e2) {
+          if (e2.isTimeout) throw e2;
+          const er = new Error('TOOL_USE_FAILED'); er.isToolUseFailed = true; throw er;
+        }
       }
       throw err;
     }

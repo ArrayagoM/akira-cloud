@@ -105,6 +105,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   expressServer        = null;
   let   reconectando         = false;
   let   audioSvc             = null;
+  let   watchdogTimer        = null;
+  let   ultimoMensajeTs      = Date.now();
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) { return t.replace(/\p{Emoji}/gu, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim(); }
@@ -1122,6 +1124,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         log('✅ WhatsApp conectado y listo');
         emitter.emit('ready');
         reprogramarRecs();
+        ultimoMensajeTs = Date.now();
+        iniciarWatchdog();
         // Sincronizar catálogo WA Business (si tiene productos)
         setTimeout(() => sincronizarCatalogoWA().catch(() => {}), 5000);
       }
@@ -1129,13 +1133,58 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    // Mensajes en paralelo — cada uno con timeout propio para que uno colgado
+    // no bloquee los siguientes
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
       if (type !== 'notify') return;
+      ultimoMensajeTs = Date.now();
       for (const msg of messages) {
-        try { await handleBaileysMessage(msg); }
-        catch (e) { log('❌ Error handleMessage: ' + e.message); }
+        // Timeout por mensaje: 40s máximo antes de descartarlo
+        const limit = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000)
+        );
+        Promise.race([handleBaileysMessage(msg), limit])
+          .catch(e => log(`❌ Error handleMessage: ${e.message}`));
       }
     });
+  }
+
+  // ── Watchdog: detecta conexión zombie y reconecta ────────────
+  function iniciarWatchdog() {
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    // Cada 3 minutos verifica si el socket sigue vivo
+    watchdogTimer = setInterval(async () => {
+      if (!sock) return;
+      const ZOMBIE_MS = 10 * 60 * 1000; // 10 min sin mensajes ni actividad
+      const silencio  = Date.now() - ultimoMensajeTs;
+      // Intenta enviar un ping al WS interno de Baileys
+      try {
+        if (sock.ws && typeof sock.ws.ping === 'function') {
+          sock.ws.ping();
+        }
+      } catch (pingErr) {
+        log(`⚠️ [Watchdog] Ping falló (${pingErr.message}) — forzando reconexión`);
+        detenerWatchdog();
+        if (!reconectando) {
+          reconectando = true;
+          try { sock.end(new Error('watchdog_ping_fail')); } catch {}
+        }
+        return;
+      }
+      if (silencio > ZOMBIE_MS) {
+        log(`⚠️ [Watchdog] Sin actividad por ${Math.round(silencio/60000)}min — reconectando`);
+        ultimoMensajeTs = Date.now();
+        detenerWatchdog();
+        if (!reconectando) {
+          reconectando = true;
+          try { sock.end(new Error('watchdog_zombie')); } catch {}
+        }
+      }
+    }, 3 * 60 * 1000);
+  }
+
+  function detenerWatchdog() {
+    if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
   }
 
   // ── Ciclo de vida ────────────────────────────────────────────
@@ -1158,6 +1207,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     const sockRef = sock;
     sock = null; // null primero para cortar reconexión automática
     reconectando = false;
+    detenerWatchdog();
     for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
     if (sockRef) { try { sockRef.end(); } catch (e) { log('sock.end: ' + e.message); } }
     if (expressServer) { try { expressServer.close(); } catch {} expressServer = null; }
