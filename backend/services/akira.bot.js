@@ -379,7 +379,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     if (tool.function.name === 'consultar_disponibilidad') {
       const libres = await calendar.horariosLibres(args.fecha);
-      const res    = libres.length > 0 ? `Horarios libres para ${args.fecha}: ${libres.join(', ')}` : `No hay horarios disponibles para el ${args.fecha}.`;
+      if (libres === null) {
+        push(`ERROR_CALENDAR: Google Calendar no está conectado o no responde. NO inventes horarios ni disponibilidad. Decile al cliente que hay un problema técnico con el calendario y que ${MI_NOMBRE} lo va a contactar para confirmar.`);
+        return;
+      }
+      const res = libres.length > 0 ? `Horarios libres para ${args.fecha}: ${libres.join(', ')}` : `No hay horarios disponibles para el ${args.fecha}.`;
       if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
       cacheTemporal[jid].ultimaConsulta = { fecha: args.fecha, libres, ts: Date.now() };
       db.guardar(CACHE_PATH, cacheTemporal);
@@ -410,6 +414,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const ini        = calendar.crearFecha(y, m, d, hI);
         const fin        = calendar.crearFecha(y, m, d, hFn);
         const conflictos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+        if (conflictos === null) {
+          push(`ERROR_CALENDAR: No se puede verificar el calendario. NO agendes ni confirmes el turno. Informale al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar.`);
+          return;
+        }
         if (conflictos.length > 0) { push(`El horario ${args.hora}–${hFn}:00 ya está ocupado.`); return; }
 
         if (MP_ACCESS_TOKEN) {
