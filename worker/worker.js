@@ -167,12 +167,14 @@ socket.on('worker:start-bot', async ({ userId }) => {
     [sessionDir, dataDir].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
     // Google Calendar — tokens OAuth (prioridad sobre service account)
-    const googleTokens = config.googleCalendarTokens?.encrypted
-      ? config.getKey('googleCalendarTokens')
-      : null;
+    const hasStoredTokens = !!config.googleCalendarTokens?.encrypted;
+    const googleTokens    = hasStoredTokens ? config.getKey('googleCalendarTokens') : null;
+    console.log(`[Worker] Calendar tokens en DB: ${hasStoredTokens} | descifrados: ${!!googleTokens}`);
     if (googleTokens) {
       credenciales.GOOGLE_CALENDAR_TOKENS = googleTokens;
       credenciales.GOOGLE_EMAIL           = config.googleEmail || '';
+    } else if (hasStoredTokens) {
+      console.error('[Worker] ❌ ENCRYPTION_KEY del worker no coincide con la de Render — Google Calendar no funcionará. Copiá la misma ENCRYPTION_KEY de Render al worker/.env');
     }
 
     // Google Calendar — service account (fallback)
