@@ -107,6 +107,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   audioSvc             = null;
   let   watchdogTimer        = null;
   let   ultimoMensajeTs      = Date.now();
+  let   catalogFallos        = 0;
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) { return t.replace(/\p{Emoji}/gu, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim(); }
@@ -819,10 +820,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   async function sincronizarCatalogoWA() {
     try {
       if (!sock) { log('[Catálogo] ⚠️ Socket no disponible'); return; }
+      if (catalogFallos >= 3) {
+        log('[Catálogo] ⏸ Sync pausado tras 3 fallos consecutivos. Usá el botón manual para reintentar.');
+        return;
+      }
       log(`[Catálogo] 🔄 Obteniendo catálogo WA Business (user: ${sock.user?.id || '?'})...`);
 
-      // Pasar undefined → Baileys usa authState.creds.me?.id internamente (más confiable)
-      const result = await sock.getCatalog({ limit: 100 });
+      // Timeout de 15s — getCatalog puede colgar 60s sin respuesta de WA
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timed Out (15s)')), 15_000)
+      );
+      const result = await Promise.race([sock.getCatalog({ limit: 100 }), timeoutPromise]);
       log(`[Catálogo] Raw result keys: ${Object.keys(result || {}).join(', ')}`);
 
       const products = result?.products;
@@ -855,9 +863,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       }));
 
       log(`[Catálogo] ✅ ${catalogo.length} productos mapeados correctamente`);
+      catalogFallos = 0; // reset en éxito
       emitter.emit('catalog:update', catalogo);
     } catch (e) {
-      log(`[Catálogo] ⚠️ Error sincronizando catálogo WA: ${e.message}`);
+      catalogFallos++;
+      log(`[Catálogo] ⚠️ Error sincronizando catálogo WA: ${e.message} (fallo ${catalogFallos}/3)`);
+      if (catalogFallos >= 3) {
+        log('[Catálogo] ⏸ 3 fallos consecutivos — sync automático pausado. El bot sigue funcionando normalmente.');
+      }
     }
   }
 
@@ -1197,6 +1210,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     // Escuchar solicitudes externas de sync de catálogo (desde bot.manager)
     emitter.on('catalog:sync', () => {
       log('[Catálogo] 🔄 Sync solicitado manualmente...');
+      catalogFallos = 0; // el usuario forzó el sync — resetear contador
       sincronizarCatalogoWA().catch(() => {});
     });
     log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
