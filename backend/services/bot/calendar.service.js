@@ -37,8 +37,10 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     return new Date(Date.UTC(y, m - 1, d, h + 3, min, 0, 0));
   }
 
+  function isConnected() { return !!calendarAuth; }
+
   async function obtenerEventos(calId, ini, fin) {
-    if (!calendarAuth) { log('❌ Calendar: Not Found'); return null; }
+    if (!calendarAuth) { log('❌ Calendar: Not Found'); return []; }
     try {
       const cal = google.calendar({ version: 'v3', auth: calendarAuth });
       const r = await cal.events.list({
@@ -49,7 +51,7 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
         orderBy: 'startTime',
       });
       return r.data.items || [];
-    } catch (e) { log('❌ Calendar: ' + e.message); return null; }
+    } catch (e) { log('❌ Calendar: ' + e.message); return []; }
   }
 
   async function horariosLibres(fecha) {
@@ -72,7 +74,6 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     }
 
     const ev = await obtenerEventos(calendarId, crearFecha(y, m, d, hIni), crearFecha(y, m, d, hFin));
-    if (ev === null) return null; // calendar no conectado — propagar error
     const libres = [];
     for (let h = hIni; h < hFin; h++) {
       const si = crearFecha(y, m, d, h);
@@ -160,7 +161,7 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
     } catch (e) { log('⚠️ Calendar recargarTokens: ' + e.message); }
   }
 
-  return { crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento, recargarTokens };
+  return { isConnected, crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento, recargarTokens };
 }
 
 module.exports = crearCalendarService;
