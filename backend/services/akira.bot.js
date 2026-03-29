@@ -40,7 +40,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const NGROK_AUTH_TOKEN          = config.NGROK_AUTH_TOKEN || '';
   const RIME_API_KEY              = config.RIME_API_KEY || '';
   const HORAS_MINIMAS_CANCELACION = parseInt(config.HORAS_MINIMAS_CANCELACION || '24');
-  const CALENDAR_ID               = config.CALENDAR_ID || '';
+  const CALENDAR_ID               = config.CALENDAR_ID || 'primary';
   const PROMPT_EXTRA              = config.PROMPT_PERSONALIZADO || '';
   const ALIAS_TRANSFERENCIA       = config.ALIAS_TRANSFERENCIA || '';
   const CBU_TRANSFERENCIA         = config.CBU_TRANSFERENCIA   || '';
@@ -428,25 +428,32 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         } else {
           // ── Flujo sin MercadoPago: agendar directo + transferencia ──
           const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
-          await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
-          usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
-          clientesSvc.guardarMemoria(jid, usuario);
-          programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+          const evento = await calendar.crearEvento(CALENDAR_ID, `Turno — ${usuario.nombre}`, desc, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
 
-          // Notificar al dueño
-          notificarDueno(`✅ *Nuevo turno confirmado*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
-
-          // Armar instrucción de pago con datos REALES (nunca inventados)
-          let infoPago = '';
-          if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
-            infoPago = `Indicale que pague $${total} ARS por transferencia al` +
-              (ALIAS_TRANSFERENCIA ? ` Alias: ${ALIAS_TRANSFERENCIA}` : '') +
-              (CBU_TRANSFERENCIA   ? ` / CBU/CVU: ${CBU_TRANSFERENCIA}` : '') +
-              ` y que mande el comprobante para confirmar.`;
+          if (!evento) {
+            // El evento no se creó en Calendar — no confirmar al cliente
+            log(`❌ [Turno] crearEvento falló para ${usuario.nombre} ${args.fecha} ${args.hora}`);
+            push(`Error al guardar el turno en Google Calendar. El turno NO fue agendado. Informale al cliente que hubo un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
           } else {
-            infoPago = `No hay método de pago configurado. Indicale que ${MI_NOMBRE} le va a confirmar cómo abonar.`;
+            usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
+            clientesSvc.guardarMemoria(jid, usuario);
+            programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+
+            // Notificar al dueño
+            notificarDueno(`✅ *Nuevo turno confirmado*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
+
+            // Armar instrucción de pago con datos REALES (nunca inventados)
+            let infoPago = '';
+            if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+              infoPago = `Indicale que pague $${total} ARS por transferencia al` +
+                (ALIAS_TRANSFERENCIA ? ` Alias: ${ALIAS_TRANSFERENCIA}` : '') +
+                (CBU_TRANSFERENCIA   ? ` / CBU/CVU: ${CBU_TRANSFERENCIA}` : '') +
+                ` y que mande el comprobante para confirmar.`;
+            } else {
+              infoPago = `No hay método de pago configurado. Indicale que ${MI_NOMBRE} le va a confirmar cómo abonar.`;
+            }
+            push(`Turno confirmado y agendado: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. ${infoPago}`);
           }
-          push(`Turno confirmado y agendado: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. ${infoPago}`);
         }
       } catch (e) { log('[Pago] ' + e.message); push(`Error al procesar la reserva: ${e.message}.`); }
       finally { slotsEnProceso.delete(sk); }

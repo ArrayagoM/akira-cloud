@@ -108,7 +108,10 @@ function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaIn
         sendUpdates: 'none',
       });
       return r.data;
-    } catch (e) { log('❌ Evento: ' + e.message); return null; }
+    } catch (e) {
+      log(`❌ Calendar crearEvento: ${e.message} (calendarId: ${calId})`);
+      return null;
+    }
   }
 
   async function eliminarEvento(calId, evId) {
