@@ -86,9 +86,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
   const clientesSvc = crearMongoClientesService(USER_ID, log);
   const calendar = crearCalendarService({
-    calendarId: CALENDAR_ID,
-    credentialsPath: CREDENTIALS_PATH,
-    oauthTokens: GOOGLE_CALENDAR_TOKENS,   // prioridad sobre service account
+    userId: USER_ID,
+    calendarId: CALENDAR_ID || 'principal',
     horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
     duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA,
     horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,

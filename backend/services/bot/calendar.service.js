@@ -1,165 +1,175 @@
 // services/bot/calendar.service.js
-// Integración con Google Calendar.
+// Calendario propio en MongoDB — sin dependencia de Google Calendar.
 'use strict';
 
-const fs             = require('fs');
-const { google }     = require('googleapis');
+const Turno = require('../../models/Turno');
 
-// Mapa JS day-of-week → nombre en horariosAtencion
 const DIA_NOMBRE = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 
-function crearCalendarService({ calendarId, credentialsPath, oauthTokens, horaInicio, horaFin, duracion, zonaHoraria, horarios, diasBloqueados, log }) {
-  let calendarAuth = null;
+function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracion, zonaHoraria, horarios, diasBloqueados, log }) {
 
-  if (oauthTokens) {
-    // ── OAuth2 del usuario (Google Calendar conectado desde el panel) ──
-    try {
-      const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-      );
-      oauth2Client.setCredentials(oauthTokens);
-      calendarAuth = oauth2Client;
-      log('✅ Google Calendar configurado via OAuth');
-    } catch (e) { log('⚠️ Calendar OAuth: ' + e.message); }
-  } else if (credentialsPath && fs.existsSync(credentialsPath)) {
-    // ── Service account (método manual / legacy) ──
-    try {
-      calendarAuth = new google.auth.GoogleAuth({
-        keyFile: credentialsPath,
-        scopes: ['https://www.googleapis.com/auth/calendar'],
-      });
-      log('✅ Google Calendar configurado via service account');
-    } catch (e) { log('⚠️ Calendar: ' + e.message); }
-  }
+  // Siempre conectado — no depende de OAuth
+  function isConnected() { return true; }
 
+  // Crea un objeto Date a partir de componentes (UTC-3 Argentina)
   function crearFecha(y, m, d, h = 0, min = 0) {
     return new Date(Date.UTC(y, m - 1, d, h + 3, min, 0, 0));
   }
 
-  function isConnected() { return !!calendarAuth; }
-
+  // Obtiene turnos en un rango de fechas para un calendarId
   async function obtenerEventos(calId, ini, fin) {
-    if (!calendarAuth) { log('❌ Calendar: Not Found'); return []; }
     try {
-      const cal = google.calendar({ version: 'v3', auth: calendarAuth });
-      const r = await cal.events.list({
-        calendarId: calId,
-        timeMin: ini.toISOString(),
-        timeMax: fin.toISOString(),
-        singleEvents: true,
-        orderBy: 'startTime',
-      });
-      return r.data.items || [];
-    } catch (e) { log('❌ Calendar: ' + e.message); return []; }
+      const turnos = await Turno.find({
+        userId,
+        calendarId: calId || calendarId || 'principal',
+        estado:     { $ne: 'cancelado' },
+        fechaInicio: { $lt: fin },
+        fechaFin:    { $gt: ini },
+      }).lean();
+
+      // Retorna formato compatible con el código existente del bot
+      return turnos.map(t => ({
+        id:      t._id.toString(),
+        summary: t.resumen,
+        description: t.descripcion,
+        start: { dateTime: t.fechaInicio.toISOString() },
+        end:   { dateTime: t.fechaFin.toISOString()    },
+        _turno: t,
+      }));
+    } catch (e) {
+      log('❌ Turno.find: ' + e.message);
+      return [];
+    }
   }
 
+  // Retorna slots horarios libres para una fecha dada
   async function horariosLibres(fecha) {
-    // 1. Verificar días bloqueados
     if (Array.isArray(diasBloqueados) && diasBloqueados.includes(fecha)) return [];
 
-    // 2. Determinar horario del día según configuración
     const [y, m, d] = fecha.split('-').map(Number);
     const fechaObj  = new Date(y, m - 1, d);
     const diaNombre = DIA_NOMBRE[fechaObj.getDay()];
 
-    let hIni = horaInicio;
-    let hFin = horaFin;
+    let hIni = typeof horaInicio === 'number' ? horaInicio : 9;
+    let hFin = typeof horaFin   === 'number' ? horaFin   : 18;
 
     if (horarios && horarios[diaNombre]) {
       const diaConf = horarios[diaNombre];
-      if (!diaConf.activo) return []; // día cerrado
+      if (!diaConf.activo) return [];
       hIni = parseInt((diaConf.inicio || '09:00').split(':')[0]);
       hFin = parseInt((diaConf.fin   || '18:00').split(':')[0]);
     }
 
-    const ev = await obtenerEventos(calendarId, crearFecha(y, m, d, hIni), crearFecha(y, m, d, hFin));
+    const dur = typeof duracion === 'number' ? duracion : 1;
+    const ini = crearFecha(y, m, d, hIni);
+    const fin = crearFecha(y, m, d, hFin);
+    const ev  = await obtenerEventos(calendarId || 'principal', ini, fin);
+
     const libres = [];
-    for (let h = hIni; h < hFin; h++) {
+    for (let h = hIni; h + dur <= hFin; h++) {
       const si = crearFecha(y, m, d, h);
-      const sf = crearFecha(y, m, d, h + duracion);
-      const ocu = ev.some(e => {
-        const ei = new Date(e.start.dateTime || e.start.date);
-        const ef = new Date(e.end.dateTime   || e.end.date);
+      const sf = crearFecha(y, m, d, h + dur);
+      const ocupado = ev.some(e => {
+        const ei = new Date(e.start.dateTime);
+        const ef = new Date(e.end.dateTime);
         return si < ef && sf > ei;
       });
-      if (!ocu) libres.push(`${h}:00 - ${h + 1}:00`);
+      if (!ocupado) libres.push(`${h}:00 - ${h + dur}:00`);
     }
     return libres;
   }
 
+  // Crea un turno en MongoDB
   async function crearEvento(calId, resumen, desc, ini, fin, email, tel) {
-    if (!calendarAuth) return null;
     try {
-      const cal = google.calendar({ version: 'v3', auth: calendarAuth });
-      const r = await cal.events.insert({
-        calendarId: calId,
-        resource: {
-          summary: resumen,
-          description: desc + (tel ? `\nTel: +${tel}` : '') + (email ? `\nEmail: ${email}` : ''),
-          start: { dateTime: ini.toISOString(), timeZone: zonaHoraria },
-          end:   { dateTime: fin.toISOString(), timeZone: zonaHoraria },
-          reminders: {
-            useDefault: false,
-            overrides: [
-              { method: 'email', minutes: 24 * 60 },
-              { method: 'popup', minutes: 30 },
-            ],
-          },
-        },
-        sendUpdates: 'none',
+      const clienteNombre = resumen.replace(/turno[:\s-]*/i, '').trim();
+
+      const turno = await Turno.create({
+        userId,
+        calendarId:      calId || calendarId || 'principal',
+        resumen,
+        descripcion:     desc  || '',
+        fechaInicio:     ini,
+        fechaFin:        fin,
+        clienteNombre,
+        clienteTelefono: tel   || '',
+        clienteEmail:    email || '',
+        estado:          'confirmado',
       });
-      return r.data;
+
+      log(`✅ Turno creado: ${resumen} (${ini.toISOString()})`);
+
+      if (global.io) {
+        global.io.to(`user:${userId}`).emit('turno:nuevo', {
+          id:      turno._id.toString(),
+          resumen: turno.resumen,
+          inicio:  turno.fechaInicio,
+          fin:     turno.fechaFin,
+          cliente: turno.clienteNombre,
+          tel:     turno.clienteTelefono,
+        });
+      }
+
+      return { id: turno._id.toString(), summary: resumen };
     } catch (e) {
-      log(`❌ Calendar crearEvento: ${e.message} (calendarId: ${calId})`);
+      log('❌ crearEvento: ' + e.message);
       return null;
     }
   }
 
+  // Cancela un turno (soft delete)
   async function eliminarEvento(calId, evId) {
-    if (!calendarAuth) return false;
     try {
-      await google.calendar({ version: 'v3', auth: calendarAuth }).events.delete({ calendarId: calId, eventId: evId });
+      await Turno.findByIdAndUpdate(evId, { estado: 'cancelado' });
       return true;
-    } catch { return false; }
+    } catch (e) {
+      log('❌ eliminarEvento: ' + e.message);
+      return false;
+    }
   }
 
-  // ── Disponibilidad por rango de fechas (alojamiento) ─────────
-  // nombreUnidad: si se pasa, solo considera eventos que contengan ese nombre en el título
+  // Disponibilidad por rango de fechas (alojamiento)
   async function consultarRango(fechaEntrada, fechaSalida, nombreUnidad = null) {
-    const [ye, me, de] = fechaEntrada.split('-').map(Number);
-    const [ys, ms, ds] = fechaSalida.split('-').map(Number);
-    // Verificar días bloqueados: si algún día del rango está bloqueado
     if (Array.isArray(diasBloqueados) && diasBloqueados.length > 0) {
-      const ini = new Date(ye, me - 1, de);
-      const fin = new Date(ys, ms - 1, ds);
-      for (let d = new Date(ini); d < fin; d.setDate(d.getDate() + 1)) {
-        const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        if (diasBloqueados.includes(iso)) return { disponible: false, motivo: `El ${iso} no hay disponibilidad.` };
+      const ini = new Date(fechaEntrada);
+      const fin = new Date(fechaSalida);
+      for (let day = new Date(ini); day < fin; day.setDate(day.getDate() + 1)) {
+        const iso = day.toISOString().slice(0, 10);
+        if (diasBloqueados.includes(iso)) {
+          return { disponible: false, motivo: `El ${iso} no hay disponibilidad.` };
+        }
       }
     }
+
+    const [ye, me, de] = fechaEntrada.split('-').map(Number);
+    const [ys, ms, ds] = fechaSalida.split('-').map(Number);
     const iniDate = new Date(Date.UTC(ye, me - 1, de));
     const finDate = new Date(Date.UTC(ys, ms - 1, ds));
-    const eventos = await obtenerEventos(calendarId, iniDate, finDate);
-    // Si se especifica unidad, filtrar solo eventos de esa unidad
-    const eventosRelevantes = nombreUnidad
-      ? eventos.filter(e => (e.summary || '').toLowerCase().includes(nombreUnidad.toLowerCase()))
-      : eventos;
-    return { disponible: eventosRelevantes.length === 0, eventos: eventosRelevantes };
+
+    const query = {
+      userId,
+      estado:      { $ne: 'cancelado' },
+      fechaInicio: { $lt: finDate },
+      fechaFin:    { $gt: iniDate },
+    };
+    if (nombreUnidad) query.calendarId = nombreUnidad;
+
+    const eventos = await Turno.find(query).lean();
+    return {
+      disponible: eventos.length === 0,
+      eventos: eventos.map(t => ({
+        id:      t._id.toString(),
+        summary: t.resumen,
+        start:   { dateTime: t.fechaInicio.toISOString() },
+        end:     { dateTime: t.fechaFin.toISOString() },
+      })),
+    };
   }
 
-  // Recarga tokens OAuth en caliente — sin reiniciar el bot
-  function recargarTokens(newTokens) {
-    try {
-      const oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-      );
-      oauth2Client.setCredentials(newTokens);
-      calendarAuth = oauth2Client;
-      log('✅ Google Calendar tokens recargados en caliente');
-    } catch (e) { log('⚠️ Calendar recargarTokens: ' + e.message); }
-  }
+  // Compatibilidad — ya no necesita tokens
+  function recargarTokens() { log('ℹ️ Calendario propio — sin tokens'); }
+
+  log('✅ Calendario propio (MongoDB) listo — sin Google Calendar');
 
   return { isConnected, crearFecha, obtenerEventos, horariosLibres, consultarRango, crearEvento, eliminarEvento, recargarTokens };
 }

@@ -58,6 +58,7 @@ const adminRoutes        = require('./routes/admin.routes');
 const configRoutes       = require('./routes/config.routes');
 const botRoutes          = require('./routes/bot.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
+const turnosRoutes       = require('./routes/turnos.routes');
 const supportRoutes      = require('./routes/support.routes');
 
 // ── Passport config ─────────────────────────────────────────
@@ -149,6 +150,7 @@ app.use('/api/admin',        adminRoutes);
 app.use('/api/config',       configRoutes);
 app.use('/api/bot',          botRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/turnos',       turnosRoutes);
 app.use('/api/support',      supportRoutes);
 
 // Health check
