@@ -1266,53 +1266,154 @@ function ResenasSection() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// COMPARATIVA
+// COMPARATIVA CON MARCAS FAMOSAS — la gran analogía
 // ─────────────────────────────────────────────────────────────
-const comparativa = [
-  ['Responde automáticamente',    '✓ Con contexto y naturalidad', '❌ Respuestas fijas'],
-  ['Agenda de turnos real',       '✓ Google Calendar',            '❌ No incluye'],
-  ['Cobros integrados',           '✓ MercadoPago',                '❌ No incluye'],
-  ['Entiende mensajes de audio',  '✓ Transcribe y responde',      '❌ Solo texto'],
-  ['Recordatorios automáticos',   '✓ 24h / 4h / 30min antes',     '❌ Manual'],
-  ['Cancelar / reagendar',        '✓ Automático',                 '❌ Manual'],
-  ['Horarios por día',            '✓ Panel visual',               '❌ No incluye'],
-  ['Te avisa cada venta',         '✓ Por WhatsApp al instante',   '❌ No incluye'],
+const marcasComparativa = [
+  {
+    emoji:    '🗓️',
+    marca:    'Calendly',
+    color:    '#006BFF',
+    bg:       'rgba(0,107,255,0.07)',
+    border:   'rgba(0,107,255,0.18)',
+    akira:    'Akira es como Calendly',
+    pero:     'pero dentro de WhatsApp, donde ya están tus clientes — sin links, sin formularios, sin fricción.',
+    detalle:  'Calendly requiere que el cliente abra un link y complete un formulario. Akira agenda directo en la conversación de WhatsApp en la que el cliente ya está escribiendo.',
+  },
+  {
+    emoji:    '💳',
+    marca:    'MercadoPago',
+    color:    '#00b1ea',
+    bg:       'rgba(0,177,234,0.07)',
+    border:   'rgba(0,177,234,0.18)',
+    akira:    'Akira usa MercadoPago',
+    pero:     'pero genera el link de pago solo y confirma el turno automáticamente cuando el dinero entra — sin que vos muevas un dedo.',
+    detalle:  'Hoy mandás el link vos a mano. Con Akira, el bot genera el link, lo envía y cuando el pago se acredita confirma el turno. Vos te enterás por notificación.',
+  },
+  {
+    emoji:    '🤖',
+    marca:    'ChatGPT',
+    color:    '#10a37f',
+    bg:       'rgba(16,163,127,0.07)',
+    border:   'rgba(16,163,127,0.18)',
+    akira:    'Akira es como ChatGPT',
+    pero:     'pero entrenado en tu negocio: tus precios, tus horarios, tus servicios — responde como si fuera vos.',
+    detalle:  'ChatGPT sabe todo pero no sabe nada de tu negocio. Akira sabe que el martes cerrás a las 18, que el corte de cabello vale $4.500 y que el turno de las 16hs ya está ocupado.',
+  },
+  {
+    emoji:    '📞',
+    marca:    'Call center',
+    color:    '#f59e0b',
+    bg:       'rgba(245,158,11,0.07)',
+    border:   'rgba(245,158,11,0.18)',
+    akira:    'Akira es como un call center 24/7',
+    pero:     'sin pagar 10 sueldos, sin horarios, sin días libres — disponible las 24 horas por menos de lo que cuesta un almuerzo por día.',
+    detalle:  'Un empleado para atender WhatsApp cuesta $400.000+/mes, trabaja 8 horas y tiene días libres. Akira trabaja 24/7, responde en 2 segundos y cuesta una fracción.',
+  },
+  {
+    emoji:    '🏪',
+    marca:    'Shopify',
+    color:    '#96bf48',
+    bg:       'rgba(150,191,72,0.07)',
+    border:   'rgba(150,191,72,0.18)',
+    akira:    'Como Shopify automatizó las tiendas online',
+    pero:     'Akira automatiza tu WhatsApp — el canal donde el 90% de tus clientes argentinos ya te escribe todos los días.',
+    detalle:  'Shopify puso una tienda online en manos de cualquier negocio sin necesitar programadores. Akira hace lo mismo con la atención por WhatsApp: profesional, automática y sin saber código.',
+  },
+  {
+    emoji:    '✈️',
+    marca:    'Airbnb',
+    color:    '#ff5a5f',
+    bg:       'rgba(255,90,95,0.07)',
+    border:   'rgba(255,90,95,0.18)',
+    akira:    'Para alojamientos, Akira es como Airbnb',
+    pero:     'pero con tu propio WhatsApp, sin pagar comisiones del 15% y con tus clientes directos — no los de la plataforma.',
+    detalle:  'Airbnb cobra comisión por cada reserva y te hace depender de su plataforma. Akira gestiona disponibilidad, reservas y pagos directamente en tu WhatsApp propio, sin intermediarios.',
+  },
 ];
 
-function ComparativaSection() {
+function ComparativaMarcasSection() {
   const titleRef = useScrollReveal('is-visible');
-  const tableRef = useScrollReveal('is-visible');
+  const gridRef  = useScrollRevealGroup('is-visible');
+  const [abierto, setAbierto] = useState(null);
+
   return (
-    <section id="comparativa" className="py-28" style={{ background: 'var(--surface)' }}>
-      <div className="max-w-5xl mx-auto px-6">
-        <div ref={titleRef} className="reveal-up text-center mb-14">
-          <h2 className="text-4xl font-bold text-white mb-4">Akira vs Bots tradicionales</h2>
-          <p className="text-lg" style={{ color: 'var(--text2)' }}>No es solo un bot. Es la diferencia entre crecer y quedarse atrás.</p>
+    <section className="py-28 relative" style={{ background: 'var(--bg)' }}>
+      <div className="max-w-6xl mx-auto px-6">
+        <div ref={titleRef} className="reveal-up text-center mb-16">
+          <span className="text-xs font-semibold uppercase tracking-widest mb-3 block" style={{ color: 'var(--accent)' }}>
+            ¿Qué es Akira exactamente?
+          </span>
+          <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-5 leading-tight">
+            Lo entendés al instante<br />
+            <span style={{ color: 'var(--accent)' }}>si lo comparamos con lo que ya conocés</span>
+          </h2>
+          <p className="text-lg max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
+            Akira combina lo mejor de varias herramientas que ya existen — pero integradas en el WhatsApp de tu negocio, sin que tengas que usar ninguna por separado.
+          </p>
         </div>
-        <div ref={tableRef} className="reveal-up overflow-x-auto rounded-2xl"
-          style={{ border: '1px solid var(--border)', boxShadow: '0 4px 32px rgba(0,0,0,0.3)' }}>
-          <table className="w-full text-sm" style={{ minWidth: 480 }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                <th className="text-left px-6 py-4 font-medium" style={{ color: 'var(--text2)' }}>Característica</th>
-                <th className="px-6 py-4 text-center font-bold text-base" style={{ color: 'var(--accent)' }}>Akira Cloud</th>
-                <th className="px-6 py-4 text-center font-medium" style={{ color: 'var(--muted)' }}>Bots tradicionales</th>
-              </tr>
-            </thead>
-            <tbody>
-              {comparativa.map(([feat, akira, trad], i) => (
-                <tr key={i} style={{ borderTop: '1px solid rgba(30,45,61,0.5)', background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.15)' }}>
-                  <td className="px-6 py-3.5" style={{ color: 'var(--text)' }}>{feat}</td>
-                  <td className="px-6 py-3.5 text-center">
-                    <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: 'var(--accent)' }}>
-                      <CheckCircle size={13} /> {akira}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3.5 text-center" style={{ color: 'var(--muted)' }}>{trad}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div ref={gridRef} className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {marcasComparativa.map((m, i) => (
+            <div
+              key={i}
+              className="reveal-up rounded-2xl p-5 cursor-pointer transition-all duration-200"
+              style={{
+                background:   abierto === i ? m.bg : 'var(--surface)',
+                border:       abierto === i ? `1px solid ${m.border}` : '1px solid var(--border)',
+                boxShadow:    abierto === i ? `0 0 32px ${m.bg}` : 'none',
+              }}
+              onClick={() => setAbierto(abierto === i ? null : i)}
+            >
+              {/* Header */}
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                  style={{ background: m.bg, border: `1px solid ${m.border}` }}>
+                  {m.emoji}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wide mb-0.5" style={{ color: m.color }}>
+                    Como {m.marca}
+                  </p>
+                  <p className="text-sm font-semibold text-white leading-snug">{m.akira}</p>
+                </div>
+              </div>
+
+              {/* Pero diferente */}
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text2)' }}>
+                <span className="font-bold" style={{ color: m.color }}>pero</span> {m.pero}
+              </p>
+
+              {/* Detalle expandible */}
+              <div style={{
+                display: 'grid',
+                gridTemplateRows: abierto === i ? '1fr' : '0fr',
+                transition: 'grid-template-rows 0.3s ease',
+              }}>
+                <div style={{ overflow: 'hidden' }}>
+                  <p className="text-xs leading-relaxed mt-3 pt-3" style={{
+                    color: 'var(--muted)',
+                    borderTop: `1px solid ${m.border}`,
+                  }}>
+                    {m.detalle}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs mt-3 font-medium" style={{ color: m.color, opacity: 0.7 }}>
+                {abierto === i ? '▲ Menos detalle' : '▼ Ver diferencia exacta'}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* CTA abajo */}
+        <div className="text-center mt-14">
+          <p className="text-base mb-5" style={{ color: 'var(--text2)' }}>
+            Todo esto junto, en un solo lugar, conectado a tu WhatsApp.
+          </p>
+          <Link to="/register" className="btn-primary inline-flex items-center gap-2 text-base py-3.5 px-8">
+            Probarlo gratis 7 días <ArrowRight size={17} />
+          </Link>
         </div>
       </div>
     </section>
@@ -1544,55 +1645,47 @@ export default function Landing() {
     <div style={{ background: 'var(--bg)' }}>
       <UrgencyBar />
       <NavBar />
-
-      {/* Notificación flotante de nuevos usuarios */}
       <LiveActivityToast />
 
-      {/* 1. Hero — con contador de usuarios en vivo */}
+      {/* 1. Hero */}
       <HeroSection />
 
       {/* 2. Stats animados */}
       <StatsSection />
 
-      {/* 3. Problema */}
+      {/* 3. Comparativa con marcas famosas — "¿qué es Akira?" */}
+      <ComparativaMarcasSection />
+
+      {/* 4. Problema — por qué lo necesitás */}
       <ProblemaSection />
 
-      {/* 4. Cómo funciona */}
+      {/* 5. Cómo funciona — 4 pasos */}
       <ComoFuncionaSection />
 
-      {/* 5. Features — scroll horizontal */}
+      {/* 6. Features en detalle — scroll horizontal */}
       <HorizontalScroll bgColor="var(--bg)">
         {featureSlides.map((slide, i) => <FeatureSlide key={i} {...slide} />)}
       </HorizontalScroll>
 
-      {/* 6. Industrias — para quién es */}
+      {/* 7. Para qué industrias */}
       <IndustriasSection />
 
-      {/* 7. Beneficios grid */}
-      <BeneficiosSection />
-
-      {/* 8. Resultados */}
+      {/* 8. Resultados concretos */}
       <ResultadosSection />
 
-      {/* 9. Gráfico de crecimiento */}
-      <CrecimientoSection />
-
-      {/* 10. Reseñas + formulario */}
+      {/* 9. Reseñas + formulario */}
       <ResenasSection />
 
-      {/* 11. Comparativa */}
-      <ComparativaSection />
-
-      {/* 12. Precios */}
+      {/* 10. Precios */}
       <PreciosSection />
 
-      {/* 13. CTA final */}
+      {/* 11. CTA final */}
       <CTASection />
 
-      {/* 14. Creador */}
+      {/* 12. Creador */}
       <CreadorSection />
 
-      {/* 15. Footer */}
+      {/* 13. Footer */}
       <Footer />
     </div>
   );
