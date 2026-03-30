@@ -378,7 +378,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     if (tool.function.name === 'consultar_disponibilidad') {
       if (!calendar.isConnected()) {
-        push(`ERROR_CALENDAR: Google Calendar no está conectado. NO inventes horarios ni disponibilidad. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
+        push(`ERROR_CALENDAR: El calendario no está disponible. NO inventes horarios ni disponibilidad. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
         return;
       }
       const libres = await calendar.horariosLibres(args.fecha);
@@ -411,7 +411,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       slotsEnProceso.add(sk);
       try {
         if (!calendar.isConnected()) {
-          push(`ERROR_CALENDAR: Google Calendar no está conectado. NO confirmes el turno. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
+          push(`ERROR_CALENDAR: El calendario no está disponible. NO confirmes el turno. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
           return;
         }
         const ini        = calendar.crearFecha(y, m, d, hI);

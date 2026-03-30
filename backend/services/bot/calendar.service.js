@@ -112,7 +112,8 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
 
       return { id: turno._id.toString(), summary: resumen };
     } catch (e) {
-      log('❌ crearEvento: ' + e.message);
+      log(`❌ crearEvento ERROR: ${e.message} | userId=${userId} | resumen="${resumen}" | ini=${ini} | fin=${fin}`);
+      if (e.errors) log(`❌ Validación: ${JSON.stringify(e.errors)}`);
       return null;
     }
   }
