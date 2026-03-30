@@ -441,7 +441,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           if (!evento) {
             // El evento no se creó en Calendar — no confirmar al cliente
             log(`❌ [Turno] crearEvento falló para ${usuario.nombre} ${args.fecha} ${args.hora}`);
-            push(`Error al guardar el turno en Google Calendar. El turno NO fue agendado. Informale al cliente que hubo un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
+            push(`ERROR_CALENDAR: El turno NO fue guardado en el sistema. NO confirmes el turno. Decile al cliente que hubo un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
           } else {
             usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
             clientesSvc.guardarMemoria(jid, usuario);
