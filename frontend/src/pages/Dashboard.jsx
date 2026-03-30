@@ -214,6 +214,7 @@ export default function Dashboard() {
   const [loading,   setLoading]   = useState({ start: false, stop: false });
   const [modoPausa, setModoPausa] = useState(false);
   const [savingPausa, setSavingPausa] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const logsRef = useRef(null);
 
   // ── Cargar cuentas (Agencia) ─────────────────────────────────
@@ -245,6 +246,7 @@ export default function Dashboard() {
     const removeReady = on('bot:ready', ({ slot = 0 }) => {
       if (slot !== activeSlot) return;
       setQrData(null); setBotStatus({ activo: true, conectado: true });
+      setSessionExpired(false);
       refreshUser(); toast.success('✅ WhatsApp conectado');
       if (isAgencia) loadAccounts();
     });
@@ -254,9 +256,10 @@ export default function Dashboard() {
       refreshUser(); toast.error('WhatsApp desconectado');
       if (isAgencia) loadAccounts();
     });
-    const removeStop  = on('bot:stopped', ({ slot = 0 }) => {
+    const removeStop  = on('bot:stopped', ({ slot = 0, sessionCleared = false }) => {
       if (slot !== activeSlot) return;
       setBotStatus({ activo: false, conectado: false }); setQrData(null);
+      if (sessionCleared) setSessionExpired(true);
       if (isAgencia) loadAccounts();
     });
     const removeErr   = on('bot:error',  ({ msg }) => toast.error(msg));
@@ -281,6 +284,7 @@ export default function Dashboard() {
 
   // ── Controles del bot ───────────────────────────────────────
   const startBot = async () => {
+    setSessionExpired(false);
     setLoading(l => ({ ...l, start: true }));
     try {
       const r = await api.post(`/bot/start?slot=${activeSlot}`);
@@ -517,6 +521,21 @@ export default function Dashboard() {
 
         {/* Referidos */}
         <ReferralCard />
+
+        {/* Sesión expirada — banner */}
+        {sessionExpired && (
+          <div className="rounded-xl px-4 py-3 flex items-start gap-3 mb-2"
+            style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
+            <span style={{ fontSize: '18px', lineHeight: 1.4 }}>⚠️</span>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: '#f59e0b' }}>Sesión de WhatsApp expirada</p>
+              <p className="text-xs mt-0.5" style={{ color: '#d1d5db' }}>
+                Tu sesión fue cerrada por WhatsApp. Iniciá el bot de nuevo para escanear el QR y reconectar.
+              </p>
+            </div>
+            <button onClick={() => setSessionExpired(false)} className="ml-auto text-xs" style={{ color: '#6b7280' }}>✕</button>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-5">
           {/* QR / Estado conexión */}

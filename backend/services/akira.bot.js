@@ -1138,8 +1138,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         if (loggedOut || replaced) {
           // Sesión inválida — limpiar y detener para que el usuario escanee QR nuevo
           await clearAuth().catch(() => {});
-          log('🗑️ Sesión eliminada — reiniciá el bot para escanear un QR nuevo.');
-          await detener();
+          log('🗑️ Sesión eliminada — iniciá el bot de nuevo para escanear un QR nuevo.');
+          await detener('session-cleared');
           return;
         }
 
@@ -1154,7 +1154,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           log(`🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
-          await detener();
+          await detener('session-cleared');
           return;
         }
 
@@ -1280,7 +1280,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     await conectar();
   }
 
-  async function detener() {
+  async function detener(motivo = null) {
     const sockRef = sock;
     sock = null; // null primero para cortar reconexión automática
     reconectando = false;
@@ -1289,7 +1289,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     if (sockRef) { try { sockRef.end(); } catch (e) { log('sock.end: ' + e.message); } }
     if (expressServer) { try { expressServer.close(); } catch {} expressServer = null; }
     log('🛑 Bot detenido.');
-    emitter.emit('stopped');
+    emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
   }
 
   emitter.iniciar = iniciar;

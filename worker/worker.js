@@ -197,10 +197,10 @@ socket.on('worker:start-bot', async ({ userId }) => {
     bot.on('ready',        ()     => socket.emit('worker:bot-ready',        { userId: uid }));
     bot.on('disconnected', reason => socket.emit('worker:bot-disconnected', { userId: uid, reason }));
     bot.on('error',        err    => socket.emit('worker:bot-error',        { userId: uid, msg: err.message }));
-    bot.on('stopped',      ()     => {
+    bot.on('stopped', (data) => {
       instancias.delete(uid);
       liberarPuerto(uid);
-      socket.emit('worker:bot-stopped', { userId: uid });
+      socket.emit('worker:bot-stopped', { userId: uid, sessionCleared: !!(data?.sessionCleared) });
     });
 
     // ── Catálogo: guardar en DB y notificar al frontend ───────
@@ -228,15 +228,6 @@ socket.on('worker:start-bot', async ({ userId }) => {
       } catch (e) {
         console.warn(`[Worker] Error guardando candidato catálogo ${uid}:`, e.message);
       }
-    });
-
-    // Auto-restart cuando el bot emite 'stopped' inesperadamente
-    bot.on('stopped', async () => {
-      if (!instancias.has(uid)) return; // fue detenido a propósito
-      console.warn(`[Worker] ⚠️ Bot ${uid} se detuvo inesperadamente — reiniciando en 8s...`);
-      await new Promise(r => setTimeout(r, 8000));
-      if (!instancias.has(uid)) return; // fue detenido mientras esperaba
-      socket.emit('worker:start-bot', { userId: uid }); // re-encolar arranque
     });
 
     await bot.iniciar();

@@ -76,11 +76,14 @@ function inicializarWorkerHandler(io) {
       Log.registrar({ userId, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Desconectado: ${reason}` }).catch(() => {});
     });
 
-    socket.on('worker:bot-stopped', async ({ userId }) => {
-      logger.info(`[WorkerHandler] Bot detenido user ${userId}`);
+    socket.on('worker:bot-stopped', async ({ userId, sessionCleared }) => {
+      logger.info(`[WorkerHandler] Bot detenido user ${userId}${sessionCleared ? ' — sesión limpiada' : ''}`);
       await User.findByIdAndUpdate(userId, { botActivo: false, botConectado: false }).catch(() => {});
-      _emitirAlUsuario(io, userId, 'bot:stopped', {});
-      Log.registrar({ userId, tipo: 'bot_stop', mensaje: 'Bot detenido (worker)' }).catch(() => {});
+      _emitirAlUsuario(io, userId, 'bot:stopped', { sessionCleared: !!sessionCleared });
+      const msg = sessionCleared
+        ? 'Sesión de WhatsApp expirada — iniciá el bot de nuevo para escanear el QR'
+        : 'Bot detenido (worker)';
+      Log.registrar({ userId, tipo: 'bot_stop', mensaje: msg }).catch(() => {});
     });
 
     socket.on('worker:bot-error', async ({ userId, msg }) => {
