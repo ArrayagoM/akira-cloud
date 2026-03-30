@@ -44,7 +44,10 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
 
   // Retorna slots horarios libres para una fecha dada
   async function horariosLibres(fecha) {
-    if (Array.isArray(diasBloqueados) && diasBloqueados.includes(fecha)) return [];
+    if (Array.isArray(diasBloqueados) && diasBloqueados.includes(fecha)) {
+      log(`[Calendar] ${fecha} bloqueado — sin slots`);
+      return [];
+    }
 
     const [y, m, d] = fecha.split('-').map(Number);
     const fechaObj  = new Date(y, m - 1, d);
@@ -53,11 +56,17 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
     let hIni = typeof horaInicio === 'number' ? horaInicio : 9;
     let hFin = typeof horaFin   === 'number' ? horaFin   : 18;
 
+    log(`[Calendar] horariosLibres ${fecha} (${diaNombre}) hIni=${hIni} hFin=${hFin} userId=${userId}`);
+
     if (horarios && horarios[diaNombre]) {
       const diaConf = horarios[diaNombre];
-      if (!diaConf.activo) return [];
+      if (!diaConf.activo) {
+        log(`[Calendar] ${diaNombre} marcado como inactivo en horarios`);
+        return [];
+      }
       hIni = parseInt((diaConf.inicio || '09:00').split(':')[0]);
       hFin = parseInt((diaConf.fin   || '18:00').split(':')[0]);
+      log(`[Calendar] Horario del día configurado: ${hIni}–${hFin}`);
     }
 
     const dur = typeof duracion === 'number' ? duracion : 1;

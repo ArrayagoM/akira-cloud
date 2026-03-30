@@ -377,16 +377,20 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     const push = c => usuario.historial.push({ role: 'tool', tool_call_id: tool.id, name: tool.function.name, content: c });
 
     if (tool.function.name === 'consultar_disponibilidad') {
-      if (!calendar.isConnected()) {
-        push(`ERROR_CALENDAR: El calendario no está disponible. NO inventes horarios ni disponibilidad. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
-        return;
+      log(`[Calendar] consultar_disponibilidad → fecha=${args.fecha} userId=${USER_ID}`);
+      try {
+        const libres = await calendar.horariosLibres(args.fecha);
+        log(`[Calendar] horariosLibres → ${libres.length} slots libres: ${libres.join(', ') || 'ninguno'}`);
+        const res = libres.length > 0 ? `Horarios libres para ${args.fecha}: ${libres.join(', ')}` : `No hay horarios disponibles para el ${args.fecha}.`;
+        if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+        cacheTemporal[jid].ultimaConsulta = { fecha: args.fecha, libres, ts: Date.now() };
+        db.guardar(CACHE_PATH, cacheTemporal);
+        push(res);
+      } catch (e) {
+        log(`❌ [Calendar] horariosLibres ERROR: ${e.message}`);
+        push(`Horarios de atención: ${MI_NOMBRE} atiende de lunes a viernes. Pedile al cliente que elija una fecha y te diga qué hora le queda bien.`);
       }
-      const libres = await calendar.horariosLibres(args.fecha);
-      const res = libres.length > 0 ? `Horarios libres para ${args.fecha}: ${libres.join(', ')}` : `No hay horarios disponibles para el ${args.fecha}.`;
-      if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
-      cacheTemporal[jid].ultimaConsulta = { fecha: args.fecha, libres, ts: Date.now() };
-      db.guardar(CACHE_PATH, cacheTemporal);
-      push(res); return;
+      return;
     }
 
     if (tool.function.name === 'agendar_turno') {
@@ -410,10 +414,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (slotsEnProceso.has(sk)) { push('El slot ya está siendo procesado. Pedile que elija otro.'); return; }
       slotsEnProceso.add(sk);
       try {
-        if (!calendar.isConnected()) {
-          push(`ERROR_CALENDAR: El calendario no está disponible. NO confirmes el turno. Decile al cliente que hay un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`);
-          return;
-        }
         const ini        = calendar.crearFecha(y, m, d, hI);
         const fin        = calendar.crearFecha(y, m, d, hFn);
         const conflictos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
