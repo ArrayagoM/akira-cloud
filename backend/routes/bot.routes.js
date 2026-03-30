@@ -7,6 +7,7 @@ const Log        = require('../models/Log');
 const WAAuth     = require('../models/WAAuth');
 const Config     = require('../models/Config');
 const BotCliente = require('../models/BotCliente');
+const Turno      = require('../models/Turno');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -186,32 +187,27 @@ router.get('/agenda', async (req, res) => {
       try { reservasPendientes = JSON.parse(fs.readFileSync(reservasPath, 'utf8')); } catch {}
     }
 
-    const [turnosLogs, config, clientes] = await Promise.all([
+    const [turnosLogs, config, turnos] = await Promise.all([
       Log.find({ userId: req.user._id, tipo: { $in: ['bot_reservation', 'bot_payment'] } })
         .sort({ createdAt: -1 }).limit(100).lean(),
       Config.findOne({ userId: req.user._id }).lean(),
-      BotCliente.find({ userId: req.user._id }).lean(),
+      Turno.find({ userId: req.user._id, estado: { $ne: 'cancelado' } })
+        .sort({ fechaInicio: 1 }).lean(),
     ]);
 
-    // Agregar reservas confirmadas desde memoria de clientes
-    const confirmadas = [];
-    for (const cliente of clientes) {
-      for (const t of (cliente.turnosConfirmados || [])) {
-        confirmadas.push({
-          nombre:    cliente.nombre    || 'Sin nombre',
-          telefono:  cliente.numeroReal || cliente.telefono || '',
-          fecha:     t.fecha,
-          hora:      t.hora,
-          horaFin:   t.horaFin  || '',
-          unidad:    t.unidad   || '',
-          pagoId:    t.pagoId   || '',
-          servicio:  t.servicio || '',
-          confirmadoEn: t.confirmadoEn || '',
-        });
-      }
-    }
-    // Ordenar por fecha ascendente
-    confirmadas.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+    // Mapear Turnos MongoDB al formato esperado por el frontend
+    const confirmadas = turnos.map(t => ({
+      nombre:    t.clienteNombre   || 'Sin nombre',
+      telefono:  t.clienteTelefono || '',
+      email:     t.clienteEmail    || '',
+      fecha:     t.fechaInicio.toISOString().slice(0, 10),
+      hora:      t.fechaInicio.toISOString().slice(11, 16),
+      horaFin:   t.fechaFin.toISOString().slice(11, 16),
+      unidad:    t.calendarId !== 'principal' ? t.calendarId : '',
+      totalPrecio: t.pago?.monto || 0,
+      estado:    t.estado,
+      _id:       t._id.toString(),
+    }));
 
     res.json({
       pendientes:          Object.values(reservasPendientes),

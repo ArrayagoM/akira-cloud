@@ -253,6 +253,41 @@ export default function AgendaPage() {
            ══════════════════════════════════════════════════════ */}
         {!loading && !error && !esAlojamiento && (
           <>
+            {/* Turnos confirmados (MongoDB) */}
+            {confirmadas.length > 0 && (
+              <div className="card">
+                <h2 className="font-semibold text-white mb-4 flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-green-400" />
+                  Turnos confirmados
+                  <span className="ml-auto text-xs text-gray-500">{confirmadas.length} total</span>
+                </h2>
+                <div className="space-y-2">
+                  {confirmadas.map((r, i) => (
+                    <div key={r._id || i} className="flex items-center justify-between gap-3 py-2 border-b border-gray-800 last:border-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0">
+                          <User size={13} className="text-green-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-white truncate">{r.nombre}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="flex items-center gap-1 text-xs text-gray-400"><CalendarDays size={10} />{r.fecha}</span>
+                            <span className="flex items-center gap-1 text-xs text-gray-400"><Clock size={10} />{r.hora}{r.horaFin ? ` - ${r.horaFin}` : ''}</span>
+                            {r.telefono && <span className="flex items-center gap-1 text-xs text-gray-600"><Phone size={10} />{r.telefono}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      {r.totalPrecio > 0 && (
+                        <span className="text-sm font-bold text-green-400 flex-shrink-0">
+                          ${r.totalPrecio.toLocaleString('es-AR')}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="card">
               <h2 className="font-semibold text-white mb-4 flex items-center gap-2">
                 <CalendarDays size={16} className="text-yellow-400" />

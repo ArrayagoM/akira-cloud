@@ -841,9 +841,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       }
       log(`[Catálogo] 🔄 Obteniendo catálogo WA Business (user: ${sock.user?.id || '?'})...`);
 
-      // Timeout de 15s — getCatalog puede colgar 60s sin respuesta de WA
+      // Timeout de 8s — getCatalog puede colgar sin respuesta en cuentas no-Business
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timed Out (15s)')), 15_000)
+        setTimeout(() => reject(new Error('Timed Out — posiblemente no es cuenta WA Business')), 8_000)
       );
       const result = await Promise.race([sock.getCatalog({ limit: 100 }), timeoutPromise]);
       log(`[Catálogo] Raw result keys: ${Object.keys(result || {}).join(', ')}`);
