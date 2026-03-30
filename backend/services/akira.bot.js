@@ -1145,7 +1145,13 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         } else if (!reconectando && sock !== null) {
           reconectando = true;
           log('🔄 Reconectando en 5s...');
-          setTimeout(async () => { reconectando = false; if (sock !== null) await conectar(); }, 5000);
+          setTimeout(() => {
+            reconectando = false;
+            if (sock !== null) conectar().catch(e => {
+              log(`❌ Error al reconectar: ${e.message}`);
+              reconectando = false;
+            });
+          }, 5000);
         }
       }
       if (connection === 'open') {
@@ -1167,12 +1173,18 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (type !== 'notify') return;
       ultimoMensajeTs = Date.now();
       for (const msg of messages) {
-        // Timeout por mensaje: 40s máximo antes de descartarlo
         const limit = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000)
         );
-        Promise.race([handleBaileysMessage(msg), limit])
-          .catch(e => log(`❌ Error handleMessage: ${e.message}`));
+        // Envuelto en función async auto-invocada con catch garantizado
+        // para que un error en un mensaje nunca corte el handler del siguiente
+        (async () => {
+          try {
+            await Promise.race([handleBaileysMessage(msg), limit]);
+          } catch (e) {
+            log(`❌ Error handleMessage: ${e.message}`);
+          }
+        })();
       }
     });
   }
@@ -1181,32 +1193,34 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   function iniciarWatchdog() {
     if (watchdogTimer) clearInterval(watchdogTimer);
     // Cada 3 minutos verifica si el socket sigue vivo
-    watchdogTimer = setInterval(async () => {
-      if (!sock) return;
-      const ZOMBIE_MS = 10 * 60 * 1000; // 10 min sin mensajes ni actividad
-      const silencio  = Date.now() - ultimoMensajeTs;
-      // Intenta enviar un ping al WS interno de Baileys
+    watchdogTimer = setInterval(() => {
+      // Top-level try/catch — si el watchdog falla no debe matar el intervalo
       try {
-        if (sock.ws && typeof sock.ws.ping === 'function') {
-          sock.ws.ping();
+        if (!sock) return;
+        const ZOMBIE_MS = 10 * 60 * 1000; // 10 min sin mensajes ni actividad
+        const silencio  = Date.now() - ultimoMensajeTs;
+        try {
+          if (sock.ws && typeof sock.ws.ping === 'function') sock.ws.ping();
+        } catch (pingErr) {
+          log(`⚠️ [Watchdog] Ping falló (${pingErr.message}) — forzando reconexión`);
+          detenerWatchdog();
+          if (!reconectando) {
+            reconectando = true;
+            try { sock.end(new Error('watchdog_ping_fail')); } catch {}
+          }
+          return;
         }
-      } catch (pingErr) {
-        log(`⚠️ [Watchdog] Ping falló (${pingErr.message}) — forzando reconexión`);
-        detenerWatchdog();
-        if (!reconectando) {
-          reconectando = true;
-          try { sock.end(new Error('watchdog_ping_fail')); } catch {}
+        if (silencio > ZOMBIE_MS) {
+          log(`⚠️ [Watchdog] Sin actividad por ${Math.round(silencio/60000)}min — reconectando`);
+          ultimoMensajeTs = Date.now();
+          detenerWatchdog();
+          if (!reconectando) {
+            reconectando = true;
+            try { sock.end(new Error('watchdog_zombie')); } catch {}
+          }
         }
-        return;
-      }
-      if (silencio > ZOMBIE_MS) {
-        log(`⚠️ [Watchdog] Sin actividad por ${Math.round(silencio/60000)}min — reconectando`);
-        ultimoMensajeTs = Date.now();
-        detenerWatchdog();
-        if (!reconectando) {
-          reconectando = true;
-          try { sock.end(new Error('watchdog_zombie')); } catch {}
-        }
+      } catch (e) {
+        log(`❌ [Watchdog] Error interno: ${e.message}`);
       }
     }, 3 * 60 * 1000);
   }

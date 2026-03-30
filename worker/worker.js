@@ -230,6 +230,15 @@ socket.on('worker:start-bot', async ({ userId }) => {
       }
     });
 
+    // Auto-restart cuando el bot emite 'stopped' inesperadamente
+    bot.on('stopped', async () => {
+      if (!instancias.has(uid)) return; // fue detenido a propósito
+      console.warn(`[Worker] ⚠️ Bot ${uid} se detuvo inesperadamente — reiniciando en 8s...`);
+      await new Promise(r => setTimeout(r, 8000));
+      if (!instancias.has(uid)) return; // fue detenido mientras esperaba
+      socket.emit('worker:start-bot', { userId: uid }); // re-encolar arranque
+    });
+
     await bot.iniciar();
     await User.findByIdAndUpdate(uid, { botActivo: true });
     await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: 'Bot iniciado (worker local)' });
