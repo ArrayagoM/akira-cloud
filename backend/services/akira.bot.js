@@ -108,6 +108,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   watchdogTimer        = null;
   let   ultimoMensajeTs      = Date.now();
   let   catalogFallos        = 0;
+  let   reconectarIntentos   = 0;  // contador de reconexiones sin éxito
+  let   tsUltimaConexion     = 0;  // timestamp del último 'open' exitoso
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) { return t.replace(/\p{Emoji}/gu, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim(); }
@@ -1130,31 +1132,48 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const code      = lastDisconnect?.error?.output?.statusCode;
         const loggedOut  = code === DisconnectReason.loggedOut;
         const replaced   = code === DisconnectReason.connectionReplaced; // 440
-        log(`⚠️ Desconectado (código: ${code})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : ''}`);
-        emitter.emit('disconnected', `código: ${code}`);
+        log(`⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : ''}`);
+        emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
 
-        if (loggedOut) {
-          // Limpiar sesión de MongoDB para que el próximo inicio pida QR nuevo
+        if (loggedOut || replaced) {
+          // Sesión inválida — limpiar y detener para que el usuario escanee QR nuevo
           await clearAuth().catch(() => {});
-          log('🗑️ Sesión eliminada de MongoDB — próximo inicio pedirá QR');
-        } else if (replaced) {
-          // 440: sesión rechazada por WhatsApp (credenciales corruptas o duplicadas).
-          // Limpiar la sesión de MongoDB para que el próximo inicio genere un QR nuevo.
+          log('🗑️ Sesión eliminada — reiniciá el bot para escanear un QR nuevo.');
+          await detener();
+          return;
+        }
+
+        // código: undefined → WhatsApp cerró la conexión sin código de error.
+        // Esto pasa cuando la sesión está corrupta o expirada.
+        // Si ocurre 3 veces seguidas en menos de 2 minutos → sesión muerta, limpiar y detener.
+        reconectarIntentos++;
+        const tiempoDesdeConexion = Date.now() - tsUltimaConexion;
+        const esCicloRapido = tiempoDesdeConexion < 120_000; // < 2 minutos
+
+        if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
+          log(`🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`);
           await clearAuth().catch(() => {});
-          log('🔄 Sesión inválida (440) — sesión limpiada. Detené y volvé a iniciar el bot para escanear el QR.');
-        } else if (!reconectando && sock !== null) {
+          reconectarIntentos = 0;
+          await detener();
+          return;
+        }
+
+        if (!reconectando && sock !== null) {
           reconectando = true;
-          log('🔄 Reconectando en 5s...');
+          const delay = Math.min(5000 * reconectarIntentos, 30_000); // backoff: 5s, 10s, 15s... max 30s
+          log(`🔄 Reconectando en ${delay / 1000}s... (intento ${reconectarIntentos})`);
           setTimeout(() => {
             reconectando = false;
             if (sock !== null) conectar().catch(e => {
               log(`❌ Error al reconectar: ${e.message}`);
               reconectando = false;
             });
-          }, 5000);
+          }, delay);
         }
       }
       if (connection === 'open') {
+        reconectarIntentos = 0; // reset — conexión exitosa
+        tsUltimaConexion   = Date.now();
         log('✅ WhatsApp conectado y listo');
         emitter.emit('ready');
         reprogramarRecs();
