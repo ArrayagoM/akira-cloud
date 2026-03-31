@@ -13,8 +13,26 @@ function crearMongoClientesService(userId, log) {
   // ── Normalizar historial cargado desde DB ────────────────────
   // Mongoose puede devolver tool_calls como objeto; Groq necesita
   // que tool_calls[].function.arguments sea un string JSON.
+  // También elimina entradas ERROR_CALENDAR que corrompían conversaciones futuras.
   function normalizarHistorial(historial = []) {
-    return historial.map(m => {
+    const h = (historial || []).slice(-20);
+
+    // 1. Identificar tool_call_ids de resultados ERROR_CALENDAR
+    const errorCallIds = new Set();
+    for (const m of h) {
+      if (m.role === 'tool' && typeof m.content === 'string' && m.content.startsWith('ERROR_CALENDAR')) {
+        errorCallIds.add(m.tool_call_id);
+      }
+    }
+
+    // 2. Filtrar tanto el resultado de error como el assistant que lo llamó
+    const filtrado = errorCallIds.size === 0 ? h : h.filter(m => {
+      if (m.role === 'tool' && errorCallIds.has(m.tool_call_id)) return false;
+      if (m.role === 'assistant' && m.tool_calls?.some(tc => errorCallIds.has(tc.id))) return false;
+      return true;
+    });
+
+    return filtrado.map(m => {
       const item = { role: m.role };
       if (m.content !== undefined && m.content !== null) item.content = m.content;
       if (m.tool_call_id) item.tool_call_id = m.tool_call_id;
@@ -67,8 +85,19 @@ function crearMongoClientesService(userId, log) {
     cache.set(jid, { ...datos, jid });
 
     // 2. Persistir en MongoDB en background (async, sin bloquear)
-    // Solo guardamos los últimos 20 mensajes del historial
-    const historialReducido = (datos.historial || []).slice(-20);
+    // Solo guardamos los últimos 20 mensajes sin entradas ERROR_CALENDAR
+    const errorIds = new Set(
+      (datos.historial || [])
+        .filter(m => m.role === 'tool' && typeof m.content === 'string' && m.content.startsWith('ERROR_CALENDAR'))
+        .map(m => m.tool_call_id)
+    );
+    const historialReducido = (datos.historial || [])
+      .filter(m => {
+        if (m.role === 'tool' && errorIds.has(m.tool_call_id)) return false;
+        if (m.role === 'assistant' && m.tool_calls?.some(tc => errorIds.has(tc.id))) return false;
+        return true;
+      })
+      .slice(-20);
     const payload = {
       userId,
       jid,
