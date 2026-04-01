@@ -81,11 +81,7 @@ function crearMongoClientesService(userId, log) {
 
   // ── Escribir en caché + persistir en MongoDB (SYNC para el bot) ──
   function guardarMemoria(jid, datos) {
-    // 1. Actualizar caché inmediatamente (sync)
-    cache.set(jid, { ...datos, jid });
-
-    // 2. Persistir en MongoDB en background (async, sin bloquear)
-    // Solo guardamos los últimos 20 mensajes sin entradas ERROR_CALENDAR
+    // Calcular historialReducido primero — sin entradas ERROR_CALENDAR
     const errorIds = new Set(
       (datos.historial || [])
         .filter(m => m.role === 'tool' && typeof m.content === 'string' && m.content.startsWith('ERROR_CALENDAR'))
@@ -98,6 +94,11 @@ function crearMongoClientesService(userId, log) {
         return true;
       })
       .slice(-20);
+
+    // 1. Actualizar caché inmediatamente (sync) — ya sin ERROR_CALENDAR
+    cache.set(jid, { ...datos, jid, historial: historialReducido });
+
+    // 2. Persistir en MongoDB en background (async, sin bloquear)
     const payload = {
       userId,
       jid,
