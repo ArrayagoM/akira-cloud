@@ -3,11 +3,11 @@
 
 const express = require('express');
 const router  = express.Router();
-const auth    = require('../middleware/auth');
-const Turno   = require('../models/Turno');
+const { requireAuth } = require('../middleware/auth');
+const Turno           = require('../models/Turno');
 
 // Todas las rutas requieren autenticación
-router.use(auth);
+router.use(requireAuth);
 
 // GET /api/turnos?mes=2026-03 — turnos del usuario en un mes
 router.get('/', async (req, res) => {
