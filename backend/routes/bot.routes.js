@@ -195,14 +195,17 @@ router.get('/agenda', async (req, res) => {
         .sort({ fechaInicio: 1 }).lean(),
     ]);
 
+    // Argentina es UTC-3 fijo (sin cambio horario)
+    const arISO = (d, part) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(...part === 'date' ? [0, 10] : [11, 16]);
+
     // Mapear Turnos MongoDB al formato esperado por el frontend
     const confirmadas = turnos.map(t => ({
       nombre:    t.clienteNombre   || 'Sin nombre',
       telefono:  t.clienteTelefono || '',
       email:     t.clienteEmail    || '',
-      fecha:     t.fechaInicio.toISOString().slice(0, 10),
-      hora:      t.fechaInicio.toISOString().slice(11, 16),
-      horaFin:   t.fechaFin.toISOString().slice(11, 16),
+      fecha:     arISO(t.fechaInicio, 'date'),
+      hora:      arISO(t.fechaInicio, 'time'),
+      horaFin:   arISO(t.fechaFin,   'time'),
       unidad:    t.calendarId !== 'principal' ? t.calendarId : '',
       totalPrecio: t.pago?.monto || 0,
       estado:    t.estado,
