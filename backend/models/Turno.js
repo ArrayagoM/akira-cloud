@@ -52,5 +52,6 @@ const TurnoSchema = new mongoose.Schema(
 // Índice compuesto para queries frecuentes del bot
 TurnoSchema.index({ userId: 1, fechaInicio: 1 });
 TurnoSchema.index({ userId: 1, calendarId: 1, fechaInicio: 1 });
+TurnoSchema.index({ userId: 1, estado: 1, fechaInicio: 1 });
 
 module.exports = mongoose.model('Turno', TurnoSchema);

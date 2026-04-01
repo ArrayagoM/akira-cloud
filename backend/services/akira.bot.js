@@ -212,6 +212,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       const tk = `${key}|${r.label}`;
       if (timeoutsRecs[tk]) clearTimeout(timeoutsRecs[tk]);
       timeoutsRecs[tk] = setTimeout(async () => {
+        delete timeoutsRecs[tk];
         try { await enviarMensaje(jid, r.msg(nombre, hora)); log(`[REC] ✅ ${r.label} → ${nombre}`); }
         catch (e) { log(`[REC] ❌ ${e.message}`); }
       }, delay);
@@ -341,7 +342,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     if (msg.tool_calls?.length > 0) {
       usuario.historial.push({ role: msg.role, content: msg.content, tool_calls: msg.tool_calls });
       for (const t of msg.tool_calls) {
-        const args = JSON.parse(t.function.arguments);
+        let args = {};
+        try { args = JSON.parse(t.function.arguments); }
+        catch (e) { log(`⚠️ Tool ${t.function.name}: arguments inválido — ${e.message}`); }
         log(`🔧 Tool: ${t.function.name}`);
         await ejecutarTool(t, args, jid, usuario);
       }
@@ -1152,6 +1155,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
         if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
           log(`🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`);
+          await clearAuth().catch(() => {});
+          reconectarIntentos = 0;
+          await detener('session-cleared');
+          return;
+        }
+
+        if (reconectarIntentos >= 15) {
+          // Demasiados intentos fallidos — sesión probablemente muerta
+          log(`❌ 15 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
           await detener('session-cleared');

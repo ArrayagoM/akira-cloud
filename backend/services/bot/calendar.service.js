@@ -153,8 +153,9 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
 
     const [ye, me, de] = fechaEntrada.split('-').map(Number);
     const [ys, ms, ds] = fechaSalida.split('-').map(Number);
-    const iniDate = new Date(Date.UTC(ye, me - 1, de));
-    const finDate = new Date(Date.UTC(ys, ms - 1, ds));
+    // Usar crearFecha para obtener medianoche en hora Argentina (UTC-3)
+    const iniDate = crearFecha(ye, me, de, 0, 0);
+    const finDate = crearFecha(ys, ms, ds, 0, 0);
 
     const query = {
       userId,
