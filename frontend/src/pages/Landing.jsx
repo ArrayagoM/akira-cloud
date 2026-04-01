@@ -691,7 +691,7 @@ const featureSlides = [
     icon: <Calendar size={40} />,
     color: '#60a5fa',
     bg: 'rgba(59,130,246,0.06)',
-    items: ['Sincronizado con Google Calendar','Horarios configurables por día','Bloqueo de fechas y feriados','Recordatorios automáticos'],
+    items: ['Agenda propia en tiempo real','Horarios configurables por día','Bloqueo de fechas y feriados','Recordatorios automáticos'],
   },
   {
     tag: 'Cobros automáticos',
@@ -1433,7 +1433,7 @@ const planes = [
   {
     planKey: 'pro', nombre: 'Pro', mensual: 35000, anual: 336000,
     desc: 'El más popular',
-    features: ['1 número de WhatsApp','Mensajes ilimitados','Google Calendar + MercadoPago','Entiende mensajes de voz','Notificaciones al dueño'],
+    features: ['1 número de WhatsApp','Mensajes ilimitados','Agenda inteligente + MercadoPago','Entiende mensajes de voz','Notificaciones al dueño'],
     destacado: true,
   },
   {

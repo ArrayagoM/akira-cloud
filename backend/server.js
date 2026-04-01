@@ -96,6 +96,10 @@ io.on('connection', (socket) => {
   });
 });
 
+// ── Trust proxy (Render usa proxy reverso) ──────────────────
+// Necesario para que express-rate-limit identifique IPs reales
+app.set('trust proxy', 1);
+
 // ── Middlewares de seguridad ────────────────────────────────
 app.use(helmet());
 app.use(mongoSanitize());

@@ -684,6 +684,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(t => !(t.fecha === args.fecha && t.hora === args.hora));
       clientesSvc.guardarMemoria(jid, usuario);
+      // Cancelar recordatorios programados para este turno
+      const recKey = `${jid}|${args.fecha}|${args.hora}`;
+      delete recordatoriosActivos[recKey];
+      db.guardar(RECORDATORIOS_PATH, recordatoriosActivos);
+      for (const label of ['24h', '4h', '30min']) {
+        const tk = `${recKey}|${label}`;
+        if (timeoutsRecs[tk]) { clearTimeout(timeoutsRecs[tk]); delete timeoutsRecs[tk]; }
+      }
       push(`Turno ${args.fecha} ${args.hora} cancelado.`); return;
     }
 
@@ -1036,7 +1044,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       }
     } catch (err) {
       log('❌ handleMessage error: ' + err.message);
-      await enviarMensaje(jid, '¡Ups! Tuve un problema. ¿Me repetís la consulta? 🙏').catch(() => {});
+      let msgError = '¡Ups! Tuve un problema. ¿Me repetís la consulta? 🙏';
+      if (err.isRateLimit)  msgError = 'Estoy con mucha demanda en este momento. ¡Te respondo en unos segundos! 🙏';
+      if (err.isTimeout)    msgError = 'Tardé demasiado en pensar 😅 ¿Me repetís la pregunta?';
+      if (err.isAuthError)  msgError = 'Tengo un problema de configuración. El dueño del negocio ya fue notificado. 🙏';
+      await enviarMensaje(jid, msgError).catch(() => {});
+      if (err.isAuthError)  notificarDueno(`⚠️ *Error de configuración*: La API Key de Groq es inválida. Actualizala en el dashboard de Akira.`);
     }
   }
 

@@ -54,4 +54,11 @@ TurnoSchema.index({ userId: 1, fechaInicio: 1 });
 TurnoSchema.index({ userId: 1, calendarId: 1, fechaInicio: 1 });
 TurnoSchema.index({ userId: 1, estado: 1, fechaInicio: 1 });
 
+// Índice único parcial: evita turnos duplicados en el mismo slot
+// Solo aplica a turnos activos (pendiente/confirmado), permite múltiples cancelados
+TurnoSchema.index(
+  { userId: 1, calendarId: 1, fechaInicio: 1 },
+  { unique: true, partialFilterExpression: { estado: { $in: ['pendiente', 'confirmado'] } } }
+);
+
 module.exports = mongoose.model('Turno', TurnoSchema);

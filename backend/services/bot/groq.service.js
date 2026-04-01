@@ -5,7 +5,10 @@
 const Groq = require('groq-sdk');
 
 function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [] }) {
-  const groq = new Groq({ apiKey });
+  if (!apiKey) {
+    log?.('[Groq] ⚠️ GROQ_API_KEY no está configurada — el bot no podrá responder mensajes. Configurala desde el dashboard.');
+  }
+  const groq = new Groq({ apiKey: apiKey || 'invalid' });
   let groqBloqueadoHasta = 0;
 
   // ── Tool: buscar en catálogo de productos ──────────────────
@@ -68,19 +71,37 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
         throw err;
       }
       if (err.status === 429) {
-        const m  = err.message.match(/try again in (\d+)m([\d.]+)s/i);
-        const ms = err.message.match(/try again in ([\d.]+)s/i);
-        if (m) {
-          groqBloqueadoHasta = Date.now() + (parseInt(m[1]) * 60 + Math.ceil(parseFloat(m[2]))) * 1000 + 5000;
-        } else if (ms) {
-          groqBloqueadoHasta = Date.now() + Math.ceil(parseFloat(ms[1])) * 1000 + 2000;
-          log?.(`[Groq] Rate-limit ~${Math.ceil(parseFloat(ms[1]))}s`);
+        // Parsear duración del rate limit desde el mensaje de Groq
+        // Soporta: "try again in 2m30.5s", "try again in 2m", "try again in 45.3s"
+        const mMin = err.message.match(/try again in (\d+)m(?:([\d.]+)s)?/i);
+        const mSec = err.message.match(/try again in ([\d.]+)s/i);
+        const mMs  = err.message.match(/(\d+)ms/i);
+        if (mMin) {
+          const mins = parseInt(mMin[1]);
+          const secs = mMin[2] ? Math.ceil(parseFloat(mMin[2])) : 0;
+          const wait = (mins * 60 + secs) * 1000 + 5000;
+          groqBloqueadoHasta = Date.now() + wait;
+          log?.(`[Groq] Rate-limit ${mins}m${secs}s — esperando ${Math.round(wait/1000)}s`);
+        } else if (mSec) {
+          const wait = Math.ceil(parseFloat(mSec[1])) * 1000 + 2000;
+          groqBloqueadoHasta = Date.now() + wait;
+          log?.(`[Groq] Rate-limit ${mSec[1]}s — esperando ${Math.round(wait/1000)}s`);
+        } else if (mMs) {
+          const wait = parseInt(mMs[1]) + 1000;
+          groqBloqueadoHasta = Date.now() + wait;
+          log?.(`[Groq] Rate-limit ${mMs[1]}ms — esperando ${Math.round(wait/1000)}s`);
         } else {
           groqBloqueadoHasta = Date.now() + 3 * 60000;
           log?.('[Groq] Rate-limit sin duración — esperando 3 min');
         }
         const e = new Error('RATE_LIMIT');
         e.isRateLimit = true;
+        throw e;
+      }
+      if (err.status === 401) {
+        log?.('[Groq] ❌ API Key inválida o no configurada. Configurala desde el dashboard.');
+        const e = new Error('GROQ_AUTH_ERROR');
+        e.isAuthError = true;
         throw e;
       }
       if (err.status === 400 && err.message.includes('tool_use_failed')) {
