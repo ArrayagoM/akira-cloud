@@ -425,6 +425,25 @@ function recargarCalendar(userId, slot = 0) {
   return false;
 }
 
+// Envía un mensaje WhatsApp desde afuera del bot (usado por reengagement, analytics, etc.)
+async function enviarMensajeExterno(userId, jid, texto) {
+  const uid = String(userId);
+  const key = botKey(uid, 0);
+  const bot = instancias.get(key);
+  if (bot && typeof bot.enviarMensaje === 'function') {
+    await bot.enviarMensaje(jid, texto);
+    return true;
+  }
+  // Modo híbrido: delegar al worker
+  if (workerHandler.isWorkerAvailable()) {
+    try {
+      workerHandler.sendToWorker('worker:send-message', { userId: uid, jid, texto });
+      return true;
+    } catch { return false; }
+  }
+  return false;
+}
+
 module.exports = {
   startBot,
   stopBot,
@@ -436,5 +455,6 @@ module.exports = {
   getActiveUserIds,
   triggerCatalogSync,
   recargarCalendar,
+  enviarMensajeExterno,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

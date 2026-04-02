@@ -23,8 +23,10 @@ const crearMongoClientesService = require('./bot/mongo-clientes.service');
 const crearCalendarService      = require('./bot/calendar.service');
 const crearMPService            = require('./bot/mercadopago.service');
 const Config                    = require('../models/Config');
+const WaitlistEntry             = require('../models/WaitlistEntry');
 const crearAudioService         = require('./bot/audio.service');
 const crearGroqService          = require('./bot/groq.service');
+const crearWaitlistService      = require('./bot/waitlist.service');
 
 function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const emitter = new EventEmitter();
@@ -76,6 +78,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const RESERVAS_PATH      = path.join(dataDir, '_reservas.json');
   const RECORDATORIOS_PATH = path.join(dataDir, '_recordatorios.json');
   const CREDENTIALS_PATH   = path.join(dataDir, 'credentials.json');
+  const RESENAS_PATH       = path.join(dataDir, '_resenas.json');
+  const WAITLIST_OFRS_PATH = path.join(dataDir, '_waitlist_ofrs.json');
 
   function log(msg) { emitter.emit('log', msg); }
 
@@ -93,12 +97,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,
   });
   const mp      = crearMPService({ accessToken: MP_ACCESS_TOKEN, precioTurno: PRECIO_TURNO, duracion: DURACION_RESERVA_HORAS, negocio: NEGOCIO, ngrokDomain: NGROK_DOMAIN, log });
-  const groqSvc = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log, tipoNegocio: TIPO_NEGOCIO, catalogo: CATALOGO });
+  const groqSvc     = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log, tipoNegocio: TIPO_NEGOCIO, catalogo: CATALOGO });
+  const waitlistSvc = crearWaitlistService({ userId: USER_ID, calendarId: CALENDAR_ID, log });
 
   // ── Estado ──────────────────────────────────────────────────
   const cacheTemporal        = db.cargar(CACHE_PATH);
   const reservasPendientes   = db.cargar(RESERVAS_PATH);
   const recordatoriosActivos = db.cargar(RECORDATORIOS_PATH);
+  const resenasPendientes    = db.cargar(RESENAS_PATH);
+  const waitlistOfertas      = db.cargar(WAITLIST_OFRS_PATH);
+  const timeoutsResenas      = {};
+  const timeoutsWaitlist     = {};
   const slotsEnProceso       = new Set();
   const timeoutsRecs         = {};
   let   sock                 = null;
@@ -108,6 +117,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   watchdogTimer        = null;
   let   ultimoMensajeTs      = Date.now();
   let   catalogFallos        = 0;
+  let   esNegocioWA          = null; // null=desconocido, false=no es Business, true=es Business
   let   reconectarIntentos   = 0;  // contador de reconexiones sin éxito
   let   tsUltimaConexion     = 0;  // timestamp del último 'open' exitoso
 
@@ -193,7 +203,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Recordatorios ────────────────────────────────────────────
   const RECS = [
-    { min: 24 * 60, label: '24h',   msg: (n, h) => `¡Hola ${n}! 👋 Recordatorio: *mañana* a las *${h}* con ${NEGOCIO}. ¡Te esperamos!` },
+    { min: 24 * 60, label: '24h',   msg: (n, h) => `¡Hola ${n}! 👋 Mañana a las *${h}* tu turno con *${NEGOCIO}*.\n¿Confirmás que vas? Respondé *SÍ* para confirmar o *CANCELAR* si no podés. ⏳ Tenés 2 horas.` },
     { min: 4  * 60, label: '4h',    msg: (n, h) => `¡Hola ${n}! ⏰ En unas horas tu turno a las *${h}*. Avisanos si no podés. 🙏` },
     { min: 30,      label: '30min', msg: (n, h) => `¡${n}! 🚗 En 30 minutos tu turno a las *${h}*. ¡Nos vemos!` },
   ];
@@ -213,7 +223,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (timeoutsRecs[tk]) clearTimeout(timeoutsRecs[tk]);
       timeoutsRecs[tk] = setTimeout(async () => {
         delete timeoutsRecs[tk];
-        try { await enviarMensaje(jid, r.msg(nombre, hora)); log(`[REC] ✅ ${r.label} → ${nombre}`); }
+        try {
+          await enviarMensaje(jid, r.msg(nombre, hora));
+          log(`[REC] ✅ ${r.label} → ${nombre}`);
+          // Si es el recordatorio de 24h, programar verificación de confirmación
+          if (r.label === '24h') {
+            programarVerificacionConfirmacion(jid, nombre, fecha, hora);
+          }
+        }
         catch (e) { log(`[REC] ❌ ${e.message}`); }
       }, delay);
     }
@@ -228,6 +245,65 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       programarRecs(r.chatId, r.nombre, r.fecha, r.hora); c++;
     }
     if (c > 0) log(`[REC] ${c} recordatorios reprogramados`);
+    // Reprogramar reseñas pendientes
+    for (const [, r] of Object.entries(resenasPendientes)) {
+      if (r.jid && r.turnoId && r.fecha) {
+        programarResena(r.jid, r.turnoId, r.nombre, r.fecha, r.horaFin || '18:00');
+      }
+    }
+  }
+
+  // Verifica si confirmó 2h después del recordatorio de 24h
+  function programarVerificacionConfirmacion(jid, nombre, fecha, hora) {
+    const key  = `${jid}|${fecha}|${hora}|conf`;
+    const delay = 2 * 60 * 60 * 1000; // 2 horas
+    waitlistOfertas[key] = { tipo: 'confirmacion', jid, nombre, fecha, hora, expiraEn: Date.now() + delay };
+    db.guardar(WAITLIST_OFRS_PATH, waitlistOfertas);
+    if (timeoutsWaitlist[key]) clearTimeout(timeoutsWaitlist[key]);
+    timeoutsWaitlist[key] = setTimeout(async () => {
+      delete timeoutsWaitlist[key];
+      delete waitlistOfertas[key];
+      db.guardar(WAITLIST_OFRS_PATH, waitlistOfertas);
+      // Si el cliente aún no confirmó, marcar posible no-show
+      const c = cacheTemporal[jid] || {};
+      if (!c.turnoConfirmado?.[`${fecha}|${hora}`]) {
+        log(`[AntiNoShow] ⚠️ ${nombre} no confirmó turno ${fecha} ${hora}`);
+        notificarDueno(`⚠️ *Sin confirmación*: ${nombre} no confirmó su turno del ${fecha} a las ${hora}. Verificá si va a ir.`);
+        // Ofrecer al waitlist
+        await waitlistSvc.notificarSiguiente(fecha, hora, enviarMensaje, notificarDueno);
+      }
+    }, delay);
+  }
+
+  async function programarResena(jid, turnoId, nombre, fecha, horaFin) {
+    try {
+      const cfg = await Config.findOne({ userId: USER_ID }).lean();
+      if (!cfg?.googleReviewLink || cfg.activarResenas === false) return;
+      const [y, m, d] = fecha.split('-').map(Number);
+      const h = parseInt((horaFin || '18:00').split(':')[0]);
+      const ftFin = calendar.crearFecha(y, m, d, h);
+      const delay = ftFin.getTime() + 2 * 3600000 - Date.now(); // fin del turno + 2h
+      if (delay <= 0) return;
+      const key = `resena|${jid}|${turnoId}`;
+      resenasPendientes[key] = { jid, turnoId, nombre, fecha, horaFin, ts: Date.now() };
+      db.guardar(RESENAS_PATH, resenasPendientes);
+      if (timeoutsResenas[key]) clearTimeout(timeoutsResenas[key]);
+      timeoutsResenas[key] = setTimeout(async () => {
+        delete timeoutsResenas[key];
+        delete resenasPendientes[key];
+        db.guardar(RESENAS_PATH, resenasPendientes);
+        try {
+          const cfgFresh = await Config.findOne({ userId: USER_ID }).lean();
+          if (!cfgFresh?.googleReviewLink || cfgFresh.activarResenas === false) return;
+          await enviarMensaje(jid,
+            `¡Hola ${nombre}! 😊 Esperamos que hayas disfrutado tu visita a *${NEGOCIO}*.\n` +
+            `Si quedaste contento/a, nos ayudaría muchísimo si dejás una reseñita ⭐\n` +
+            cfgFresh.googleReviewLink
+          );
+          log(`[Reseña] ✅ Solicitud enviada a ${nombre}`);
+        } catch (e) { log(`[Reseña] ❌ ${e.message}`); }
+      }, delay);
+    } catch (e) { log(`[Reseña] ❌ programarResena: ${e.message}`); }
   }
 
   // ── Reservas ─────────────────────────────────────────────────
@@ -451,6 +527,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
             usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` }];
             clientesSvc.guardarMemoria(jid, usuario);
             programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+            programarResena(jid, evento.id, usuario.nombre, args.fecha, `${hFn}:00`);
 
             // Notificar al dueño
             notificarDueno(`✅ *Nuevo turno confirmado*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
@@ -684,6 +761,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(t => !(t.fecha === args.fecha && t.hora === args.hora));
       clientesSvc.guardarMemoria(jid, usuario);
+      // Notificar al siguiente en la lista de espera
+      await waitlistSvc.notificarSiguiente(args.fecha, args.hora, enviarMensaje, notificarDueno);
       // Cancelar recordatorios programados para este turno
       const recKey = `${jid}|${args.fecha}|${args.hora}`;
       delete recordatoriosActivos[recKey];
@@ -693,6 +772,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         if (timeoutsRecs[tk]) { clearTimeout(timeoutsRecs[tk]); delete timeoutsRecs[tk]; }
       }
       push(`Turno ${args.fecha} ${args.hora} cancelado.`); return;
+    }
+
+    if (tool.function.name === 'anotarse_en_waitlist') {
+      const tel = usuario.numeroReal || extraerNumero(jid);
+      const res = await waitlistSvc.agregarALista(jid, usuario.nombre, tel, args.fecha, args.hora || null);
+      if (res.ok) {
+        push(`Cliente ${usuario.nombre} anotado en lista de espera para ${args.fecha}${args.hora ? ' ' + args.hora : ''}. Confirmale que lo vamos a contactar cuando se libere un turno.`);
+      } else {
+        push(res.msg || 'No se pudo anotar en la lista de espera.');
+      }
+      return;
     }
 
     if (tool.function.name === 'reagendar_turno') {
@@ -847,57 +937,75 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // ── Sincronizar catálogo desde WA Business ───────────────────
   async function sincronizarCatalogoWA() {
     try {
-      if (!sock) { log('[Catálogo] ⚠️ Socket no disponible'); return; }
-      if (catalogFallos >= 3) {
-        log('[Catálogo] ⏸ Sync pausado tras 3 fallos consecutivos. Usá el botón manual para reintentar.');
+      if (!sock) return;
+
+      // Si ya detectamos que no es cuenta Business, no reintentar nunca más en esta sesión
+      if (esNegocioWA === false) return;
+
+      // Si hay catálogo manual configurado y no es Business, no molestar
+      if (catalogFallos >= 3) return;
+
+      // Verificar que getCatalog exista (solo en cuentas Business)
+      if (typeof sock.getCatalog !== 'function') {
+        if (esNegocioWA === null) {
+          esNegocioWA = false;
+          log('[Catálogo] ℹ️ Esta cuenta no es WhatsApp Business — sync de catálogo WA desactivado. Podés cargar productos manualmente desde el dashboard.');
+        }
         return;
       }
-      log(`[Catálogo] 🔄 Obteniendo catálogo WA Business (user: ${sock.user?.id || '?'})...`);
 
-      // Timeout de 8s — getCatalog puede colgar sin respuesta en cuentas no-Business
+      log(`[Catálogo] 🔄 Obteniendo catálogo WA Business...`);
+
+      // Timeout de 12s — getCatalog puede colgar sin respuesta en cuentas no-Business
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timed Out — posiblemente no es cuenta WA Business')), 8_000)
+        setTimeout(() => reject(new Error('CATALOG_TIMEOUT')), 12_000)
       );
       const result = await Promise.race([sock.getCatalog({ limit: 100 }), timeoutPromise]);
-      log(`[Catálogo] Raw result keys: ${Object.keys(result || {}).join(', ')}`);
 
       const products = result?.products;
-      log(`[Catálogo] Productos recibidos: ${products?.length ?? 'null'}`);
 
       if (!products?.length) {
-        log('[Catálogo] Sin productos en catálogo WA.');
-        log(`[Catálogo] Raw result: ${JSON.stringify(result).slice(0, 400)}`);
-        log('[Catálogo] Verificá: (1) la cuenta es WA Business, (2) el catálogo tiene productos publicados, (3) el catálogo no está oculto.');
+        // Respuesta válida pero sin productos — es Business pero catálogo vacío
+        esNegocioWA = true;
+        catalogFallos = 0;
+        log('[Catálogo] ℹ️ Catálogo WA Business vacío — publicá productos desde la app de WA Business.');
         emitter.emit('catalog:update', []);
         return;
       }
-
-      // Log del primer producto para verificar campos
-      log(`[Catálogo] Muestra primer producto: ${JSON.stringify(products[0]).slice(0, 200)}`);
 
       const catalogo = products.map(p => ({
         waProductId:  String(p.id || ''),
         nombre:       p.name        || 'Sin nombre',
         descripcion:  p.description || '',
-        // price viene como entero directo (no en centavos)
         precio:       parseFloat(p.price) || 0,
         moneda:       p.currency    || 'ARS',
         categoria:    p.category    || '',
         stock:        -1,
-        // imageUrls es un objeto { "0": "url", "1": "url" } — no un array
         imagen:       Object.values(p.imageUrls || {})[0] || '',
         disponible:   p.isHidden !== true,
         fuente:       'wa_catalog',
       }));
 
-      log(`[Catálogo] ✅ ${catalogo.length} productos mapeados correctamente`);
-      catalogFallos = 0; // reset en éxito
+      esNegocioWA = true;
+      catalogFallos = 0;
+      log(`[Catálogo] ✅ ${catalogo.length} producto(s) sincronizados desde WA Business`);
       emitter.emit('catalog:update', catalogo);
     } catch (e) {
+      if (e.message === 'CATALOG_TIMEOUT' || e.message?.toLowerCase().includes('timeout') || e.message?.toLowerCase().includes('timed')) {
+        // Timeout = no es Business o la cuenta no tiene catálogo habilitado
+        // No reintentar, no mostrar error, solo info la primera vez
+        if (esNegocioWA === null) {
+          esNegocioWA = false;
+          log('[Catálogo] ℹ️ Cuenta WA personal (no Business) — sync de catálogo desactivado. El bot funciona normalmente.');
+        }
+        return;
+      }
+      // Otro error — contar fallo pero sin alarmar
       catalogFallos++;
-      log(`[Catálogo] ⚠️ Error sincronizando catálogo WA: ${e.message} (fallo ${catalogFallos}/3)`);
-      if (catalogFallos >= 3) {
-        log('[Catálogo] ⏸ 3 fallos consecutivos — sync automático pausado. El bot sigue funcionando normalmente.');
+      if (catalogFallos < 3) {
+        log(`[Catálogo] ⚠️ Error obteniendo catálogo WA (intento ${catalogFallos}/3): ${e.message}`);
+      } else {
+        log('[Catálogo] ⏸ Sync de catálogo WA pausado. El bot sigue funcionando normalmente.');
       }
     }
   }
@@ -1000,6 +1108,34 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (!usuario) { const r = await registrarNombre(jid, texto, tel, pushName); if (r) return; }
       if (cacheTemporal[jid]?.esperandoEmail) { await capturaEmail(jid, texto, clientesSvc.cargarMemoria(jid)); return; }
 
+      // ── Interceptor: confirmación anti no-show ───────────────
+      const turnoConfirmKey = Object.keys(cacheTemporal[jid] || {}).find(k => k.startsWith('esperandoConf_'));
+      if (turnoConfirmKey) {
+        const { fecha, hora } = cacheTemporal[jid][turnoConfirmKey];
+        if (bodyLower.match(/\bsi\b|sí|confirmo|dale|voy|ahi estoy/)) {
+          if (!cacheTemporal[jid].turnoConfirmado) cacheTemporal[jid].turnoConfirmado = {};
+          cacheTemporal[jid].turnoConfirmado[`${fecha}|${hora}`] = true;
+          delete cacheTemporal[jid][turnoConfirmKey];
+          db.guardar(CACHE_PATH, cacheTemporal);
+          await enviarMensaje(jid, `¡Perfecto! ✅ Te esperamos mañana a las *${hora}*. ¡Hasta pronto!`);
+          return;
+        }
+        if (bodyLower.match(/\bno\b|cancelar|no puedo|no voy/)) {
+          delete cacheTemporal[jid][turnoConfirmKey];
+          db.guardar(CACHE_PATH, cacheTemporal);
+          // Cancelar el turno en DB
+          const Turno = require('../models/Turno');
+          await Turno.findOneAndUpdate(
+            { userId: USER_ID, clienteTelefono: usuario?.numeroReal || extraerNumero(jid), fechaInicio: { $gte: new Date() } },
+            { $set: { estado: 'cancelado' } }
+          ).catch(() => {});
+          await waitlistSvc.notificarSiguiente(fecha, hora, enviarMensaje, notificarDueno);
+          await enviarMensaje(jid, `Entendido, cancelamos tu turno del ${fecha} a las ${hora}. Si querés reagendar, avisame. 👍`);
+          notificarDueno(`❌ *Turno cancelado por cliente*: ${usuario?.nombre || extraerNumero(jid)} canceló su turno del ${fecha} a las ${hora}.`);
+          return;
+        }
+      }
+
       if (quiereConDueno(bodyLower)) {
         const u = clientesSvc.cargarMemoria(jid);
         if (u) { u.silenciado = true; clientesSvc.guardarMemoria(jid, u); }
@@ -1092,7 +1228,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
             um.historial.push({ role: 'assistant', content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.` });
             clientesSvc.guardarMemoria(res2.chatId, um);
           }
+          const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
           programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
+          programarResena(res2.chatId, ev.id, res2.nombre, res2.fecha, res2.horaFin || `${hFwh}:00`);
           await enviarMensaje(res2.chatId, `¡Listo, ${res2.nombre}! 🎉\n✅ *Pago: $${res2.total || PRECIO_TURNO} ARS*\n📅 *Turno:* ${res2.fecha} de *${res2.hora}${res2.horaFin ? '–' + res2.horaFin : ''}*\n${ev.htmlLink ? `📆 ${ev.htmlLink}\n` : ''}\n⏰ Te recordamos 24hs, 4hs y 30min antes. ¡Te esperamos! 🙌`);
         } else {
           await enviarMensaje(res2.chatId, `Hola ${res2.nombre}! Pago recibido ✅ pero error en el calendario. ${MI_NOMBRE} confirma manualmente. 🙏`);
@@ -1149,10 +1287,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const loggedOut  = code === DisconnectReason.loggedOut;
         const replaced   = code === DisconnectReason.connectionReplaced; // 440
         log(`⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : ''}`);
-        emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
 
         if (loggedOut || replaced) {
           // Sesión inválida — limpiar y detener para que el usuario escanee QR nuevo
+          emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
           await clearAuth().catch(() => {});
           log('🗑️ Sesión eliminada — iniciá el bot de nuevo para escanear un QR nuevo.');
           await detener('session-cleared');
@@ -1168,6 +1306,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
         if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
           log(`🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`);
+          emitter.emit('disconnected', `sesión inválida — QR requerido`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
           await detener('session-cleared');
@@ -1177,13 +1316,18 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         if (reconectarIntentos >= 15) {
           // Demasiados intentos fallidos — sesión probablemente muerta
           log(`❌ 15 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
+          emitter.emit('disconnected', `demasiados intentos — QR requerido`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
           await detener('session-cleared');
           return;
         }
 
-        if (!reconectando && sock !== null) {
+        // Desconexión transitoria — reconectar automáticamente.
+        // Resetear reconectando SIN importar quién lo seteó (watchdog, otro origen),
+        // para que el reconect siempre se programe si el socket sigue referenciado.
+        reconectando = false;
+        if (sock !== null) {
           reconectando = true;
           const delay = Math.min(5000 * reconectarIntentos, 30_000); // backoff: 5s, 10s, 15s... max 30s
           log(`🔄 Reconectando en ${delay / 1000}s... (intento ${reconectarIntentos})`);
@@ -1249,7 +1393,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           log(`⚠️ [Watchdog] Ping falló (${pingErr.message}) — forzando reconexión`);
           detenerWatchdog();
           if (!reconectando) {
-            reconectando = true;
             try { sock.end(new Error('watchdog_ping_fail')); } catch {}
           }
           return;
@@ -1259,7 +1402,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           ultimoMensajeTs = Date.now();
           detenerWatchdog();
           if (!reconectando) {
-            reconectando = true;
             try { sock.end(new Error('watchdog_zombie')); } catch {}
           }
         }
@@ -1283,7 +1425,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     // Escuchar solicitudes externas de sync de catálogo (desde bot.manager)
     emitter.on('catalog:sync', () => {
       log('[Catálogo] 🔄 Sync solicitado manualmente...');
-      catalogFallos = 0; // el usuario forzó el sync — resetear contador
+      catalogFallos = 0;   // el usuario forzó el sync — resetear contador
+      esNegocioWA   = null; // permitir redetección por si migró a Business
       sincronizarCatalogoWA().catch(() => {});
     });
 
