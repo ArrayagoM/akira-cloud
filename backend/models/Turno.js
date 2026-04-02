@@ -43,6 +43,13 @@ const TurnoSchema = new mongoose.Schema(
 
     // Notificación enviada al dueño
     notificadoDueno: { type: Boolean, default: false },
+
+    // Anti no-show
+    confirmacionSolicitadaEn: { type: Date, default: null },
+    confirmadoPorCliente:     { type: Boolean, default: false },
+    noShow:                   { type: Boolean, default: false },
+    // Reseña
+    reseniaSolicitadaEn:      { type: Date, default: null },
   },
   {
     timestamps: true,
@@ -51,11 +58,11 @@ const TurnoSchema = new mongoose.Schema(
 
 // Índice compuesto para queries frecuentes del bot
 TurnoSchema.index({ userId: 1, fechaInicio: 1 });
-TurnoSchema.index({ userId: 1, calendarId: 1, fechaInicio: 1 });
 TurnoSchema.index({ userId: 1, estado: 1, fechaInicio: 1 });
 
 // Índice único parcial: evita turnos duplicados en el mismo slot
 // Solo aplica a turnos activos (pendiente/confirmado), permite múltiples cancelados
+// (reemplaza el índice simple userId+calendarId+fechaInicio, no hace falta duplicarlo)
 TurnoSchema.index(
   { userId: 1, calendarId: 1, fechaInicio: 1 },
   { unique: true, partialFilterExpression: { estado: { $in: ['pendiente', 'confirmado'] } } }
