@@ -20,6 +20,10 @@ const instancias = new Map();
 // ── Locks para evitar arrancar dos veces el mismo bot ────────
 const arranqueEnProceso = new Set();
 
+// ── Auto-restart: timers de reconexión pendientes ────────────
+// Permite cancelar el timer si el usuario reinicia manualmente antes
+const autoRestartTimers = new Map();
+
 // ── Clave de instancia ───────────────────────────────────────
 const botKey = (uid, slot) => `${uid}:${slot}`;
 
@@ -197,6 +201,79 @@ async function startBot(userId, slot = 0) {
       await Log.registrar({ userId: uid, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Slot ${slot}: Desconectado: ${reason}` });
       instancias.delete(key);
       liberarPuerto(key);
+
+      // ── Auto-restart ────────────────────────────────────────
+      // El bot cayó por motivo terminal (sesión expirada, reemplazada, etc.)
+      // Lo reiniciamos automáticamente para que el usuario nunca quede sin bot.
+      // Backoff: 15s primer intento, 30s segundo, 60s tercero, luego cada 5min.
+      const MAX_INTENTOS  = 10;
+      const DELAYS_MS     = [15_000, 30_000, 60_000, 120_000, 300_000]; // 15s, 30s, 1m, 2m, 5m
+      let   intentoActual = 0;
+
+      const intentarRestart = async () => {
+        // Cancelar si ya está corriendo o si arrancó manualmente en el ínterin
+        if (instancias.has(key) || arranqueEnProceso.has(key)) {
+          autoRestartTimers.delete(key);
+          return;
+        }
+
+        if (intentoActual >= MAX_INTENTOS) {
+          logger.warn(`[BotMgr] Auto-restart: ${key} alcanzó ${MAX_INTENTOS} intentos sin éxito — deteniendo.`);
+          emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart pausado tras ${MAX_INTENTOS} intentos. Presioná Iniciar manualmente.`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+          autoRestartTimers.delete(key);
+          return;
+        }
+
+        try {
+          // Verificar que el usuario siga activo y con plan vigente
+          const user = await User.findById(uid).select('status planVigente planExpira planNombre').lean();
+          if (!user || user.status !== 'activo') {
+            autoRestartTimers.delete(key);
+            return;
+          }
+
+          // Verificar plan vigente manualmente (lean() no tiene métodos)
+          const ahora = new Date();
+          const planOk = user.planNombre === 'admin' ||
+            (user.planExpira && new Date(user.planExpira) > ahora);
+          if (!planOk) {
+            logger.info(`[BotMgr] Auto-restart: plan vencido para ${uid} — no se reinicia`);
+            autoRestartTimers.delete(key);
+            return;
+          }
+
+          intentoActual++;
+          const delayIdx  = Math.min(intentoActual - 1, DELAYS_MS.length - 1);
+          const nextDelay = DELAYS_MS[delayIdx];
+
+          logger.info(`[BotMgr] Auto-restart: iniciando bot ${key} (intento ${intentoActual}/${MAX_INTENTOS})...`);
+          emitirAlUsuario(uid, 'bot:log', { msg: `🔄 Auto-restart (intento ${intentoActual})...`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+
+          const result = await startBot(uid, slot);
+
+          if (result.ok) {
+            logger.info(`[BotMgr] Auto-restart: bot ${key} reiniciado exitosamente`);
+            autoRestartTimers.delete(key);
+          } else {
+            logger.warn(`[BotMgr] Auto-restart: fallo en intento ${intentoActual} para ${key}: ${result.msg}`);
+            emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart intento ${intentoActual} falló: ${result.msg}`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+            const timer = setTimeout(intentarRestart, nextDelay);
+            autoRestartTimers.set(key, timer);
+          }
+        } catch (e) {
+          logger.error(`[BotMgr] Auto-restart: error inesperado en ${key}: ${e.message}`);
+          if (intentoActual < MAX_INTENTOS) {
+            const delayIdx  = Math.min(intentoActual, DELAYS_MS.length - 1);
+            const nextDelay = DELAYS_MS[delayIdx];
+            const timer = setTimeout(intentarRestart, nextDelay);
+            autoRestartTimers.set(key, timer);
+          }
+        }
+      };
+
+      // Primer intento en 15 segundos
+      const timer = setTimeout(intentarRestart, DELAYS_MS[0]);
+      autoRestartTimers.set(key, timer);
     });
 
     bot.on('error', async (err) => {
@@ -279,6 +356,11 @@ async function stopBot(userId, slot = 0) {
   if (!bot) return { ok: false, msg: 'El bot no está activo' };
 
   try {
+    // Cancelar auto-restart pendiente si lo hay
+    if (autoRestartTimers.has(key)) {
+      clearTimeout(autoRestartTimers.get(key));
+      autoRestartTimers.delete(key);
+    }
     await bot.detener();
     instancias.delete(key);
     liberarPuerto(key);
@@ -306,6 +388,10 @@ async function panicStop(userId, motivo = 'Bloqueado por administrador') {
     try { workerHandler.sendToWorker('worker:panic-stop', { userId: uid, motivo }); } catch {}
   }
 
+  // Cancelar auto-restart pendiente para todos los slots del usuario
+  for (const [k, timer] of autoRestartTimers.entries()) {
+    if (k.startsWith(`${uid}:`)) { clearTimeout(timer); autoRestartTimers.delete(k); }
+  }
   await stopBot(uid).catch(() => {});
 
   await User.findByIdAndUpdate(uid, {
