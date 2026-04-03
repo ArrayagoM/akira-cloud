@@ -81,6 +81,13 @@ async function startBot(userId, slot = 0) {
     return { ok: false, msg: 'El bot ya está iniciando' };
   }
 
+  // Cancelar auto-restart pendiente si el usuario inicia manualmente antes de que dispare
+  if (autoRestartTimers.has(key)) {
+    clearTimeout(autoRestartTimers.get(key));
+    autoRestartTimers.delete(key);
+    logger.info(`[BotMgr] Auto-restart cancelado para ${key} — inicio manual`);
+  }
+
   arranqueEnProceso.add(key);
 
   try {
@@ -388,11 +395,18 @@ async function panicStop(userId, motivo = 'Bloqueado por administrador') {
     try { workerHandler.sendToWorker('worker:panic-stop', { userId: uid, motivo }); } catch {}
   }
 
-  // Cancelar auto-restart pendiente para todos los slots del usuario
+  // Cancelar auto-restart pendiente y detener TODOS los slots del usuario
   for (const [k, timer] of autoRestartTimers.entries()) {
     if (k.startsWith(`${uid}:`)) { clearTimeout(timer); autoRestartTimers.delete(k); }
   }
-  await stopBot(uid).catch(() => {});
+  // Detener todos los slots activos (no solo slot 0)
+  const slotsActivos = Array.from(instancias.keys()).filter(k => k.startsWith(`${uid}:`));
+  await Promise.allSettled(slotsActivos.map(k => {
+    const slot = parseInt(k.split(':')[1]) || 0;
+    return stopBot(uid, slot);
+  }));
+  // Fallback por si no había instancias pero sí estado en DB
+  if (!slotsActivos.length) await stopBot(uid).catch(() => {});
 
   await User.findByIdAndUpdate(uid, {
     status: 'bloqueado',
