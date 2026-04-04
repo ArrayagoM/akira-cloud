@@ -10,7 +10,7 @@ export default function OAuthCallback() {
 
   useEffect(() => {
     // Obtener token de la cookie httpOnly via endpoint seguro
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/auth/oauth-token`, { credentials: 'include' })
+    fetch(`${import.meta.env.VITE_API_URL || '/api'}/auth/oauth-token`, { credentials: 'include' })
       .then(r => r.json())
       .then(data => {
         const token = data.token;
