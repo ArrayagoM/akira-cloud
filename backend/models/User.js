@@ -81,6 +81,7 @@ const UserSchema = new mongoose.Schema(
     loginCount:  { type: Number, default: 0 },
     loginFailedCount:    { type: Number, default: 0 },
     loginLockedUntil:    { type: Date,   default: null },
+    tokenVersion:        { type: Number, default: 0 },
     bloqueadoPor: { type: String }, // motivo del bloqueo
 
     // Testers

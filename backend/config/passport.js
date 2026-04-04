@@ -24,6 +24,10 @@ module.exports = (passport) => {
         if (user.status === 'bloqueado') {
           return done(null, false, { message: 'Cuenta bloqueada' });
         }
+        // Verificar que el token no haya sido revocado
+        if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
+          return done(null, false, { message: 'Sesión expirada. Iniciá sesión nuevamente.' });
+        }
         return done(null, user);
       } catch (err) {
         return done(err, false);

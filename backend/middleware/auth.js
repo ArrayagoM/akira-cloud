@@ -50,9 +50,9 @@ function requireAdmin(req, res, next) {
  */
 const jwt = require('jsonwebtoken');
 
-function generarJWT(userId) {
+function generarJWT(userId, tokenVersion = 0) {
   return jwt.sign(
-    { id: userId },
+    { id: userId, tv: tokenVersion },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );

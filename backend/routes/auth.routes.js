@@ -295,7 +295,7 @@ router.post(
         userAgent: req.headers['user-agent'],
       });
 
-      const token = generarJWT(user._id);
+      const token = generarJWT(user._id, user.tokenVersion ?? 0);
       logger.info(`[Auth] Login: ${user.email}`);
       res.json({ token, user: user.toJSON() });
     })(req, res, next);
@@ -363,13 +363,17 @@ router.put(
       user.password = req.body.passwordNueva;
       await user.save();
 
+      // Invalidar todos los tokens anteriores incrementando tokenVersion
+      await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 } });
+      const tokenNuevo = generarJWT(user._id, (user.tokenVersion ?? 0) + 1);
+
       await Log.registrar({
         userId: user._id,
         tipo: 'config_update',
         mensaje: 'Contraseña cambiada',
         ip: req.ip,
       });
-      res.json({ msg: 'Contraseña actualizada correctamente' });
+      res.json({ msg: 'Contraseña actualizada correctamente', token: tokenNuevo });
     } catch (err) {
       res.status(500).json({ error: 'Error al cambiar contraseña' });
     }
@@ -410,7 +414,9 @@ router.get(
     failureRedirect: `${process.env.FRONTEND_URL}/login?error=google_failed`,
   }),
   async (req, res) => {
-    const token = generarJWT(req.user._id);
+    // Necesitamos el tokenVersion — recargar usuario completo
+    const userFull = await User.findById(req.user._id).select('tokenVersion').lean();
+    const token = generarJWT(req.user._id, userFull?.tokenVersion ?? 0);
     await User.findByIdAndUpdate(req.user._id, {
       ultimoLogin: new Date(),
       $inc: { loginCount: 1 },
@@ -445,7 +451,8 @@ router.get(
     failureRedirect: `${process.env.FRONTEND_URL}/login?error=facebook_failed`,
   }),
   async (req, res) => {
-    const token = generarJWT(req.user._id);
+    const userFull = await User.findById(req.user._id).select('tokenVersion').lean();
+    const token = generarJWT(req.user._id, userFull?.tokenVersion ?? 0);
     await User.findByIdAndUpdate(req.user._id, {
       ultimoLogin: new Date(),
       $inc: { loginCount: 1 },

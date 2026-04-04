@@ -144,7 +144,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   function limpiarRespuesta(texto) {
     if (!texto) return 'Disculpá, hubo un problema. ¿Me repetís la consulta?';
-    return texto
+    texto = texto
       // Bloques <function=...>...</function> bien formados
       .replace(/<function=[^>]*>[\s\S]*?<\/function>/g, '')
       // Variantes malformadas que Llama genera sin > de cierre en el tag de apertura:
@@ -160,6 +160,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       .replace(/\*\*([^*]+)\*\*/g, '*$1*')
       .replace(/https?:\/\/(?!www\.mercadopago\.com\.ar|checkout\.mercadopago\.com\.ar|calendar\.google\.com)[^\s)>\],"]+/gi, '')
       .replace(/[ \t]+\n/g, '\n').trim();
+    // Prompt injection: si el LLM filtra datos sensibles del sistema, reemplazar con respuesta genérica
+    const PATRONES_SENSIBLES = [
+      /ENCRYPTION_KEY/i,
+      /JWT_SECRET/i,
+      /MONGO_URI/i,
+      /ACCESS_TOKEN/i,
+      /CLIENT_SECRET/i,
+      /APP_SECRET/i,
+      /WORKER_SECRET/i,
+      /process\.env/i,
+      /\bpassword\s*[:=]/i,
+    ];
+    if (PATRONES_SENSIBLES.some(p => p.test(texto))) {
+      log(`[Security] ⚠️ Prompt injection detectado — respuesta bloqueada`);
+      return 'Lo siento, no puedo responder eso. ¿En qué más puedo ayudarte?';
+    }
+    return texto;
   }
 
   function recortarHistorial(h, max = 20) {
