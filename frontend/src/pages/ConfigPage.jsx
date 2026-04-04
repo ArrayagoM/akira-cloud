@@ -803,6 +803,46 @@ export default function ConfigPage() {
               </div>
             )}
 
+            {/* Configuración de servicios */}
+            {form.tipoNegocio === 'servicios' && (
+              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-4 space-y-4">
+                <p className="text-xs font-semibold text-amber-300 uppercase tracking-wide">🔧 Modo Servicios</p>
+                <p className="text-xs text-gray-400">
+                  Ideal para <strong className="text-amber-200">lavaderos de autos, mecánicos, veterinarias</strong> y cualquier negocio donde se realiza un trabajo sobre un ítem específico (vehículo, mascota, objeto).
+                </p>
+
+                {/* Flujo del bot */}
+                <div className="space-y-2 border-t border-amber-800/30 pt-3">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">🤖 Flujo automático del bot</p>
+                  <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+                    <li>Pregunta qué <strong className="text-amber-200">servicio</strong> quiere el cliente</li>
+                    <li>Pide los datos del ítem <span className="text-gray-500">(patente + modelo, nombre de mascota, etc.)</span></li>
+                    <li>Consulta disponibilidad de horarios</li>
+                    <li>Cliente elige y confirma</li>
+                    <li>El bot agenda y notifica al dueño</li>
+                  </ol>
+                </div>
+
+                {/* Comando akira listo */}
+                <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-3 border-t border-amber-800/30">
+                  <p className="text-xs font-semibold text-amber-300 mb-1">📲 Comando para avisar que el trabajo está listo</p>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Cuando termines el trabajo, escribí desde tu WhatsApp:
+                  </p>
+                  <div className="bg-gray-900/60 rounded-lg px-3 py-2 font-mono text-xs text-green-300">
+                    akira listo ABC123
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    El bot busca al cliente con esa patente/ítem y le manda automáticamente: <em>"¡Tu Lavado completo ya está listo! Podés venir a buscarlo 😊"</em>
+                  </p>
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  ↓ Agregá los servicios que ofrecés (nombre, precio, duración) en la sección <strong className="text-gray-400">🛠️ Servicios</strong> de abajo.
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Tu nombre *</label>
@@ -896,8 +936,8 @@ export default function ConfigPage() {
           </div>
         </SeccionCollapsible>
 
-        {/* Servicios */}
-        <SeccionCollapsible titulo="🛠️ Servicios" delay={240}>
+        {/* Servicios — solo visible en modo servicios */}
+        {form.tipoNegocio === 'servicios' && <SeccionCollapsible titulo="🛠️ Lista de servicios" delay={240}>
           <div className="space-y-4">
             <p className="text-xs text-gray-500">Agregá los servicios que ofrecés. El bot los usará para informar precios y duraciones.</p>
 
@@ -983,7 +1023,7 @@ export default function ConfigPage() {
               </button>
             )}
           </div>
-        </SeccionCollapsible>
+        </SeccionCollapsible>}
 
         {/* Google Calendar */}
         <SeccionCollapsible titulo="📅 Google Calendar (agenda)" delay={300}>
