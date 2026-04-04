@@ -83,16 +83,37 @@ global.io = io;
 // ── Namespace /worker para el proceso local del usuario ─────
 workerHandler.inicializarWorkerHandler(io);
 
-io.on('connection', (socket) => {
-  logger.info(`[Socket] Cliente conectado: ${socket.id}`);
+// ── Socket.io: autenticación por JWT ────────────────────────
+const jwt = require('jsonwebtoken');
 
-  socket.on('join-room', (userId) => {
-    socket.join(`user:${userId}`);
-    logger.info(`[Socket] ${socket.id} unido a sala user:${userId}`);
-  });
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error('Socket: token requerido'));
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = String(payload.id);
+    next();
+  } catch {
+    next(new Error('Socket: token inválido'));
+  }
+});
+
+io.on('connection', (socket) => {
+  // Unir automáticamente a la sala del usuario autenticado — sin confiar en el cliente
+  socket.join(`user:${socket.userId}`);
+  logger.info(`[Socket] ${socket.id} → sala user:${socket.userId}`);
 
   socket.on('disconnect', () => {
-    logger.info(`[Socket] Cliente desconectado: ${socket.id}`);
+    logger.info(`[Socket] Desconectado: ${socket.id}`);
+  });
+
+  // Mantener compatibilidad: si el cliente envía join-room, verificar que sea su propio userId
+  socket.on('join-room', (userId) => {
+    if (String(userId) !== socket.userId) {
+      logger.warn(`[Socket] ⚠️ join-room rechazado: ${socket.id} intentó unirse a user:${userId} (es user:${socket.userId})`);
+      return;
+    }
+    // Ya está en la sala, no hacer nada extra
   });
 });
 
@@ -146,6 +167,8 @@ app.use(cors({
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }));
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
 app.use(passport.initialize());
 
 // ── Rutas ───────────────────────────────────────────────────

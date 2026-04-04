@@ -244,10 +244,31 @@ router.post(
     const validErr = handleValidation(req, res);
     if (validErr !== null) return;
 
+    // ── Verificar lockout ANTES de intentar autenticar ──
+    const candidato = await User.findOne({ email: req.body.email.toLowerCase() }).select('+loginFailedCount +loginLockedUntil');
+    if (candidato?.loginLockedUntil && candidato.loginLockedUntil > new Date()) {
+      const minutosRestantes = Math.ceil((candidato.loginLockedUntil - Date.now()) / 60000);
+      return res.status(429).json({
+        error: `Cuenta bloqueada por demasiados intentos. Intentá en ${minutosRestantes} minuto${minutosRestantes === 1 ? '' : 's'}.`,
+      });
+    }
+
     passport.authenticate('local', async (err, user, info) => {
       if (err) return next(err);
 
       if (!user) {
+        // Incrementar contador de fallos en el usuario (si existe)
+        if (candidato) {
+          const nuevoCount = (candidato.loginFailedCount || 0) + 1;
+          const update = { loginFailedCount: nuevoCount };
+          if (nuevoCount >= 5) {
+            update.loginLockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+            update.loginFailedCount = 0;
+            logger.warn(`[Auth] 🔒 Cuenta bloqueada 15min por intentos fallidos: ${req.body.email}`);
+          }
+          await User.findByIdAndUpdate(candidato._id, update).catch(() => {});
+        }
+
         await Log.registrar({
           tipo: 'auth_fail',
           nivel: 'warn',
@@ -257,11 +278,13 @@ router.post(
         return res.status(401).json({ error: info?.message || 'Credenciales incorrectas' });
       }
 
-      // Actualizar metadatos de login
+      // Login exitoso — resetear contador de fallos
       await User.findByIdAndUpdate(user._id, {
         ultimoLogin: new Date(),
         ipUltimoLogin: req.ip,
         $inc: { loginCount: 1 },
+        loginFailedCount: 0,
+        loginLockedUntil: null,
       });
 
       await Log.registrar({
@@ -362,6 +385,17 @@ router.post('/logout', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  GET /api/auth/oauth-token — intercambia cookie por token (1 uso)
+// ─────────────────────────────────────────────────────────────
+router.get('/oauth-token', (req, res) => {
+  const token = req.cookies?.oauth_token;
+  if (!token) return res.status(401).json({ error: 'No hay token OAuth pendiente' });
+  // Limpiar la cookie inmediatamente — un solo uso
+  res.clearCookie('oauth_token', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' });
+  res.json({ token });
+});
+
+// ─────────────────────────────────────────────────────────────
 //  GOOGLE OAuth
 // ─────────────────────────────────────────────────────────────
 router.get(
@@ -387,7 +421,15 @@ router.get(
       mensaje: 'Login Google',
       ip: req.ip,
     });
-    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?token=${token}`);
+    // Token en cookie httpOnly — no exponer en URL ni en logs
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('oauth_token', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      maxAge: 5 * 60 * 1000, // 5 minutos — solo para el handshake inicial
+    });
+    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback`);
   },
 );
 
@@ -414,7 +456,15 @@ router.get(
       mensaje: 'Login Facebook',
       ip: req.ip,
     });
-    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?token=${token}`);
+    // Token en cookie httpOnly — no exponer en URL ni en logs
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('oauth_token', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      maxAge: 5 * 60 * 1000, // 5 minutos — solo para el handshake inicial
+    });
+    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback`);
   },
 );
 

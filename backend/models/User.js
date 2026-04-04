@@ -79,6 +79,8 @@ const UserSchema = new mongoose.Schema(
     ultimoLogin: { type: Date },
     ipUltimoLogin: { type: String },
     loginCount:  { type: Number, default: 0 },
+    loginFailedCount:    { type: Number, default: 0 },
+    loginLockedUntil:    { type: Date,   default: null },
     bloqueadoPor: { type: String }, // motivo del bloqueo
 
     // Testers

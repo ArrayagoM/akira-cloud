@@ -22,15 +22,9 @@ export function useSocket(userId) {
         path:                '/socket.io',
       });
 
-      socketInstance.on('connect', () => {
-        console.log('[Socket] ✅ Conectado:', socketInstance.id);
-      });
-      socketInstance.on('connect_error', (err) => {
-        console.warn('[Socket] ❌ Error:', err.message);
-      });
-      socketInstance.on('disconnect', (reason) => {
-        console.warn('[Socket] Desconectado:', reason);
-      });
+      socketInstance.on('connect', () => {});
+      socketInstance.on('connect_error', () => {});
+      socketInstance.on('disconnect', () => {});
     }
 
     socketInstance.emit('join-room', userId);
