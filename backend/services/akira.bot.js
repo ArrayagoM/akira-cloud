@@ -145,7 +145,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   function limpiarRespuesta(texto) {
     if (!texto) return 'Disculpá, hubo un problema. ¿Me repetís la consulta?';
     return texto
+      // Bloques <function=...>...</function> bien formados
       .replace(/<function=[^>]*>[\s\S]*?<\/function>/g, '')
+      // Variantes malformadas que Llama genera sin > de cierre en el tag de apertura:
+      // <function=nombre</function>  o  <function=nombre=</function>
+      .replace(/<function=[^<]*<\/function>/g, '')
+      // Cualquier <function...> abierto que haya quedado (con o sin >)
+      .replace(/<function[^>]*>/g, '')
+      // Tags </function> sueltos que hayan sobrevivido
+      .replace(/<\/function>/g, '')
       .replace(/```[\s\S]*?```/g, '')
       .replace(/\{[\s\S]*?"fecha"[\s\S]*?\}/g, '')
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '$2')
