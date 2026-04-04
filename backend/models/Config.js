@@ -78,9 +78,10 @@ const ConfigSchema = new mongoose.Schema(
     diasBloqueados: { type: [String], default: [] },
 
     // Tipo de negocio — cambia el flujo del bot
-    // 'turnos'       → slots horarios (barbería, médico, etc.)
-    // 'alojamiento'  → check-in / check-out (cabañas, depts, hospedajes)
-    tipoNegocio:   { type: String, enum: ['turnos', 'alojamiento'], default: 'turnos' },
+    // 'turnos'     → slots horarios (barbería, médico, etc.)
+    // 'alojamiento'→ check-in / check-out (cabañas, depts, hospedajes)
+    // 'servicios'  → trabajos sobre ítems (lavaderos, mecánicos, veterinarias)
+    tipoNegocio:   { type: String, enum: ['turnos', 'alojamiento', 'servicios'], default: 'turnos' },
     checkInHora:   { type: String, default: '14:00', trim: true },
     checkOutHora:  { type: String, default: '10:00', trim: true },
     minimaEstadia: { type: Number, default: 1, min: 1 },
@@ -119,6 +120,12 @@ const ConfigSchema = new mongoose.Schema(
       default: [],
     },
     catalogoSincronizadoEn: { type: Date, default: null },
+
+    googleReviewLink:    { type: String, default: '', trim: true },
+    activarResenas:      { type: Boolean, default: true },
+    activarReengagement: { type: Boolean, default: true },
+    mensajeReengagement30: { type: String, default: '', trim: true },
+    mensajeReengagement60: { type: String, default: '', trim: true },
 
     // Estado de configuración
     configurado: { type: Boolean, default: false },

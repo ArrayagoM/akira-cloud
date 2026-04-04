@@ -23,6 +23,25 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
 
   function herramientas() {
     const tieneCat = Array.isArray(catalogo) && catalogo.length > 0;
+
+    // ── Modo SERVICIOS: lavaderos, mecánicos, veterinarias, etc. ──
+    if (tipoNegocio === 'servicios') {
+      const tools = [
+        { type: 'function', function: { name: 'consultar_disponibilidad', description: 'Busca horarios libres para el servicio. Úsala SIEMPRE ante preguntas de disponibilidad.', parameters: { type: 'object', properties: { fecha: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['fecha'] } } },
+        { type: 'function', function: { name: 'agendar_servicio', description: 'Confirma y registra el trabajo. SOLO llamar si: (1) se consultó disponibilidad, (2) cliente eligió día y hora, (3) cliente confirmó. SIEMPRE incluir servicio e info_item.', parameters: { type: 'object', properties: {
+          fecha:     { type: 'string', description: 'YYYY-MM-DD' },
+          hora:      { type: 'string', description: 'HH:MM' },
+          hora_fin:  { type: 'string', description: 'HH:MM — hora estimada de finalización (opcional)' },
+          servicio:  { type: 'string', description: 'Nombre del servicio elegido (ej: Lavado completo, Cambio de aceite, Baño de mascota)' },
+          info_item: { type: 'string', description: 'Datos del ítem: patente y modelo del auto, nombre y raza de mascota, descripción del objeto. Ej: "ABC123 — Honda Civic rojo" o "Firulais — Golden Retriever"' },
+        }, required: ['fecha', 'hora', 'servicio', 'info_item'] } } },
+        { type: 'function', function: { name: 'cancelar_servicio', description: 'Cancela un servicio agendado.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' } }, required: ['fecha', 'hora'] } } },
+        { type: 'function', function: { name: 'reagendar_servicio', description: 'Mueve un servicio a otra fecha/hora sin cobrar de nuevo.', parameters: { type: 'object', properties: { fecha_actual: { type: 'string' }, hora_actual: { type: 'string' }, fecha_nueva: { type: 'string' }, hora_nueva: { type: 'string' } }, required: ['fecha_actual', 'hora_actual', 'fecha_nueva', 'hora_nueva'] } } },
+      ];
+      if (tieneCat) tools.push(toolCatalogo);
+      return tools;
+    }
+
     if (tipoNegocio === 'alojamiento') {
       const tools = [
         { type: 'function', function: { name: 'consultar_disponibilidad_alojamiento', description: 'Verifica disponibilidad para fechas dadas. Si hay múltiples unidades, consulta cada una por separado pasando nombre_unidad. Úsala SIEMPRE ante preguntas de disponibilidad.', parameters: { type: 'object', properties: { fecha_entrada: { type: 'string', description: 'YYYY-MM-DD' }, fecha_salida: { type: 'string', description: 'YYYY-MM-DD' }, nombre_unidad: { type: 'string', description: 'Nombre exacto de la unidad (cabaña, departamento, etc.). Omitir para buscar en todas.' }, huespedes: { type: 'number', description: 'Cantidad de huéspedes (para filtrar por capacidad).' } }, required: ['fecha_entrada', 'fecha_salida'] } } },

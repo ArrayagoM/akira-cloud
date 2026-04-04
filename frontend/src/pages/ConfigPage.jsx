@@ -648,10 +648,11 @@ export default function ConfigPage() {
             {/* Tipo de negocio */}
             <div>
               <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Tipo de negocio</label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 {[
                   { value: 'turnos',      label: '📅 Turnos / Citas', desc: 'Barbería, médico, uñas, etc.' },
                   { value: 'alojamiento', label: '🏠 Alojamiento',    desc: 'Cabañas, departamentos, hospedajes' },
+                  { value: 'servicios',   label: '🔧 Servicios',      desc: 'Lavadero, mecánico, veterinaria…' },
                 ].map(op => (
                   <button
                     key={op.value}

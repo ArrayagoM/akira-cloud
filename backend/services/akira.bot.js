@@ -360,6 +360,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       : `Lun–Vie 09:00–18:00 | Sáb 09:00–13:00 | Dom Cerrado`;
 
     const esAlojamiento = TIPO_NEGOCIO === 'alojamiento';
+    const esServicios   = TIPO_NEGOCIO === 'servicios';
 
     // Armar listado del catálogo de productos (si existe)
     const catalogoStr = CATALOGO.filter(p => p.disponible).map(p =>
@@ -375,7 +376,27 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         ).join('\n')
       : null;
 
-    const sysContent = esAlojamiento
+    const sysContent = esServicios
+      ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
+        `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
+        `🕐 Horarios de atención: ${horariosStr}\n` +
+        (DIAS_BLOQUEADOS.length > 0 ? `🚫 Días sin atención: ${DIAS_BLOQUEADOS.join(', ')}\n` : '') +
+        (MODO_PAUSA ? `🔴 MODO PAUSA ACTIVO: No tomamos trabajos por el momento. Informá amablemente. NO llamés herramientas de agenda.\n` : '') +
+        (SERVICIOS_LIST.length > 0
+          ? `🔧 SERVICIOS DISPONIBLES:\n${SERVICIOS_LIST.map(s => `• ${s.nombre}: $${s.precio} ARS (duración aprox. ${s.duracion || 60} min)`).join('\n')}\n`
+          : `🔧 Servicios: ${SERVICIOS} | Precio base: $${PRECIO_TURNO} ARS\n`) +
+        `💳 Método de pago: ${metodoPago}.\n` +
+        (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+          ? `Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}.\n`
+          : '') +
+        `⚠️ PROHIBIDO: NUNCA inventes datos bancarios. Usá SOLO los de arriba.\n` +
+        (pend ? `🚨 PAGO PENDIENTE: ${pend.fecha} ${pend.hora} ($${pend.totalPrecio || PRECIO_TURNO}). NO agendar otro.\n` : '') +
+        (usuario.turnosConfirmados?.length ? `[INT] Servicios agendados: ${usuario.turnosConfirmados.map(t => `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${t.fecha} ${t.hora}`).join(' | ')}\n` : '') +
+        `FLUJO OBLIGATORIO: 1.Preguntar qué servicio quiere → 2.Pedir datos del ítem (patente+modelo, nombre mascota, etc.) → 3.Consultar disponibilidad → 4.Cliente elige horario → 5.Confirmar → 6.Llamar agendar_servicio. NUNCA saltear pasos.\n` +
+        `Cancelar→cancelar_servicio, Cambiar→reagendar_servicio. Máx 4 líneas. Sin JSON ni código.\n` +
+        (catalogoStr ? `📦 PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan.\n` : '') +
+        (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
+      : esAlojamiento
       ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
         `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
         (DIAS_BLOQUEADOS.length > 0 ? `🚫 Fechas sin disponibilidad: ${DIAS_BLOQUEADOS.join(', ')}\n` : '') +
@@ -756,6 +777,104 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       push(`Reserva${t.unidad ? ' de ' + t.unidad : ''} reagendada: ${fecha_entrada_nueva} al ${fecha_salida_nueva} (${noches} noches). Sin costo extra.`); return;
     }
 
+    // ── Tools de SERVICIOS (lavaderos, mecánicos, veterinarias) ──
+    if (tool.function.name === 'agendar_servicio') {
+      const msgs   = usuario.historial.filter(m => m.role === 'user').map(m => (m.content || '').toLowerCase());
+      const ultimo = msgs[msgs.length - 1] || '';
+      const confirma = ['si','sí','dale','bueno','ok','reservame','agendame','quiero','perfecto','listo','va','confirmo','poneme','anotame'].some(p => ultimo.includes(p));
+      if (!confirma) { push(`El cliente no confirmó aún. Preguntale si quiere agendar el ${args.servicio} para el ${args.fecha} a las ${args.hora}.`); return; }
+
+      limpiarExpiradas();
+      const pend = pendienteActual(jid);
+      if (pend) { push(`Ya hay un servicio pendiente de pago para el ${pend.fecha} ${pend.hora}. Que pague ese primero.`); return; }
+
+      const sk = `${args.fecha}|${args.hora}`;
+      if (slotsEnProceso.has(sk)) { push('Ese horario ya está siendo procesado. Pedile que elija otro.'); return; }
+      slotsEnProceso.add(sk);
+      try {
+        // Calcular precio y duración
+        const servicioConf = SERVICIOS_LIST.find(s => s.nombre.toLowerCase().includes((args.servicio || '').toLowerCase()));
+        const durMin  = servicioConf?.duracion || 60;
+        const total   = servicioConf?.precio   || PRECIO_TURNO;
+        const [y, m, d] = args.fecha.split('-').map(Number);
+        const hI = parseInt(args.hora.split(':')[0]);
+        const hFn = args.hora_fin ? parseInt(args.hora_fin.split(':')[0]) : hI + Math.ceil(durMin / 60);
+        const hFnStr = `${String(hFn).padStart(2,'0')}:00`;
+        const ini = calendar.crearFecha(y, m, d, hI);
+        const fin = calendar.crearFecha(y, m, d, hFn);
+
+        const tituloEvento = `${args.servicio} — ${args.info_item} — ${usuario.nombre}`;
+        const descEvento   = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Ítem: ${args.info_item}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+
+        if (MP_ACCESS_TOKEN) {
+          const pref = await mp.crearPreferencia(usuario.nombre, args.fecha, args.hora, total, jid);
+          if (pref?.init_point) {
+            const rk = `${jid}|${args.fecha}|${args.hora}|${hFnStr}`;
+            reservasPendientes[rk] = { chatId: jid, fecha: args.fecha, hora: args.hora, horaFin: hFnStr, nombre: usuario.nombre, email: usuario.email, cant: 1, total, servicio: args.servicio, infoItem: args.info_item, expiresAt: Date.now() + 30 * 60000 };
+            db.guardar(RESERVAS_PATH, reservasPendientes);
+            push(`Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}. $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`);
+            notificarDueno(`🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}\n💳 Esperando pago MP ($${total})\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
+          } else { push('Error generando link de pago. Intentá de nuevo.'); }
+        } else {
+          const evento = await calendar.crearEvento(CALENDAR_ID, tituloEvento, descEvento, ini, fin, usuario.email, usuario.numeroReal || extraerNumero(jid));
+          if (!evento) { push('ERROR_CALENDAR: El servicio NO fue guardado. Avisale al cliente que hubo un problema técnico.'); return; }
+          usuario.turnosConfirmados = [...(usuario.turnosConfirmados || []), { fecha: args.fecha, hora: args.hora, horaFin: hFnStr, servicio: args.servicio, infoItem: args.info_item }];
+          clientesSvc.guardarMemoria(jid, usuario);
+          programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+          let infoPago = '';
+          if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+            infoPago = ` Aboná $${total} ARS al Alias: ${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU: ${CBU_TRANSFERENCIA}` : ''} y mandá el comprobante.`;
+          }
+          push(`Servicio confirmado: ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS.${infoPago}`);
+          notificarDueno(`✅ *Nuevo servicio confirmado*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`);
+        }
+      } catch (e) { log('[Servicios] ' + e.message); push('Error al procesar el servicio: ' + e.message); }
+      finally { slotsEnProceso.delete(sk); }
+      return;
+    }
+
+    if (tool.function.name === 'cancelar_servicio') {
+      const t = (usuario.turnosConfirmados || []).find(t => t.fecha === args.fecha && t.hora === args.hora);
+      if (!t) { push(`No encontré servicio para ${args.fecha} ${args.hora}.`); return; }
+      const [y, m, d] = args.fecha.split('-').map(Number);
+      const hI = parseInt(args.hora.split(':')[0]);
+      const hF = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : hI + 1;
+      const evs = await calendar.obtenerEventos(CALENDAR_ID, calendar.crearFecha(y, m, d, hI), calendar.crearFecha(y, m, d, hF));
+      const ev  = evs.find(e => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(tc => !(tc.fecha === args.fecha && tc.hora === args.hora));
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(`Servicio ${t.servicio ? '(' + t.servicio + ')' : ''} del ${args.fecha} ${args.hora} cancelado.`);
+      notificarDueno(`❌ *Servicio cancelado*\n🔧 ${t.servicio || 'Servicio'}\n🚗 ${t.infoItem || ''}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}`);
+      return;
+    }
+
+    if (tool.function.name === 'reagendar_servicio') {
+      const t = (usuario.turnosConfirmados || []).find(tc => tc.fecha === args.fecha_actual && tc.hora === args.hora_actual);
+      if (!t) { push(`No encontré servicio para ${args.fecha_actual} ${args.hora_actual}.`); return; }
+      const [ya, ma, da] = args.fecha_actual.split('-').map(Number);
+      const haI = parseInt(args.hora_actual.split(':')[0]);
+      const haF = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : haI + 1;
+      const evs = await calendar.obtenerEventos(CALENDAR_ID, calendar.crearFecha(ya, ma, da, haI), calendar.crearFecha(ya, ma, da, haF));
+      const ev  = evs.find(e => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      const [yn, mn, dn] = args.fecha_nueva.split('-').map(Number);
+      const hnI = parseInt(args.hora_nueva.split(':')[0]);
+      const durMin = (() => { const s = SERVICIOS_LIST.find(s => s.nombre.toLowerCase().includes((t.servicio || '').toLowerCase())); return s?.duracion || 60; })();
+      const hnF = hnI + Math.ceil(durMin / 60);
+      const hnFStr = `${String(hnF).padStart(2,'0')}:00`;
+      const tituloEvento = `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${usuario.nombre}`;
+      await calendar.crearEvento(CALENDAR_ID, tituloEvento, `Reagendado. WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`, calendar.crearFecha(yn, mn, dn, hnI), calendar.crearFecha(yn, mn, dn, hnF), usuario.email, usuario.numeroReal || extraerNumero(jid));
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map(tc =>
+        tc.fecha === args.fecha_actual && tc.hora === args.hora_actual
+          ? { ...tc, fecha: args.fecha_nueva, hora: args.hora_nueva, horaFin: hnFStr }
+          : tc
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(`Servicio ${t.servicio ? '(' + t.servicio + ')' : ''} reagendado: ${args.fecha_nueva} ${args.hora_nueva}–${hnFStr}. Sin costo extra.`);
+      return;
+    }
+
     if (tool.function.name === 'cancelar_turno') {
       const t = (usuario.turnosConfirmados || []).find(t => t.fecha === args.fecha && t.hora === args.hora);
       if (!t) { push(`No encontré turno para ${args.fecha} ${args.hora}.`); return; }
@@ -939,6 +1058,25 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       const clientes = clientesSvc.listarClientes();
       const lineas   = clientes.map(c => `${c.nombre || '?'}: ${c.silenciado ? 'SILENCIADO' : 'activo'}`);
       await enviarMensaje(jid, `*Clientes (${clientes.length}):*\n${lineas.join('\n') || 'Sin clientes aún.'}`);
+    }
+
+    // ── akira listo [info] — avisar al cliente que su trabajo está listo ──
+    if (bodyLower.startsWith('akira listo')) {
+      const info = bodyLower.replace(/^akira listo\s*/i, '').trim();
+      if (!info) { await enviarMensaje(jid, '*(Uso: akira listo [patente / nombre del ítem])*'); return; }
+      const clientes = clientesSvc.listarClientes();
+      const encontrado = clientes.find(c =>
+        (c.turnosConfirmados || []).some(t => t.infoItem && t.infoItem.toLowerCase().includes(info))
+      );
+      if (!encontrado) {
+        await enviarMensaje(jid, `*(No encontré ningún cliente con "${info}" en servicios activos)*`);
+        return;
+      }
+      const turno = (encontrado.turnosConfirmados || []).find(t => t.infoItem && t.infoItem.toLowerCase().includes(info));
+      const msgCliente = `¡Hola ${encontrado.nombre}! 🎉 Tu *${turno?.servicio || 'trabajo'}* ya está listo. Podés venir a buscarlo cuando quieras. ¡Gracias por elegirnos! 😊`;
+      await enviarMensaje(encontrado.jid, msgCliente);
+      await enviarMensaje(jid, `*(✅ Notificación enviada a ${encontrado.nombre})*`);
+      return;
     }
   }
 

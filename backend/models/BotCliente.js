@@ -42,6 +42,8 @@ const BotClienteSchema = new mongoose.Schema(
       type:    [TurnoSchema],
       default: [],
     },
+    noShowCount:                  { type: Number, default: 0 },
+    ultimoMensajeReengagement:    { type: Date, default: null },
   },
   { timestamps: true, collection: 'bot_clientes' }
 );
