@@ -9,8 +9,9 @@ export default function OAuthCallback() {
   const navigate        = useNavigate();
 
   useEffect(() => {
-    // Obtener token de la cookie httpOnly via endpoint seguro
-    fetch(`${import.meta.env.VITE_API_URL || '/api'}/auth/oauth-token`, { credentials: 'include' })
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (!code) { navigate('/login?error=oauth_failed'); return; }
+    fetch(`${import.meta.env.VITE_API_URL || '/api'}/auth/oauth-token?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(data => {
         const token = data.token;

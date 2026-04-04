@@ -389,14 +389,34 @@ router.post('/logout', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-//  GET /api/auth/oauth-token — intercambia cookie por token (1 uso)
+//  Códigos OAuth efímeros — Map en memoria (TTL 5 min, un solo uso)
+//  Evita el JWT en URL y el problema de cookies cross-origin entre
+//  Render (backend) y Vercel (frontend).
 // ─────────────────────────────────────────────────────────────
+const crypto = require('crypto');
+const oauthCodes = new Map(); // code → { token, expiresAt }
+
+function crearCodigoOAuth(token) {
+  const code = crypto.randomBytes(32).toString('hex');
+  oauthCodes.set(code, { token, expiresAt: Date.now() + 5 * 60 * 1000 });
+  // Limpiar entradas viejas para no acumular en memoria
+  for (const [k, v] of oauthCodes) {
+    if (v.expiresAt < Date.now()) oauthCodes.delete(k);
+  }
+  return code;
+}
+
+// GET /api/auth/oauth-token?code=xxx — intercambia código por JWT (1 uso, 5 min)
 router.get('/oauth-token', (req, res) => {
-  const token = req.cookies?.oauth_token;
-  if (!token) return res.status(401).json({ error: 'No hay token OAuth pendiente' });
-  // Limpiar la cookie inmediatamente — un solo uso
-  res.clearCookie('oauth_token', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' });
-  res.json({ token });
+  const { code } = req.query;
+  if (!code) return res.status(400).json({ error: 'Falta el código' });
+  const entry = oauthCodes.get(code);
+  if (!entry || entry.expiresAt < Date.now()) {
+    oauthCodes.delete(code);
+    return res.status(401).json({ error: 'Código inválido o expirado' });
+  }
+  oauthCodes.delete(code); // un solo uso
+  res.json({ token: entry.token });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -427,15 +447,8 @@ router.get(
       mensaje: 'Login Google',
       ip: req.ip,
     });
-    // Token en cookie httpOnly — no exponer en URL ni en logs
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('oauth_token', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      maxAge: 5 * 60 * 1000, // 5 minutos — solo para el handshake inicial
-    });
-    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback`);
+    const code = crearCodigoOAuth(token);
+    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?code=${code}`);
   },
 );
 
@@ -463,15 +476,8 @@ router.get(
       mensaje: 'Login Facebook',
       ip: req.ip,
     });
-    // Token en cookie httpOnly — no exponer en URL ni en logs
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('oauth_token', token, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
-      maxAge: 5 * 60 * 1000, // 5 minutos — solo para el handshake inicial
-    });
-    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback`);
+    const code = crearCodigoOAuth(token);
+    res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?code=${code}`);
   },
 );
 
