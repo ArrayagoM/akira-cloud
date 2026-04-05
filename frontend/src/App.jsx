@@ -2,20 +2,21 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Pages
-import Landing       from './pages/Landing';
-import Login         from './pages/Login';
-import Register      from './pages/Register';
-import OAuthCallback from './pages/OAuthCallback';
-import Dashboard     from './pages/Dashboard';
-import ConfigPage    from './pages/ConfigPage';
-import AgendaPage    from './pages/AgendaPage';
-import AdminPanel    from './pages/AdminPanel';
-import PlanesPage    from './pages/PlanesPage';
-import NotFound      from './pages/NotFound';
-import Privacidad    from './pages/Privacidad';
-import Terminos      from './pages/Terminos';
+import Landing        from './pages/Landing';
+import Login          from './pages/Login';
+import Register       from './pages/Register';
+import OAuthCallback  from './pages/OAuthCallback';
+import Dashboard      from './pages/Dashboard';
+import ConfigPage     from './pages/ConfigPage';
+import AgendaPage     from './pages/AgendaPage';
+import AdminPanel     from './pages/AdminPanel';
+import PlanesPage     from './pages/PlanesPage';
+import NotFound       from './pages/NotFound';
+import Privacidad     from './pages/Privacidad';
+import Terminos       from './pages/Terminos';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword  from './pages/ResetPassword';
+import SugerenciasPage from './pages/SugerenciasPage';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -67,10 +68,11 @@ export default function App() {
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
 
         {/* Usuario autenticado */}
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/agenda"    element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
-        <Route path="/config"    element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
-        <Route path="/planes"    element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
+        <Route path="/dashboard"   element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/agenda"      element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
+        <Route path="/config"      element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
+        <Route path="/planes"      element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
+        <Route path="/sugerencias" element={<ProtectedRoute><SugerenciasPage /></ProtectedRoute>} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />

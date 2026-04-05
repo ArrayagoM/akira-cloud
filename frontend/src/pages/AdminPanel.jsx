@@ -5,7 +5,8 @@ import toast from 'react-hot-toast';
 import {
   Users, Bot, AlertTriangle, Activity, Search, Shield,
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
-  Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck
+  Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck,
+  Lightbulb, TrendingUp
 } from 'lucide-react';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
@@ -209,6 +210,18 @@ export default function AdminPanel() {
   const [total,   setTotal]   = useState(0);
   const [selected, setSelected] = useState(null);
   const [loading,  setLoading]  = useState(false);
+  const [sugerencias, setSugerencias] = useState([]);
+  const [loadingSugs, setLoadingSugs] = useState(false);
+  const [filtroSug,   setFiltroSug]   = useState('');
+  const [actualizandoSug, setActualizandoSug] = useState(null);
+
+  const cargarSugerencias = useCallback(async () => {
+    setLoadingSugs(true);
+    try {
+      const r = await api.get('/suggestions');
+      setSugerencias(r.data.sugerencias || []);
+    } catch {} finally { setLoadingSugs(false); }
+  }, []);
 
   const cargarStats     = useCallback(async () => { const r = await api.get('/admin/dashboard'); setStats(r.data.stats); }, []);
   const cargarUsuarios  = useCallback(async () => {
@@ -242,6 +255,7 @@ export default function AdminPanel() {
   useEffect(() => { if (tab === 'logs')      cargarLogs(); },      [tab]);
   useEffect(() => { if (tab === 'bots')      cargarBots(); },      [tab]);
   useEffect(() => { if (tab === 'referidos') cargarReferidos(); }, [tab]);
+  useEffect(() => { if (tab === 'ideas') cargarSugerencias(); }, [tab, cargarSugerencias]);
 
   const handleAction = async (tipo, userId, payload) => {
     try {
@@ -265,11 +279,22 @@ export default function AdminPanel() {
     }
   };
 
+  const actualizarSugerencia = async (id, update) => {
+    setActualizandoSug(id);
+    try {
+      await api.patch(`/suggestions/${id}`, update);
+      toast.success('Sugerencia actualizada');
+      cargarSugerencias();
+    } catch { toast.error('Error al actualizar'); }
+    finally { setActualizandoSug(null); }
+  };
+
   const tabs = [
     { id: 'usuarios',  label: 'Usuarios',     icon: <Users size={15} /> },
     { id: 'bots',      label: 'Bots',         icon: <Bot size={15} /> },
     { id: 'logs',      label: 'Logs',         icon: <AlertTriangle size={15} /> },
     { id: 'referidos', label: 'Referidos',    icon: <GitBranch size={15} /> },
+    { id: 'ideas',     label: 'Ideas 💡',     icon: <Lightbulb size={15} /> },
   ];
 
   return (
@@ -565,6 +590,128 @@ export default function AdminPanel() {
           </div>
         )}
       </div>
+
+        {/* ── TAB: Ideas ── */}
+        {tab === 'ideas' && (
+          <div className="space-y-4">
+            {/* Filtros */}
+            <div className="flex gap-2 flex-wrap">
+              {['', 'analizada', 'en_progreso', 'implementada', 'descartada'].map(e => (
+                <button key={e} onClick={() => setFiltroSug(e)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    filtroSug === e
+                      ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300'
+                      : 'border-gray-700 text-gray-500 hover:border-gray-600'
+                  }`}>
+                  {e === '' ? 'Todas' : e === 'analizada' ? 'Recibidas' : e === 'en_progreso' ? 'En desarrollo' : e === 'implementada' ? '✅ Implementadas' : '❌ Descartadas'}
+                </button>
+              ))}
+              <button onClick={cargarSugerencias} className="ml-auto btn-secondary text-xs py-1.5 px-3">
+                <RefreshCw size={12} className={loadingSugs ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            {loadingSugs ? (
+              <div className="card text-center py-10 text-gray-600">Cargando...</div>
+            ) : sugerencias.filter(s => !filtroSug || s.estado === filtroSug).length === 0 ? (
+              <div className="card text-center py-10 text-gray-600">No hay sugerencias{filtroSug ? ` con estado "${filtroSug}"` : ''}</div>
+            ) : (
+              <div className="space-y-3">
+                {sugerencias
+                  .filter(s => !filtroSug || s.estado === filtroSug)
+                  .map(s => {
+                    const scoreColor =
+                      !s.puntuacion ? 'text-gray-600' :
+                      s.puntuacion >= 8 ? 'text-green-400' :
+                      s.puntuacion >= 5 ? 'text-yellow-400' : 'text-gray-500';
+                    const scoreBg =
+                      !s.puntuacion ? 'bg-gray-800' :
+                      s.puntuacion >= 8 ? 'bg-green-500/15 border border-green-500/30' :
+                      s.puntuacion >= 5 ? 'bg-yellow-500/10 border border-yellow-500/20' : 'bg-gray-800';
+                    return (
+                      <div key={s._id} className="card space-y-3">
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="text-xs text-gray-400 font-medium">{s.userNombre}</span>
+                              <span className="text-xs text-gray-600">{s.userEmail}</span>
+                              <span className="text-[10px] text-gray-600">
+                                {new Date(s.createdAt).toLocaleDateString('es-AR')}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-200 leading-relaxed">{s.texto}</p>
+                          </div>
+                          {/* Score */}
+                          {s.puntuacion && (
+                            <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex flex-col items-center justify-center ${scoreBg}`}>
+                              <span className={`text-lg font-extrabold leading-none ${scoreColor}`}>{s.puntuacion}</span>
+                              <span className="text-[9px] text-gray-600">/10</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Análisis IA */}
+                        {s.analisisIA?.resumen && (
+                          <div className="bg-gray-900/50 rounded-xl p-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div>
+                              <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-0.5">Categoría</p>
+                              <p className="text-xs text-white font-medium">{s.analisisIA.categoria || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-0.5">Dificultad</p>
+                              <p className={`text-xs font-medium ${s.analisisIA.dificultad === 'alta' ? 'text-red-400' : s.analisisIA.dificultad === 'media' ? 'text-yellow-400' : 'text-green-400'}`}>
+                                {s.analisisIA.dificultad || '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-0.5">Prioridad</p>
+                              <p className={`text-xs font-medium ${s.analisisIA.prioridad === 'crítica' ? 'text-red-400' : s.analisisIA.prioridad === 'alta' ? 'text-orange-400' : s.analisisIA.prioridad === 'media' ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                {s.analisisIA.prioridad || '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-0.5">Estado</p>
+                              <p className="text-xs text-gray-300">{s.estado}</p>
+                            </div>
+                            {s.analisisIA.resumen && (
+                              <div className="col-span-2 sm:col-span-4">
+                                <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-0.5">Análisis</p>
+                                <p className="text-xs text-gray-400">{s.analisisIA.resumen}</p>
+                                {s.analisisIA.valor && <p className="text-xs text-gray-500 mt-0.5 italic">{s.analisisIA.valor}</p>}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Acciones admin */}
+                        <div className="flex gap-2 flex-wrap items-center border-t border-gray-800/60 pt-3">
+                          {['en_progreso','implementada','descartada'].map(estado => (
+                            <button key={estado}
+                              onClick={() => actualizarSugerencia(s._id, { estado })}
+                              disabled={actualizandoSug === s._id || s.estado === estado}
+                              className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 ${
+                                s.estado === estado
+                                  ? 'bg-green-500/20 border-green-500/40 text-green-300'
+                                  : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
+                              }`}>
+                              {estado === 'en_progreso' ? '🔨 En desarrollo' : estado === 'implementada' ? '✅ Implementada' : '❌ Descartar'}
+                            </button>
+                          ))}
+                          <input
+                            placeholder="Nota para el usuario..."
+                            defaultValue={s.notaAdmin || ''}
+                            onBlur={e => { if (e.target.value !== (s.notaAdmin || '')) actualizarSugerencia(s._id, { notaAdmin: e.target.value }); }}
+                            className="flex-1 min-w-[160px] text-xs input-base py-1"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
 
       {/* Modal */}
       {selected && <UserModal user={selected} onClose={() => setSelected(null)} onAction={handleAction} />}

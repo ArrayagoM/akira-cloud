@@ -3,16 +3,17 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
-  ChevronDown, CreditCard, CalendarDays,
+  ChevronDown, CreditCard, CalendarDays, Lightbulb,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
 
 const NAV_ITEMS_BASE = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/agenda',    icon: CalendarDays,    label: 'Agenda'    },
-  { to: '/config',    icon: Settings,        label: 'Config'    },
-  { to: '/planes',    icon: CreditCard,      label: 'Planes'    },
+  { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/agenda',      icon: CalendarDays,    label: 'Agenda'     },
+  { to: '/config',      icon: Settings,        label: 'Config'     },
+  { to: '/planes',      icon: CreditCard,      label: 'Planes'     },
+  { to: '/sugerencias', icon: Lightbulb,       label: 'Ideas'      },
 ];
 
 const PLAN_BADGE = {

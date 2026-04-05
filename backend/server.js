@@ -64,6 +64,7 @@ const botRoutes          = require('./routes/bot.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
 const turnosRoutes       = require('./routes/turnos.routes');
 const supportRoutes      = require('./routes/support.routes');
+const suggestionsRoutes  = require('./routes/suggestions.routes');
 
 // ── Passport config ─────────────────────────────────────────
 require('./config/passport')(passport);
@@ -183,6 +184,7 @@ app.use('/api/bot',          botRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/turnos',       turnosRoutes);
 app.use('/api/support',      supportRoutes);
+app.use('/api/suggestions',  suggestionsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
