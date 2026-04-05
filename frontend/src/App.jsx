@@ -14,6 +14,8 @@ import PlanesPage    from './pages/PlanesPage';
 import NotFound      from './pages/NotFound';
 import Privacidad    from './pages/Privacidad';
 import Terminos      from './pages/Terminos';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword  from './pages/ResetPassword';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -61,6 +63,8 @@ export default function App() {
         <Route path="/login"          element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register"       element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+        <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
 
         {/* Usuario autenticado */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

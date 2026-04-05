@@ -227,6 +227,10 @@ async function startBot(userId, slot = 0) {
         if (intentoActual >= MAX_INTENTOS) {
           logger.warn(`[BotMgr] Auto-restart: ${key} alcanzó ${MAX_INTENTOS} intentos sin éxito — deteniendo.`);
           emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart pausado tras ${MAX_INTENTOS} intentos. Presioná Iniciar manualmente.`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+          try {
+            const { enviarAlertaError } = require('./email.service');
+            enviarAlertaError(`Bot caído permanentemente\nUsuario: ${uid} Slot: ${slot}\nSe agotaron ${MAX_INTENTOS} intentos de reconexión.`).catch(() => {});
+          } catch (_) {}
           autoRestartTimers.delete(key);
           return;
         }

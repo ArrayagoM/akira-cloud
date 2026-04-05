@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import Layout from '../components/Layout';
 import api from '../services/api';
+import toast from 'react-hot-toast';
 import {
   CalendarDays, Clock, DollarSign, Phone, User, RefreshCw,
-  BedDouble, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Wrench,
+  BedDouble, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Wrench, Trash2,
 } from 'lucide-react';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ function CalendarGrid({ year, month, eventsByDate, selectedDate, onSelectDate, t
 }
 
 // ─── Tarjeta de evento (panel del día seleccionado) ───────────────────────────
-function EventCard({ r, tipoNegocio }) {
+function EventCard({ r, tipoNegocio, onCancelar, cancelando }) {
   const isPending = r._estado === 'pendiente';
 
   // ── Alojamiento ──
@@ -178,6 +179,16 @@ function EventCard({ r, tipoNegocio }) {
                 <DollarSign size={12} />{Number(r.totalPrecio).toLocaleString('es-AR')}
               </p>
             )}
+            {r._estado === 'confirmado' && onCancelar && (
+              <button
+                onClick={() => onCancelar(r._id)}
+                disabled={cancelando === r._id}
+                className="flex items-center gap-1 text-xs text-red-500 hover:text-red-400 transition-colors mt-1 disabled:opacity-50"
+              >
+                <Trash2 size={11} />
+                {cancelando === r._id ? 'Cancelando...' : 'Cancelar'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -219,6 +230,16 @@ function EventCard({ r, tipoNegocio }) {
                 <DollarSign size={12} />{Number(r.totalPrecio).toLocaleString('es-AR')}
               </p>
             )}
+            {r._estado === 'confirmado' && onCancelar && (
+              <button
+                onClick={() => onCancelar(r._id)}
+                disabled={cancelando === r._id}
+                className="flex items-center gap-1 text-xs text-red-500 hover:text-red-400 transition-colors mt-1 disabled:opacity-50"
+              >
+                <Trash2 size={11} />
+                {cancelando === r._id ? 'Cancelando...' : 'Cancelar'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -259,6 +280,16 @@ function EventCard({ r, tipoNegocio }) {
               <DollarSign size={12} />{Number(r.totalPrecio).toLocaleString('es-AR')}
             </p>
           )}
+          {r._estado === 'confirmado' && onCancelar && (
+            <button
+              onClick={() => onCancelar(r._id)}
+              disabled={cancelando === r._id}
+              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-400 transition-colors mt-1 disabled:opacity-50"
+            >
+              <Trash2 size={11} />
+              {cancelando === r._id ? 'Cancelando...' : 'Cancelar'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -276,6 +307,21 @@ export default function AgendaPage() {
   const [calYear,      setCalYear]      = useState(ahora.getFullYear());
   const [calMonth,     setCalMonth]     = useState(ahora.getMonth());
   const [selectedDate, setSelectedDate] = useState(hoy);
+  const [cancelando, setCancelando] = useState(null); // id del turno que se está cancelando
+
+  const cancelarTurno = async (turnoId) => {
+    if (!window.confirm('¿Cancelar este turno? Esta acción no se puede deshacer.')) return;
+    setCancelando(turnoId);
+    try {
+      await api.delete(`/turnos/${turnoId}`);
+      toast.success('Turno cancelado');
+      await fetchAgenda(); // recargar
+    } catch {
+      toast.error('Error al cancelar el turno');
+    } finally {
+      setCancelando(null);
+    }
+  };
 
   const fetchAgenda = async () => {
     setLoading(true); setError(null);
@@ -486,7 +532,7 @@ export default function AgendaPage() {
               ) : (
                 <div className="space-y-2">
                   {selectedEvents.map((r, i) => (
-                    <EventCard key={r._id || i} r={r} tipoNegocio={tipoNegocio} />
+                    <EventCard key={r._id || i} r={r} tipoNegocio={tipoNegocio} onCancelar={cancelarTurno} cancelando={cancelando} />
                   ))}
                 </div>
               )}

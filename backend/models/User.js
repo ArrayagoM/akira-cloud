@@ -84,6 +84,9 @@ const UserSchema = new mongoose.Schema(
     tokenVersion:        { type: Number, default: 0 },
     bloqueadoPor: { type: String }, // motivo del bloqueo
 
+    resetPasswordToken:   { type: String,  select: false },
+    resetPasswordExpires: { type: Date,    select: false },
+
     // Testers
     esTester: { type: Boolean, default: false },
 

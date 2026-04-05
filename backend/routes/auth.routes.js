@@ -481,4 +481,81 @@ router.get(
   },
 );
 
+// ─────────────────────────────────────────────────────────────
+//  POST /api/auth/forgot-password
+// ─────────────────────────────────────────────────────────────
+router.post('/forgot-password',
+  [body('email').isEmail().normalizeEmail()],
+  async (req, res) => {
+    const validErr = handleValidation(req, res);
+    if (validErr !== null) return;
+    try {
+      const user = await User.findOne({ email: req.body.email.toLowerCase() });
+      // Siempre responder igual — no revelar si el email existe
+      const okMsg = { msg: 'Si ese email está registrado, recibirás un link en minutos.' };
+      if (!user || user.auth_provider !== 'local') return res.json(okMsg);
+
+      const token = require('crypto').randomBytes(32).toString('hex');
+      const hash  = require('crypto').createHash('sha256').update(token).digest('hex');
+
+      await User.findByIdAndUpdate(user._id, {
+        resetPasswordToken:   hash,
+        resetPasswordExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hora
+      });
+
+      const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}&email=${encodeURIComponent(user.email)}`;
+      const { enviarRecuperoPassword } = require('../services/email.service');
+      await enviarRecuperoPassword(user.email, user.nombre, resetUrl);
+
+      await Log.registrar({ userId: user._id, tipo: 'auth_reset_request', mensaje: 'Solicitud de recupero de contraseña', ip: req.ip });
+      res.json(okMsg);
+    } catch (err) {
+      logger.error('[Auth] forgot-password error:', err.message);
+      res.status(500).json({ error: 'Error interno. Intentá de nuevo.' });
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/auth/reset-password
+// ─────────────────────────────────────────────────────────────
+router.post('/reset-password',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('token').notEmpty(),
+    body('password')
+      .isLength({ min: 8 })
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+      .withMessage('La contraseña debe tener mayúsculas, minúsculas y números'),
+  ],
+  async (req, res) => {
+    const validErr = handleValidation(req, res);
+    if (validErr !== null) return;
+    try {
+      const hash = require('crypto').createHash('sha256').update(req.body.token).digest('hex');
+      const user = await User.findOne({
+        email:                req.body.email.toLowerCase(),
+        resetPasswordToken:   hash,
+        resetPasswordExpires: { $gt: new Date() },
+      }).select('+resetPasswordToken +resetPasswordExpires +password');
+
+      if (!user) return res.status(400).json({ error: 'Link inválido o expirado. Solicitá uno nuevo.' });
+
+      user.password = req.body.password;
+      user.resetPasswordToken   = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+
+      // Invalidar todos los tokens activos
+      await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 } });
+      await Log.registrar({ userId: user._id, tipo: 'auth_reset_done', mensaje: 'Contraseña reseteada via email', ip: req.ip });
+
+      res.json({ msg: 'Contraseña actualizada correctamente. Ya podés iniciar sesión.' });
+    } catch (err) {
+      logger.error('[Auth] reset-password error:', err.message);
+      res.status(500).json({ error: 'Error interno. Intentá de nuevo.' });
+    }
+  }
+);
+
 module.exports = router;

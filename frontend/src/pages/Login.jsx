@@ -164,6 +164,14 @@ export default function Login() {
               </div>
             </div>
 
+            <div className="animate-fade-up delay-275 text-right -mt-1">
+              <Link to="/forgot-password" className="text-xs transition-colors" style={{ color: 'var(--muted)' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
+
             <div className="animate-fade-up delay-300">
               <button type="submit" disabled={loading} className="btn-primary w-full h-11">
                 {loading ? (

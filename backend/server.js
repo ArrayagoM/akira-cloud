@@ -19,6 +19,10 @@ process.on('uncaughtException', (err) => {
   } catch (_) {
     console.error('[FATAL] uncaughtException:', err);
   }
+  try {
+    const { enviarAlertaError } = require('./services/email.service');
+    enviarAlertaError(`uncaughtException: ${err.message}\n\n${err.stack}`).catch(() => {});
+  } catch (_) {}
   // Dar 1 segundo para que el logger escriba, luego salir
   // PM2 reinicia el proceso automáticamente
   setTimeout(() => process.exit(1), 1000);
