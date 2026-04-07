@@ -457,7 +457,17 @@ export default function ConfigPage() {
   };
 
   // ── Catálogo: funciones ──────────────────────────────────────
-  const agregarProducto = () => {
+  // Guarda el catálogo pasado como parámetro y actualiza el estado con la respuesta
+  const _guardarCatalogo = async (nuevoCatalogo) => {
+    try {
+      const r = await api.put('/config/catalogo', { catalogo: nuevoCatalogo });
+      if (Array.isArray(r.data.catalogo)) setCatalogo(r.data.catalogo);
+    } catch {
+      toast.error('Error al guardar el catálogo');
+    }
+  };
+
+  const agregarProducto = async () => {
     if (!nuevoProd.nombre.trim()) return;
     const prod = {
       nombre:      nuevoProd.nombre.trim(),
@@ -470,13 +480,27 @@ export default function ConfigPage() {
       moneda:      'ARS',
       fuente:      'manual',
     };
-    setCatalogo(c => [...c, prod]);
+    const nuevo = [...catalogo, prod];
+    setCatalogo(nuevo);
     setNuevoProd({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true });
     setMostrarFormProd(false);
+    setSavingCatalogo(true);
+    await _guardarCatalogo(nuevo);
+    setSavingCatalogo(false);
+    toast.success('Producto guardado');
   };
 
-  const eliminarProducto = (idx) => setCatalogo(c => c.filter((_, i) => i !== idx));
-  const toggleDisponible = (idx) => setCatalogo(c => c.map((p, i) => i === idx ? { ...p, disponible: !p.disponible } : p));
+  const eliminarProducto = async (idx) => {
+    const nuevo = catalogo.filter((_, i) => i !== idx);
+    setCatalogo(nuevo);
+    await _guardarCatalogo(nuevo);
+  };
+
+  const toggleDisponible = async (idx) => {
+    const nuevo = catalogo.map((p, i) => i === idx ? { ...p, disponible: !p.disponible } : p);
+    setCatalogo(nuevo);
+    await _guardarCatalogo(nuevo);
+  };
 
   const saveCatalogo = async () => {
     setSavingCatalogo(true);
