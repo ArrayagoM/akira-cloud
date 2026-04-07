@@ -843,40 +843,32 @@ export default function ConfigPage() {
 
             {/* Configuración de servicios */}
             {form.tipoNegocio === 'servicios' && (
-              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-4 space-y-4">
+              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-4 space-y-3">
                 <p className="text-xs font-semibold text-amber-300 uppercase tracking-wide">🔧 Modo Servicios</p>
-                <p className="text-xs text-gray-400">
-                  Ideal para <strong className="text-amber-200">lavaderos de autos, mecánicos, veterinarias</strong> y cualquier negocio donde se realiza un trabajo sobre un ítem específico (vehículo, mascota, objeto).
+
+                {/* Qué hace el bot — simple */}
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  El cliente escribe por WhatsApp, el bot le pregunta qué necesita, anota los datos
+                  del <strong className="text-amber-200">auto / mascota / objeto</strong> y agenda el turno automáticamente.
+                  Vos recibís el aviso en tu celular.
                 </p>
 
-                {/* Flujo del bot */}
-                <div className="space-y-2 border-t border-amber-800/30 pt-3">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">🤖 Flujo automático del bot</p>
-                  <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
-                    <li>Pregunta qué <strong className="text-amber-200">servicio</strong> quiere el cliente</li>
-                    <li>Pide los datos del ítem <span className="text-gray-500">(patente + modelo, nombre de mascota, etc.)</span></li>
-                    <li>Consulta disponibilidad de horarios</li>
-                    <li>Cliente elige y confirma</li>
-                    <li>El bot agenda y notifica al dueño</li>
-                  </ol>
-                </div>
-
-                {/* Comando akira listo */}
-                <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-3 border-t border-amber-800/30">
-                  <p className="text-xs font-semibold text-amber-300 mb-1">📲 Comando para avisar que el trabajo está listo</p>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Cuando termines el trabajo, escribí desde tu WhatsApp:
+                {/* Comando akira listo — lo más importante */}
+                <div className="bg-gray-900/60 border border-amber-700/30 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold text-amber-300">
+                    📲 Cuando terminés el trabajo, avisale al cliente así:
                   </p>
-                  <div className="bg-gray-900/60 rounded-lg px-3 py-2 font-mono text-xs text-green-300">
+                  <div className="font-mono text-sm text-green-300 bg-black/30 rounded px-3 py-2 tracking-wide">
                     akira listo ABC123
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    El bot busca al cliente con esa patente/ítem y le manda automáticamente: <em>"¡Tu Lavado completo ya está listo! Podés venir a buscarlo 😊"</em>
+                  <p className="text-xs text-gray-500">
+                    Reemplazá <strong className="text-gray-400">ABC123</strong> por la patente, nombre de la mascota o el identificador del trabajo.
+                    El bot busca al dueño y le manda el aviso automáticamente. 🎉
                   </p>
                 </div>
 
-                <p className="text-xs text-gray-500">
-                  ↓ Agregá los servicios que ofrecés (nombre, precio, duración) en la sección <strong className="text-gray-400">🛠️ Servicios</strong> de abajo.
+                <p className="text-xs text-gray-500 pt-1">
+                  👇 Cargá tus servicios con nombre, precio y duración en la sección <strong className="text-gray-400">🛠️ Lista de servicios</strong> de abajo.
                 </p>
               </div>
             )}
@@ -982,18 +974,24 @@ export default function ConfigPage() {
             {/* Lista de servicios */}
             {form.serviciosList.length > 0 ? (
               <div className="space-y-2">
-                {form.serviciosList.map((s, idx) => (
+                {form.serviciosList.map((s, idx) => {
+                  const mins = s.duracion || 60;
+                  const h = Math.floor(mins / 60);
+                  const m = mins % 60;
+                  const durLabel = h === 0 ? `${mins} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+                  return (
                   <div key={idx} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5">
                     <div className="flex items-center gap-4 min-w-0">
                       <span className="text-sm font-medium text-white truncate">{s.nombre}</span>
                       <span className="text-xs text-green-400 flex-shrink-0">${s.precio.toLocaleString('es-AR')}</span>
-                      <span className="text-xs text-gray-500 flex-shrink-0">{s.duracion} min</span>
+                      <span className="text-xs text-gray-500 flex-shrink-0">⏱ {durLabel}</span>
                     </div>
                     <button onClick={() => eliminarServicio(idx)} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0 ml-2">
                       <X size={14} />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-6 border border-dashed border-gray-700 rounded-lg">
@@ -1028,15 +1026,24 @@ export default function ConfigPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Duración (minutos)</label>
-                    <input
-                      type="number"
-                      min="1"
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Duración del trabajo</label>
+                    <select
                       value={nuevoServicio.duracion}
                       onChange={e => setNuevoServicio(s => ({ ...s, duracion: e.target.value }))}
                       className="input-base"
-                      placeholder="60"
-                    />
+                    >
+                      <option value="30">30 minutos</option>
+                      <option value="45">45 minutos</option>
+                      <option value="60">1 hora</option>
+                      <option value="90">1 hora 30 min</option>
+                      <option value="120">2 horas</option>
+                      <option value="150">2 horas 30 min</option>
+                      <option value="180">3 horas</option>
+                      <option value="240">4 horas</option>
+                      <option value="300">5 horas</option>
+                      <option value="360">6 horas</option>
+                      <option value="480">8 horas</option>
+                    </select>
                   </div>
                 </div>
                 <div className="flex gap-2">
