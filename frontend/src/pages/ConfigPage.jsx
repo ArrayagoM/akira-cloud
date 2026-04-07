@@ -270,13 +270,13 @@ export default function ConfigPage() {
   const DIAS_ORDEN = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo'];
   const DIAS_LABEL = { lunes:'Lunes', martes:'Martes', miercoles:'Miércoles', jueves:'Jueves', viernes:'Viernes', sabado:'Sábado', domingo:'Domingo' };
   const HORARIOS_DEFAULT = {
-    lunes:     { activo: true,  inicio: '09:00', fin: '18:00' },
-    martes:    { activo: true,  inicio: '09:00', fin: '18:00' },
-    miercoles: { activo: true,  inicio: '09:00', fin: '18:00' },
-    jueves:    { activo: true,  inicio: '09:00', fin: '18:00' },
-    viernes:   { activo: true,  inicio: '09:00', fin: '18:00' },
-    sabado:    { activo: true,  inicio: '09:00', fin: '13:00' },
-    domingo:   { activo: false, inicio: '09:00', fin: '18:00' },
+    lunes:     { activo: true,  franjas: [{ inicio: '09:00', fin: '18:00' }] },
+    martes:    { activo: true,  franjas: [{ inicio: '09:00', fin: '18:00' }] },
+    miercoles: { activo: true,  franjas: [{ inicio: '09:00', fin: '18:00' }] },
+    jueves:    { activo: true,  franjas: [{ inicio: '09:00', fin: '18:00' }] },
+    viernes:   { activo: true,  franjas: [{ inicio: '09:00', fin: '18:00' }] },
+    sabado:    { activo: true,  franjas: [{ inicio: '09:00', fin: '13:00' }] },
+    domingo:   { activo: false, franjas: [{ inicio: '09:00', fin: '18:00' }] },
   };
   const [horarios, setHorarios]                     = useState(HORARIOS_DEFAULT);
   const [celularNotificaciones, setCelularNotif]    = useState('');
@@ -375,7 +375,21 @@ export default function ConfigPage() {
         linkUbicacion:         c.linkUbicacion  || '',
       });
       if (c.horariosAtencion && Object.keys(c.horariosAtencion).length > 0) {
-        setHorarios({ ...HORARIOS_DEFAULT, ...c.horariosAtencion });
+        // Normalizar: migrar formato legado { inicio, fin } → { franjas: [...] }
+        const normalized = { ...HORARIOS_DEFAULT };
+        for (const [dia, conf] of Object.entries(c.horariosAtencion)) {
+          if (!conf) continue;
+          const base = { activo: conf.activo ?? true };
+          if (Array.isArray(conf.franjas) && conf.franjas.length > 0) {
+            base.franjas = conf.franjas;
+          } else if (conf.inicio) {
+            base.franjas = [{ inicio: conf.inicio, fin: conf.fin || '18:00' }];
+          } else {
+            base.franjas = [{ inicio: '09:00', fin: '18:00' }];
+          }
+          normalized[dia] = base;
+        }
+        setHorarios(normalized);
       }
       setCelularNotif(c.celularNotificaciones || '');
       setModoPausa(!!c.modoPausa);
@@ -1303,38 +1317,90 @@ export default function ConfigPage() {
         {form.tipoNegocio !== 'alojamiento' && <SeccionCollapsible titulo="⏰ Horarios de atención" delay={540}>
           <div className="space-y-4">
             <p className="text-xs text-gray-500">Configurá en qué días y horarios recibís clientes. El bot solo ofrecerá turnos en los horarios activos.</p>
-            <div className="space-y-2">
-              {DIAS_ORDEN.map(dia => (
-                <div key={dia} className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setHorarios(h => ({ ...h, [dia]: { ...h[dia], activo: !h[dia].activo } }))}
-                    className={`w-10 h-5 rounded-full transition-colors flex-shrink-0 ${horarios[dia]?.activo ? 'bg-indigo-600' : 'bg-gray-700'}`}
-                  >
-                    <span className={`block w-4 h-4 rounded-full bg-white mx-0.5 transition-transform ${horarios[dia]?.activo ? 'translate-x-5' : 'translate-x-0'}`} />
-                  </button>
-                  <span className={`text-sm w-20 flex-shrink-0 ${horarios[dia]?.activo ? 'text-white' : 'text-gray-600'}`}>{DIAS_LABEL[dia]}</span>
-                  {horarios[dia]?.activo ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <input
-                        type="time"
-                        value={horarios[dia]?.inicio || '09:00'}
-                        onChange={e => setHorarios(h => ({ ...h, [dia]: { ...h[dia], inicio: e.target.value } }))}
-                        className="input-base py-1 text-xs w-28"
-                      />
-                      <span className="text-gray-600 text-xs">a</span>
-                      <input
-                        type="time"
-                        value={horarios[dia]?.fin || '18:00'}
-                        onChange={e => setHorarios(h => ({ ...h, [dia]: { ...h[dia], fin: e.target.value } }))}
-                        className="input-base py-1 text-xs w-28"
-                      />
+            <div className="space-y-3">
+              {DIAS_ORDEN.map(dia => {
+                const diaConf = horarios[dia] || { activo: false, franjas: [{ inicio: '09:00', fin: '18:00' }] };
+                const franjas = diaConf.franjas?.length > 0
+                  ? diaConf.franjas
+                  : [{ inicio: diaConf.inicio || '09:00', fin: diaConf.fin || '18:00' }];
+
+                const toggleDia = () => setHorarios(h => ({
+                  ...h, [dia]: { ...h[dia], activo: !h[dia]?.activo }
+                }));
+                const addFranja = () => setHorarios(h => ({
+                  ...h, [dia]: { ...h[dia], franjas: [...franjas, { inicio: '17:00', fin: '21:00' }] }
+                }));
+                const removeFranja = (fi) => setHorarios(h => ({
+                  ...h, [dia]: { ...h[dia], franjas: franjas.filter((_, i) => i !== fi) }
+                }));
+                const updateFranja = (fi, campo, val) => setHorarios(h => {
+                  const nf = franjas.map((f, i) => i === fi ? { ...f, [campo]: val } : f);
+                  return { ...h, [dia]: { ...h[dia], franjas: nf } };
+                });
+
+                return (
+                  <div key={dia} className="space-y-1.5">
+                    {/* Fila principal: toggle + nombre del día */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={toggleDia}
+                        className={`w-10 h-5 rounded-full transition-colors flex-shrink-0 ${diaConf.activo ? 'bg-indigo-600' : 'bg-gray-700'}`}
+                      >
+                        <span className={`block w-4 h-4 rounded-full bg-white mx-0.5 transition-transform ${diaConf.activo ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </button>
+                      <span className={`text-sm w-20 flex-shrink-0 font-medium ${diaConf.activo ? 'text-white' : 'text-gray-600'}`}>
+                        {DIAS_LABEL[dia]}
+                      </span>
+                      {!diaConf.activo && <span className="text-xs text-gray-600 italic">Cerrado</span>}
                     </div>
-                  ) : (
-                    <span className="text-xs text-gray-600 italic">Cerrado</span>
-                  )}
-                </div>
-              ))}
+
+                    {/* Franjas horarias (solo si el día está activo) */}
+                    {diaConf.activo && (
+                      <div className="ml-13 pl-[3.25rem] space-y-1.5">
+                        {franjas.map((franja, fi) => (
+                          <div key={fi} className="flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={franja.inicio}
+                              onChange={e => updateFranja(fi, 'inicio', e.target.value)}
+                              className="input-base py-1 text-xs w-28"
+                            />
+                            <span className="text-gray-600 text-xs">a</span>
+                            <input
+                              type="time"
+                              value={franja.fin}
+                              onChange={e => updateFranja(fi, 'fin', e.target.value)}
+                              className="input-base py-1 text-xs w-28"
+                            />
+                            {fi > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => removeFranja(fi)}
+                                className="text-gray-600 hover:text-red-400 transition-colors ml-1"
+                                title="Eliminar este horario"
+                              >
+                                <X size={13} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {/* Botón para agregar corte/descanso — máx 3 franjas */}
+                        {franjas.length < 3 && (
+                          <button
+                            type="button"
+                            onClick={addFranja}
+                            className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                          >
+                            <Plus size={11} />
+                            Agregar horario cortado
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Celular notificaciones */}

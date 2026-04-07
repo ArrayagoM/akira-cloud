@@ -529,6 +529,19 @@ function recargarCalendar(userId, slot = 0) {
   return false;
 }
 
+// Notifica al bot que recargue toda su config desde la DB en caliente
+// (horarios, días bloqueados, modo pausa, prompt, etc.)
+function recargarConfig(userId, slot = 0) {
+  const uid = String(userId);
+  const key = botKey(uid, slot);
+  const bot = instancias.get(key);
+  if (bot) {
+    bot.emit('config:reload');
+    return true;
+  }
+  return false;
+}
+
 // Envía un mensaje WhatsApp desde afuera del bot (usado por reengagement, analytics, etc.)
 async function enviarMensajeExterno(userId, jid, texto) {
   const uid = String(userId);
@@ -559,6 +572,7 @@ module.exports = {
   getActiveUserIds,
   triggerCatalogSync,
   recargarCalendar,
+  recargarConfig,
   enviarMensajeExterno,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

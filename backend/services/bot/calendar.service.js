@@ -53,10 +53,19 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
     const fechaObj  = new Date(y, m - 1, d);
     const diaNombre = DIA_NOMBRE[fechaObj.getDay()];
 
-    let hIni = typeof horaInicio === 'number' ? horaInicio : 9;
-    let hFin = typeof horaFin   === 'number' ? horaFin   : 18;
+    // Helpers de conversión minutos ↔ "H:MM"
+    const toMins = (hhmm) => {
+      const [h, min] = (hhmm || '00:00').split(':').map(Number);
+      return (h || 0) * 60 + (min || 0);
+    };
+    const toStr = (totalMins) => {
+      const h   = Math.floor(totalMins / 60);
+      const min = totalMins % 60;
+      return `${h}:${min.toString().padStart(2, '0')}`;
+    };
 
-    log(`[Calendar] horariosLibres ${fecha} (${diaNombre}) hIni=${hIni} hFin=${hFin} userId=${userId}`);
+    // Determinar franjas horarias del día
+    let franjas = [];
 
     if (horarios && horarios[diaNombre]) {
       const diaConf = horarios[diaNombre];
@@ -64,26 +73,46 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
         log(`[Calendar] ${diaNombre} marcado como inactivo en horarios`);
         return [];
       }
-      hIni = parseInt((diaConf.inicio || '09:00').split(':')[0]);
-      hFin = parseInt((diaConf.fin   || '18:00').split(':')[0]);
-      log(`[Calendar] Horario del día configurado: ${hIni}–${hFin}`);
+      if (Array.isArray(diaConf.franjas) && diaConf.franjas.length > 0) {
+        // Nuevo formato: múltiples franjas (ej. 9-13 y 17-21:30)
+        franjas = diaConf.franjas.map(f => ({
+          ini: toMins(f.inicio || '09:00'),
+          fin: toMins(f.fin   || '18:00'),
+        }));
+      } else {
+        // Formato legado: un solo rango inicio/fin
+        franjas = [{
+          ini: toMins(diaConf.inicio || '09:00'),
+          fin: toMins(diaConf.fin   || '18:00'),
+        }];
+      }
+    } else {
+      const hIni = typeof horaInicio === 'number' ? horaInicio : 9;
+      const hFin = typeof horaFin   === 'number' ? horaFin   : 18;
+      franjas = [{ ini: hIni * 60, fin: hFin * 60 }];
     }
 
-    const dur = typeof duracion === 'number' ? duracion : 1;
-    const ini = crearFecha(y, m, d, hIni);
-    const fin = crearFecha(y, m, d, hFin);
-    const ev  = await obtenerEventos(calendarId || 'principal', ini, fin);
+    log(`[Calendar] ${fecha} (${diaNombre}) franjas: ${franjas.map(f => `${toStr(f.ini)}-${toStr(f.fin)}`).join(', ')} userId=${userId}`);
+
+    const durMins = (typeof duracion === 'number' ? duracion : 1) * 60;
+
+    // Buscar eventos en el día completo (cubre todas las franjas)
+    const dayStart = crearFecha(y, m, d, 0, 0);
+    const dayEnd   = crearFecha(y, m, d, 23, 59);
+    const ev = await obtenerEventos(calendarId || 'principal', dayStart, dayEnd);
 
     const libres = [];
-    for (let h = hIni; h + dur <= hFin; h++) {
-      const si = crearFecha(y, m, d, h);
-      const sf = crearFecha(y, m, d, h + dur);
-      const ocupado = ev.some(e => {
-        const ei = new Date(e.start.dateTime);
-        const ef = new Date(e.end.dateTime);
-        return si < ef && sf > ei;
-      });
-      if (!ocupado) libres.push(`${h}:00 - ${h + dur}:00`);
+    for (const franja of franjas) {
+      for (let mins = franja.ini; mins + durMins <= franja.fin; mins += durMins) {
+        const si = crearFecha(y, m, d, Math.floor(mins / 60), mins % 60);
+        const sf = crearFecha(y, m, d, Math.floor((mins + durMins) / 60), (mins + durMins) % 60);
+        const ocupado = ev.some(e => {
+          const ei = new Date(e.start.dateTime);
+          const ef = new Date(e.end.dateTime);
+          return si < ef && sf > ei;
+        });
+        if (!ocupado) libres.push(`${toStr(mins)} - ${toStr(mins + durMins)}`);
+      }
     }
     return libres;
   }

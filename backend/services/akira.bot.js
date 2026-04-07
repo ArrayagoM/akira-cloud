@@ -44,19 +44,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const RIME_API_KEY              = config.RIME_API_KEY || '';
   const HORAS_MINIMAS_CANCELACION = parseInt(config.HORAS_MINIMAS_CANCELACION || '24');
   const CALENDAR_ID               = config.CALENDAR_ID || 'primary';
-  const PROMPT_EXTRA              = config.PROMPT_PERSONALIZADO || '';
+  let   PROMPT_EXTRA              = config.PROMPT_PERSONALIZADO || '';
   const ALIAS_TRANSFERENCIA       = config.ALIAS_TRANSFERENCIA || '';
   const CBU_TRANSFERENCIA         = config.CBU_TRANSFERENCIA   || '';
   const BANCO_TRANSFERENCIA       = config.BANCO_TRANSFERENCIA || '';
-  const SERVICIOS_LIST            = (() => { try { return JSON.parse(config.SERVICIOS_LIST || '[]'); } catch { return []; } })();
+  let   SERVICIOS_LIST            = (() => { try { return JSON.parse(config.SERVICIOS_LIST || '[]'); } catch { return []; } })();
   const DURACION_RESERVA_HORAS    = 1;
   const HORA_INICIO_DIA           = 9;
   const HORA_FIN_DIA              = 18;
   const ZONA_HORARIA              = 'America/Argentina/Buenos_Aires';
-  const HORARIOS_ATENCION         = (() => { try { return JSON.parse(config.HORARIOS_ATENCION || '{}'); } catch { return {}; } })();
-  const DIAS_BLOQUEADOS           = (() => { try { return JSON.parse(config.DIAS_BLOQUEADOS || '[]'); } catch { return []; } })();
-  const MODO_PAUSA                = config.MODO_PAUSA === 'true';
-  const CELULAR_NOTIFICACIONES    = config.CELULAR_NOTIFICACIONES || '';
+  let   HORARIOS_ATENCION         = (() => { try { return JSON.parse(config.HORARIOS_ATENCION || '{}'); } catch { return {}; } })();
+  let   DIAS_BLOQUEADOS           = (() => { try { return JSON.parse(config.DIAS_BLOQUEADOS || '[]'); } catch { return []; } })();
+  let   MODO_PAUSA                = config.MODO_PAUSA === 'true';
+  let   CELULAR_NOTIFICACIONES    = config.CELULAR_NOTIFICACIONES || '';
   const GOOGLE_CALENDAR_TOKENS    = (() => { try { return JSON.parse(config.GOOGLE_CALENDAR_TOKENS || ''); } catch { return null; } })();
   const TIPO_NEGOCIO              = config.TIPO_NEGOCIO    || 'turnos';
   const CHECK_IN_HORA             = config.CHECK_IN_HORA   || '14:00';
@@ -89,13 +89,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const db       = crearPersistencia(dataDir, log);
   // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
   const clientesSvc = crearMongoClientesService(USER_ID, log);
-  const calendar = crearCalendarService({
-    userId: USER_ID,
-    calendarId: CALENDAR_ID || 'principal',
-    horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
-    duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA,
-    horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,
-  });
+
+  // Helper: crea/recrea el calendar service con la config actual
+  // (se llama al iniciar y cada vez que el usuario guarda cambios en el dashboard)
+  function _crearCalendar() {
+    return crearCalendarService({
+      userId: USER_ID,
+      calendarId: CALENDAR_ID || 'principal',
+      horaInicio: HORA_INICIO_DIA, horaFin: HORA_FIN_DIA,
+      duracion: DURACION_RESERVA_HORAS, zonaHoraria: ZONA_HORARIA,
+      horarios: HORARIOS_ATENCION, diasBloqueados: DIAS_BLOQUEADOS, log,
+    });
+  }
+  let calendar = _crearCalendar();
   const mp      = crearMPService({ accessToken: MP_ACCESS_TOKEN, precioTurno: PRECIO_TURNO, duracion: DURACION_RESERVA_HORAS, negocio: NEGOCIO, ngrokDomain: NGROK_DOMAIN, log });
   const groqSvc     = crearGroqService({ apiKey: GROQ_API_KEY, modelo: MODELO, log, tipoNegocio: TIPO_NEGOCIO, catalogo: CATALOGO });
   const waitlistSvc = crearWaitlistService({ userId: USER_ID, calendarId: CALENDAR_ID, log });
@@ -372,7 +378,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       ? DIAS_ORDER.map(d => {
           const h = HORARIOS_ATENCION[d];
           if (!h) return null;
-          return h.activo ? `${DIAS_LABELS[d]} ${h.inicio}–${h.fin}` : `${DIAS_LABELS[d]} Cerrado`;
+          if (!h.activo) return `${DIAS_LABELS[d]} Cerrado`;
+          // Soporte para múltiples franjas (ej. 9-13 y 17-21:30)
+          if (Array.isArray(h.franjas) && h.franjas.length > 0) {
+            return `${DIAS_LABELS[d]} ${h.franjas.map(f => `${f.inicio}–${f.fin}`).join(' y ')}`;
+          }
+          return `${DIAS_LABELS[d]} ${h.inicio}–${h.fin}`;
         }).filter(Boolean).join(' | ')
       : `Lun–Vie 09:00–18:00 | Sáb 09:00–13:00 | Dom Cerrado`;
 
@@ -1607,6 +1618,27 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         log('⚠️ calendar:reload error: ' + e.message);
       }
     });
+
+    // Recargar configuración en caliente — se dispara cuando el usuario
+    // guarda cambios desde el dashboard sin necesidad de reiniciar el bot
+    emitter.on('config:reload', async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID });
+        if (!cfg) return;
+        HORARIOS_ATENCION      = cfg.horariosAtencion    || {};
+        DIAS_BLOQUEADOS        = cfg.diasBloqueados       || [];
+        MODO_PAUSA             = cfg.modoPausa            || false;
+        CELULAR_NOTIFICACIONES = cfg.celularNotificaciones || '';
+        PROMPT_EXTRA           = cfg.promptPersonalizado  || '';
+        SERVICIOS_LIST         = (() => { try { return cfg.serviciosList || []; } catch { return []; } })();
+        // Recrear el calendar service con los nuevos horarios/días bloqueados
+        calendar = _crearCalendar();
+        log('⚙️ Configuración recargada en caliente — sin reiniciar el bot');
+      } catch (e) {
+        log('⚠️ config:reload error: ' + e.message);
+      }
+    });
+
     log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
     await conectar();
   }

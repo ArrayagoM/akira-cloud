@@ -141,6 +141,19 @@ router.get('/google/check', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  Helper: notificar al bot activo que recargue config en caliente
+// ─────────────────────────────────────────────────────────────
+function _notificarRecargarConfig(userId) {
+  try {
+    const botManager    = require('../services/bot.manager');
+    const workerHandler = require('../services/worker.handler');
+    if (!botManager.recargarConfig(userId) && workerHandler.isWorkerAvailable()) {
+      workerHandler.sendToWorker('worker:config-reload', { userId: String(userId) });
+    }
+  } catch (e) { logger.warn('[Config] recargarConfig: ' + e.message); }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Todas las rutas siguientes requieren auth
 // ─────────────────────────────────────────────────────────────
 router.use(requireAuth);
@@ -237,6 +250,7 @@ router.put('/negocio', [
     );
 
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: 'Datos del negocio actualizados' });
+    _notificarRecargarConfig(req.user._id);
     res.json({ config: config.toJSON(), keys: config.resumenKeys() });
 
   } catch (err) {
@@ -261,6 +275,7 @@ router.put('/horarios', async (req, res) => {
       { upsert: true, new: true }
     );
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: 'Horarios de atención actualizados' });
+    _notificarRecargarConfig(req.user._id);
     res.json({ config: config.toJSON(), keys: config.resumenKeys() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -279,6 +294,7 @@ router.put('/pausa', async (req, res) => {
       { upsert: true, new: true }
     );
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Modo pausa ${modoPausa ? 'activado' : 'desactivado'}` });
+    _notificarRecargarConfig(req.user._id);
     res.json({ modoPausa: config.modoPausa });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -300,6 +316,7 @@ router.put('/dias-bloqueados', async (req, res) => {
 
     const config = await Config.findOneAndUpdate({ userId: req.user._id }, update, { upsert: true, new: true });
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Día ${accion === 'quitar' ? 'desbloqueado' : 'bloqueado'}: ${fecha}` });
+    _notificarRecargarConfig(req.user._id);
     res.json({ diasBloqueados: config.diasBloqueados });
   } catch (err) {
     res.status(500).json({ error: err.message });
