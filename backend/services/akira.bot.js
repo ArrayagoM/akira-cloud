@@ -1647,6 +1647,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       }
     });
 
+    // Actualizar silenciado de un cliente en la caché RAM (desde el dashboard)
+    emitter.on('cliente:silenciar', ({ jid, silenciado }) => {
+      const u = clientesSvc.cargarMemoria(jid);
+      if (u) {
+        u.silenciado = !!silenciado;
+        clientesSvc.guardarMemoria(jid, u);
+        log(`🔇 Cliente ${jid} silenciado=${silenciado} (actualizado en caliente)`);
+      }
+    });
+
     log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
     await conectar();
   }

@@ -215,9 +215,6 @@ export default function Dashboard() {
   const [modoPausa, setModoPausa] = useState(false);
   const [savingPausa, setSavingPausa] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [chatsIgnorados, setChatsIgnorados] = useState([]);
-  const [nuevoIgnorado, setNuevoIgnorado] = useState('');
-  const [savingIgnorado, setSavingIgnorado] = useState(false);
   const logsRef = useRef(null);
 
   // ── Cargar cuentas (Agencia) ─────────────────────────────────
@@ -233,10 +230,7 @@ export default function Dashboard() {
     api.get(`/bot/status?slot=${activeSlot}`).then(r => setBotStatus(r.data)).catch(() => {});
     api.get('/bot/stats').then(r => setStats(r.data)).catch(() => {});
     api.get('/bot/logs?limit=30').then(r => setLogs(r.data.logs.reverse())).catch(() => {});
-    api.get('/config').then(r => {
-      setModoPausa(!!r.data.config?.modoPausa);
-      setChatsIgnorados(r.data.config?.chatsIgnorados || []);
-    }).catch(() => {});
+    api.get('/config').then(r => setModoPausa(!!r.data.config?.modoPausa)).catch(() => {});
     if (isAgencia) loadAccounts();
   }, [activeSlot, isAgencia, loadAccounts]);
 
@@ -358,25 +352,6 @@ export default function Dashboard() {
     if (msg.includes('🔧') || msg.includes('Tool')) return 'text-blue-400';
     if (msg.includes('🤖')) return 'text-purple-400';
     return 'text-gray-400';
-  };
-
-  const agregarIgnorado = async () => {
-    const num = nuevoIgnorado.replace(/\D/g, '');
-    if (num.length < 6) { toast.error('Ingresá un número válido'); return; }
-    setSavingIgnorado(true);
-    try {
-      const r = await api.put('/config/chats-ignorados', { numero: num, accion: 'agregar' });
-      setChatsIgnorados(r.data.chatsIgnorados);
-      setNuevoIgnorado('');
-    } catch { toast.error('Error al bloquear el número'); }
-    finally { setSavingIgnorado(false); }
-  };
-
-  const quitarIgnorado = async (num) => {
-    try {
-      const r = await api.put('/config/chats-ignorados', { numero: num, accion: 'quitar' });
-      setChatsIgnorados(r.data.chatsIgnorados);
-    } catch { toast.error('Error al desbloquear'); }
   };
 
   const togglePausa = async () => {
@@ -542,71 +517,6 @@ export default function Dashboard() {
               ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               : modoPausa ? 'Reactivar' : 'Pausar bot'}
           </button>
-        </div>
-
-        {/* Chats ignorados por el bot */}
-        <div className="rounded-xl px-4 py-4 space-y-3 animate-fade-up delay-150"
-          style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center gap-2">
-            <X size={16} style={{ color: '#f43f5e' }} />
-            <p className="text-sm font-semibold text-white">Números bloqueados</p>
-            {chatsIgnorados.length > 0 && (
-              <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(244,63,94,0.12)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.2)' }}>
-                {chatsIgnorados.length}
-              </span>
-            )}
-          </div>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            El bot ignora completamente estos números — no responde ni procesa sus mensajes.
-          </p>
-
-          {/* Lista */}
-          {chatsIgnorados.length > 0 && (
-            <div className="space-y-1.5">
-              {chatsIgnorados.map(num => (
-                <div key={num} className="flex items-center justify-between rounded-lg px-3 py-2"
-                  style={{ background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.15)' }}>
-                  <div className="flex items-center gap-2">
-                    <Phone size={12} style={{ color: '#f43f5e' }} />
-                    <span className="text-sm font-mono text-white">+{num}</span>
-                  </div>
-                  <button onClick={() => quitarIgnorado(num)}
-                    className="text-xs px-2 py-0.5 rounded transition-colors"
-                    style={{ color: 'var(--muted)' }}
-                    onMouseEnter={e => e.target.style.color = '#f43f5e'}
-                    onMouseLeave={e => e.target.style.color = 'var(--muted)'}>
-                    Desbloquear
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Input agregar */}
-          <div className="flex gap-2">
-            <input
-              type="tel"
-              value={nuevoIgnorado}
-              onChange={e => setNuevoIgnorado(e.target.value.replace(/\D/g, ''))}
-              onKeyDown={e => e.key === 'Enter' && agregarIgnorado()}
-              className="input-base flex-1 text-sm py-1.5"
-              placeholder="5491112345678"
-              maxLength={15}
-            />
-            <button
-              onClick={agregarIgnorado}
-              disabled={savingIgnorado || nuevoIgnorado.replace(/\D/g,'').length < 6}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex-shrink-0 flex items-center gap-1.5"
-              style={{ background: 'rgba(244,63,94,0.15)', color: '#f43f5e', border: '1px solid rgba(244,63,94,0.25)' }}>
-              {savingIgnorado
-                ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                : <><Plus size={12} />Bloquear</>}
-            </button>
-          </div>
-          <p className="text-xs" style={{ color: 'var(--muted)', opacity: 0.6 }}>
-            Ingresá el número con código de país sin +. Ej: 5491112345678
-          </p>
         </div>
 
         {/* Referidos */}

@@ -530,6 +530,15 @@ function recargarCalendar(userId, slot = 0) {
   return false;
 }
 
+// Actualiza el campo silenciado de un cliente en la RAM cache del bot
+function silenciarCliente(userId, jid, silenciado) {
+  const uid = String(userId);
+  const key = botKey(uid, 0);
+  const bot = instancias.get(key);
+  if (bot) { bot.emit('cliente:silenciar', { jid, silenciado }); return true; }
+  return false;
+}
+
 // Notifica al bot que recargue toda su config desde la DB en caliente
 // (horarios, días bloqueados, modo pausa, prompt, etc.)
 function recargarConfig(userId, slot = 0) {
@@ -574,6 +583,7 @@ module.exports = {
   triggerCatalogSync,
   recargarCalendar,
   recargarConfig,
+  silenciarCliente,
   enviarMensajeExterno,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

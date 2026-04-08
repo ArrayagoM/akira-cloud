@@ -17,6 +17,7 @@ import Terminos       from './pages/Terminos';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword  from './pages/ResetPassword';
 import SugerenciasPage from './pages/SugerenciasPage';
+import ChatsPage      from './pages/ChatsPage';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/config"      element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
         <Route path="/planes"      element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
         <Route path="/sugerencias" element={<ProtectedRoute><SugerenciasPage /></ProtectedRoute>} />
+        <Route path="/chats"       element={<ProtectedRoute><ChatsPage /></ProtectedRoute>} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />

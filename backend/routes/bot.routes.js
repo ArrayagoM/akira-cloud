@@ -226,4 +226,103 @@ router.get('/agenda', async (req, res) => {
   }
 });
 
+// ── Helper ────────────────────────────────────────────────────
+function extraerNum(jid) { return (jid || '').split('@')[0].replace(/\D/g, ''); }
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/bot/clientes — listar todos los chats del bot
+// ─────────────────────────────────────────────────────────────
+router.get('/clientes', async (req, res) => {
+  try {
+    const { q, filtro, page = 1 } = req.query;
+    const limit = 30;
+    const skip  = (Math.max(1, parseInt(page)) - 1) * limit;
+
+    const base = { userId: req.user._id };
+    if (q) {
+      const re = new RegExp(q.slice(0, 50), 'i');
+      base.$or = [{ nombre: re }, { telefono: re }, { numeroReal: re }];
+    }
+    if (filtro === 'silenciados') base.silenciado = true;
+    if (filtro === 'con_turno')   base['turnosConfirmados.0'] = { $exists: true };
+
+    // Chats ignorados (bloqueados) vienen de Config
+    const cfg      = await Config.findOne({ userId: req.user._id }, 'chatsIgnorados').lean();
+    const ignorados = new Set(cfg?.chatsIgnorados || []);
+
+    if (filtro === 'bloqueados') {
+      if (ignorados.size === 0) return res.json({ clientes: [], total: 0 });
+      base.jid = { $in: [...ignorados].map(n => `${n}@s.whatsapp.net`) };
+    }
+
+    const [clientes, total] = await Promise.all([
+      BotCliente.find(base)
+        .sort({ updatedAt: -1 })
+        .skip(skip).limit(limit)
+        .select('-historial')
+        .lean(),
+      BotCliente.countDocuments(base),
+    ]);
+
+    res.json({
+      clientes: clientes.map(c => ({ ...c, bloqueado: ignorados.has(extraerNum(c.jid)) })),
+      total,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PATCH /api/bot/clientes/:jid — silenciar o bloquear un chat
+// ─────────────────────────────────────────────────────────────
+router.patch('/clientes/:jid', async (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    const num = extraerNum(jid);
+    const { silenciado, bloqueado } = req.body;
+
+    // Actualizar silenciado en BotCliente
+    const dbUpdate = {};
+    if (silenciado !== undefined) dbUpdate.silenciado = !!silenciado;
+
+    const cliente = await BotCliente.findOneAndUpdate(
+      { userId: req.user._id, jid },
+      dbUpdate,
+      { new: true, select: '-historial' }
+    );
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    // Notificar al bot para actualizar caché en RAM
+    if (silenciado !== undefined) {
+      try {
+        const { silenciarCliente } = require('../services/bot.manager');
+        if (silenciarCliente) silenciarCliente(String(req.user._id), jid, !!silenciado);
+      } catch {}
+    }
+
+    // Bloquear/desbloquear: actualizar chatsIgnorados en Config
+    if (bloqueado !== undefined) {
+      const upd = bloqueado
+        ? { $addToSet: { chatsIgnorados: num } }
+        : { $pull:     { chatsIgnorados: num } };
+      await Config.findOneAndUpdate({ userId: req.user._id }, upd, { upsert: true });
+      try {
+        const bm = require('../services/bot.manager');
+        const wh = require('../services/worker.handler');
+        if (!bm.recargarConfig(req.user._id) && wh.isWorkerAvailable()) {
+          wh.sendToWorker('worker:config-reload', { userId: String(req.user._id) });
+        }
+      } catch {}
+    }
+
+    const cfgFinal = await Config.findOne({ userId: req.user._id }, 'chatsIgnorados').lean();
+    const igFinal  = new Set(cfgFinal?.chatsIgnorados || []);
+
+    res.json({ ok: true, cliente: { ...cliente.toObject(), bloqueado: igFinal.has(num) } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
