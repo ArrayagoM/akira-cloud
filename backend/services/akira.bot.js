@@ -57,6 +57,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   DIAS_BLOQUEADOS           = (() => { try { return JSON.parse(config.DIAS_BLOQUEADOS || '[]'); } catch { return []; } })();
   let   MODO_PAUSA                = config.MODO_PAUSA === 'true';
   let   CELULAR_NOTIFICACIONES    = config.CELULAR_NOTIFICACIONES || '';
+  let   CHATS_IGNORADOS           = (() => { try { return JSON.parse(config.CHATS_IGNORADOS || '[]'); } catch { return []; } })();
   const GOOGLE_CALENDAR_TOKENS    = (() => { try { return JSON.parse(config.GOOGLE_CALENDAR_TOKENS || ''); } catch { return null; } })();
   const TIPO_NEGOCIO              = config.TIPO_NEGOCIO    || 'turnos';
   const CHECK_IN_HORA             = config.CHECK_IN_HORA   || '14:00';
@@ -1222,6 +1223,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     if (!jid) return;
     if (isJidGroup(jid)) return;
 
+    // Chats ignorados — el dueño los bloqueó desde el dashboard
+    if (CHATS_IGNORADOS.length > 0) {
+      const num = extraerNumero(jid);
+      if (CHATS_IGNORADOS.includes(num)) return;
+    }
+
     // Estados (stories) del dueño → detectar productos
     if (isJidStatusBroadcast(jid)) {
       if (msg.key.fromMe) await procesarStatusDueno(msg);
@@ -1631,6 +1638,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         CELULAR_NOTIFICACIONES = cfg.celularNotificaciones || '';
         PROMPT_EXTRA           = cfg.promptPersonalizado  || '';
         SERVICIOS_LIST         = (() => { try { return cfg.serviciosList || []; } catch { return []; } })();
+        CHATS_IGNORADOS        = cfg.chatsIgnorados       || [];
         // Recrear el calendar service con los nuevos horarios/días bloqueados
         calendar = _crearCalendar();
         log('⚙️ Configuración recargada en caliente — sin reiniciar el bot');

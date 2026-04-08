@@ -302,6 +302,28 @@ router.put('/pausa', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  PUT /api/config/chats-ignorados — agregar o quitar número ignorado
+// ─────────────────────────────────────────────────────────────
+router.put('/chats-ignorados', async (req, res) => {
+  try {
+    const { numero, accion } = req.body; // accion: 'agregar' | 'quitar'
+    if (!numero || !/^\d{6,15}$/.test(numero.trim())) {
+      return res.status(400).json({ error: 'Número inválido (solo dígitos, entre 6 y 15)' });
+    }
+    const num = numero.trim();
+    const update = accion === 'quitar'
+      ? { $pull:     { chatsIgnorados: num } }
+      : { $addToSet: { chatsIgnorados: num } };
+
+    const config = await Config.findOneAndUpdate({ userId: req.user._id }, update, { upsert: true, new: true });
+    _notificarRecargarConfig(req.user._id);
+    res.json({ chatsIgnorados: config.chatsIgnorados });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  PUT /api/config/dias-bloqueados — agregar o quitar un día bloqueado
 // ─────────────────────────────────────────────────────────────
 router.put('/dias-bloqueados', async (req, res) => {

@@ -76,6 +76,8 @@ const ConfigSchema = new mongoose.Schema(
     modoPausa:     { type: Boolean, default: false },
     // Días específicamente bloqueados: ['YYYY-MM-DD', ...]
     diasBloqueados: { type: [String], default: [] },
+    // Chats ignorados: el bot no responde a estos números ['549...', ...]
+    chatsIgnorados: { type: [String], default: [] },
 
     // Tipo de negocio — cambia el flujo del bot
     // 'turnos'     → slots horarios (barbería, médico, etc.)
