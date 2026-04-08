@@ -123,7 +123,43 @@ function crearMongoClientesService(userId, log) {
     return Array.from(cache.values());
   }
 
-  return { inicializar, cargarMemoria, guardarMemoria, listarClientes };
+  // ── Registrar chat si no existe (desde chats.set / contacts.upsert) ────
+  // Usa $setOnInsert: nunca pisa historial ni datos de clientes existentes.
+  async function registrarNuevo(jid, datos) {
+    if (cache.has(jid)) return; // ya en cache — nada que hacer
+    const entry = {
+      userId,
+      jid,
+      nombre:            datos.nombre    || '',
+      telefono:          datos.telefono  || '',
+      numeroReal:        datos.numeroReal || '',
+      email:             null,
+      silenciado:        false,
+      historial:         [],
+      turnosConfirmados: [],
+    };
+    try {
+      await BotCliente.findOneAndUpdate(
+        { userId, jid },
+        { $setOnInsert: entry },
+        { upsert: true, new: false, setDefaultsOnInsert: true }
+      );
+      // Añadir al cache solo si realmente no estaba
+      if (!cache.has(jid)) cache.set(jid, { ...entry });
+    } catch (e) {
+      // DuplicateKey = ya existe → cargar al cache
+      if (e.code === 11000) {
+        try {
+          const doc = await BotCliente.findOne({ userId, jid }, '-historial').lean();
+          if (doc) cache.set(jid, { ...doc });
+        } catch {}
+      } else {
+        log(`[DB] ⚠️ registrarNuevo ${jid}: ${e.message}`);
+      }
+    }
+  }
+
+  return { inicializar, cargarMemoria, guardarMemoria, listarClientes, registrarNuevo };
 }
 
 // ── useMongoClientesState: API async pura usando ClienteMemoria ──────────

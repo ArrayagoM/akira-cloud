@@ -1536,6 +1536,47 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // ── Sincronizar contactos/chats existentes de WhatsApp ───────
+    // contactosWA: jid → nombre para resolverlo cuando llega chats.set
+    const contactosWA = new Map();
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const c of contacts) {
+        if (!c.id) continue;
+        const nombre = c.notify || c.name || '';
+        if (nombre) {
+          contactosWA.set(c.id, nombre);
+          // Si el cliente ya existe en cache pero sin nombre, actualizarlo
+          const existing = clientesSvc.cargarMemoria(c.id);
+          if (existing && !existing.nombre && nombre) {
+            clientesSvc.guardarMemoria(c.id, { ...existing, nombre });
+          }
+        }
+      }
+    });
+
+    // chats.set: WhatsApp envía la lista completa al conectarse
+    sock.ev.on('chats.set', ({ chats: lista }) => {
+      for (const chat of (lista || [])) {
+        const jid = chat.id;
+        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue; // ignorar grupos, status, etc.
+        const num = jid.split('@')[0].replace(/\D/g, '');
+        const nombre = contactosWA.get(jid) || chat.name || '';
+        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+      }
+    });
+
+    // chats.upsert: nuevos chats que aparecen luego de la conexión inicial
+    sock.ev.on('chats.upsert', (chats) => {
+      for (const chat of (chats || [])) {
+        const jid = chat.id;
+        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+        const num = jid.split('@')[0].replace(/\D/g, '');
+        const nombre = contactosWA.get(jid) || chat.name || '';
+        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+      }
+    });
+
     // Mensajes en paralelo — cada uno con timeout propio para que uno colgado
     // no bloquee los siguientes
     sock.ev.on('messages.upsert', ({ messages, type }) => {
