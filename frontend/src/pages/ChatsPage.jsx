@@ -186,7 +186,7 @@ export default function ChatsPage() {
       const r = await api.get(`/bot/clientes?${params}`);
       setClientes(r.data.clientes || []);
       setTotal(r.data.total || 0);
-    } catch { toast.error('Error al cargar los chats'); }
+    } catch (e) { toast.error(e?.response?.data?.error || e?.message || 'Error al cargar los chats'); }
     finally { setLoading(false); }
   }, [page, filtro, query]);
 
