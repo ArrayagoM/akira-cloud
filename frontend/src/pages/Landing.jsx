@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
+import { LAUNCH_DATE } from './PreLanzamiento';
 import {
   Bot, Calendar, CreditCard, Mic, Zap, Shield, CheckCircle, ArrowRight,
   MessageSquare, Clock, Star, Github, Linkedin, Globe, Code2,
@@ -130,37 +131,56 @@ const resenasIniciales = [
 ];
 
 // ─────────────────────────────────────────────────────────────
-// URGENCY BAR — countdown oferta lanzamiento
+// URGENCY BAR — countdown pre-lanzamiento
 // ─────────────────────────────────────────────────────────────
+const CUPOS_TOMADOS_LANDING = 47;
+const CUPOS_TOTALES_LANDING = 100;
+
 function UrgencyBar() {
-  const OFFER_END = new Date('2025-04-10T23:59:00').getTime();
-  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, OFFER_END - Date.now()));
+  const msRestante = Math.max(0, LAUNCH_DATE.getTime() - Date.now());
+  const [diff, setDiff] = useState(msRestante);
 
   useEffect(() => {
-    const iv = setInterval(() => setTimeLeft(t => Math.max(0, OFFER_END - Date.now())), 1000);
+    if (diff === 0) return;
+    const iv = setInterval(() => setDiff(Math.max(0, LAUNCH_DATE.getTime() - Date.now())), 1000);
     return () => clearInterval(iv);
   }, []);
 
-  if (timeLeft === 0) return null;
+  // Si ya lanzó, no mostrar la barra
+  if (diff === 0) return null;
 
-  const h = String(Math.floor(timeLeft / 3600000)).padStart(2, '0');
-  const m = String(Math.floor((timeLeft % 3600000) / 60000)).padStart(2, '0');
-  const s = String(Math.floor((timeLeft % 60000) / 1000)).padStart(2, '0');
+  const dias  = Math.floor(diff / 86_400_000);
+  const horas = Math.floor((diff % 86_400_000) / 3_600_000);
+  const mins  = Math.floor((diff % 3_600_000) / 60_000);
+  const segs  = Math.floor((diff % 60_000) / 1_000);
+
+  const fmt = (n) => String(n).padStart(2, '0');
+  const cuposLibres = CUPOS_TOTALES_LANDING - CUPOS_TOMADOS_LANDING;
 
   return (
     <div style={{
-      background: 'linear-gradient(90deg,#00e87b,#00c96a)',
-      color: '#020f08', textAlign: 'center',
-      padding: '9px 16px', fontSize: 13, fontWeight: 700,
-      position: 'relative', zIndex: 200, lineHeight: 1.5,
+      background: 'linear-gradient(90deg, #020f08 0%, #041a0d 100%)',
+      borderBottom: '1px solid rgba(0,232,123,0.2)',
+      color: 'var(--text)', textAlign: 'center',
+      padding: '10px 16px', fontSize: 13, fontWeight: 600,
+      position: 'relative', zIndex: 200, lineHeight: 1.6,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexWrap: 'wrap', gap: '12px',
     }}>
-      🔥 Oferta de lanzamiento — <strong>7 días GRATIS</strong>, sin tarjeta · Termina en&nbsp;
-      <span style={{ fontVariantNumeric: 'tabular-nums', background: 'rgba(0,0,0,0.18)', borderRadius: 4, padding: '2px 7px', letterSpacing: 1 }}>
-        {h}:{m}:{s}
+      <span style={{ color: '#f59e0b', fontWeight: '700' }}>🚀 Preventa Exclusiva</span>
+      <span style={{ color: 'var(--muted)' }}>·</span>
+      <span>
+        Faltan{' '}
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: '#00e87b', fontWeight: '800', fontFamily: 'monospace' }}>
+          {dias}d {fmt(horas)}h {fmt(mins)}m {fmt(segs)}s
+        </span>
+        {' '}para el lanzamiento
       </span>
-      &nbsp;·&nbsp;
-      <Link to="/register" style={{ textDecoration: 'underline', color: '#020f08', fontWeight: 800 }}>
-        Empezar ahora →
+      <span style={{ color: 'var(--muted)' }}>·</span>
+      <span style={{ color: '#f59e0b' }}>Solo quedan <strong>{cuposLibres} cupos</strong> con 20% OFF</span>
+      <span style={{ color: 'var(--muted)' }}>·</span>
+      <Link to="/register" style={{ color: '#00e87b', fontWeight: '800', textDecoration: 'underline' }}>
+        Reservar mi lugar →
       </Link>
     </div>
   );
@@ -352,12 +372,44 @@ function HeroSection() {
               Akira atiende clientes, agenda turnos y cobra con MercadoPago — <strong className="text-white">automático, 24hs, sin que vos estés</strong>. En menos de 10 minutos tu negocio funciona solo.
             </p>
 
+            {/* ── Oferta preventa ── */}
+            {Date.now() < LAUNCH_DATE.getTime() && (
+              <div style={{
+                background: 'rgba(245,158,11,0.07)',
+                border: '1px solid rgba(245,158,11,0.25)',
+                borderRadius: '14px',
+                padding: '14px 18px',
+                marginBottom: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: '20px' }}>🎁</span>
+                <div style={{ flex: 1, minWidth: '180px' }}>
+                  <p style={{ fontSize: '13px', fontWeight: '700', color: '#f59e0b', margin: 0 }}>
+                    Preventa: 20% OFF en tu primer mes
+                  </p>
+                  <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>
+                    Solo primeros {CUPOS_TOTALES_LANDING} usuarios · Ya se reservaron {CUPOS_TOMADOS_LANDING} cupos
+                  </p>
+                </div>
+                <Link to="/register" style={{
+                  fontSize: '12px', fontWeight: '700', color: '#f59e0b',
+                  background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                  borderRadius: '8px', padding: '6px 14px', textDecoration: 'none', whiteSpace: 'nowrap',
+                }}>
+                  Reservar →
+                </Link>
+              </div>
+            )}
+
             {/* CTAs */}
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Link to="/register"
                 className="btn-primary text-base font-bold"
                 style={{ padding: '14px 28px', fontSize: 16, boxShadow: '0 0 32px rgba(0,232,123,0.3)' }}>
-                Empezar gratis — 7 días <ArrowRight size={18} />
+                {Date.now() < LAUNCH_DATE.getTime() ? 'Reservar mi cupo con 20% OFF' : 'Empezar gratis — 7 días'} <ArrowRight size={18} />
               </Link>
               <a href="#como-funciona" className="btn-secondary text-base" style={{ padding: '14px 24px' }}>
                 Ver demo en 2 min

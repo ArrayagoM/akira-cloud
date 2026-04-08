@@ -2,22 +2,23 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Pages
-import Landing        from './pages/Landing';
-import Login          from './pages/Login';
-import Register       from './pages/Register';
-import OAuthCallback  from './pages/OAuthCallback';
-import Dashboard      from './pages/Dashboard';
-import ConfigPage     from './pages/ConfigPage';
-import AgendaPage     from './pages/AgendaPage';
-import AdminPanel     from './pages/AdminPanel';
-import PlanesPage     from './pages/PlanesPage';
-import NotFound       from './pages/NotFound';
-import Privacidad     from './pages/Privacidad';
-import Terminos       from './pages/Terminos';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword  from './pages/ResetPassword';
-import SugerenciasPage from './pages/SugerenciasPage';
-import ChatsPage      from './pages/ChatsPage';
+import Landing           from './pages/Landing';
+import Login             from './pages/Login';
+import Register          from './pages/Register';
+import OAuthCallback     from './pages/OAuthCallback';
+import Dashboard         from './pages/Dashboard';
+import ConfigPage        from './pages/ConfigPage';
+import AgendaPage        from './pages/AgendaPage';
+import AdminPanel        from './pages/AdminPanel';
+import PlanesPage        from './pages/PlanesPage';
+import NotFound          from './pages/NotFound';
+import Privacidad        from './pages/Privacidad';
+import Terminos          from './pages/Terminos';
+import ForgotPassword    from './pages/ForgotPassword';
+import ResetPassword     from './pages/ResetPassword';
+import SugerenciasPage   from './pages/SugerenciasPage';
+import ChatsPage         from './pages/ChatsPage';
+import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -39,12 +40,23 @@ function GlobalLoader() {
   );
 }
 
+// ── ¿Debe ver la pantalla de pre-lanzamiento? ──────────────
+// Sí: usuario normal (no admin, no tester) y la fecha de lanzamiento no llegó aún.
+function estaEnPreLanzamiento(user) {
+  if (!user) return false;
+  if (user.rol === 'admin' || user.plan === 'admin') return false;
+  if (user.esTester) return false;
+  return Date.now() < LAUNCH_DATE.getTime();
+}
+
 // ── Route guards ───────────────────────────────────────────
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
   if (loading) return <GlobalLoader />;
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && user.rol !== 'admin') return <Navigate to="/dashboard" replace />;
+  // Usuarios normales en pre-lanzamiento → pantalla de cuenta regresiva
+  if (estaEnPreLanzamiento(user)) return <Navigate to="/pre-lanzamiento" replace />;
   return children;
 }
 
@@ -78,6 +90,9 @@ export default function App() {
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />
+
+        {/* Pre-lanzamiento — visible para todos, pero relevante para usuarios normales */}
+        <Route path="/pre-lanzamiento" element={<PreLanzamiento />} />
 
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/terminos"   element={<Terminos />} />
