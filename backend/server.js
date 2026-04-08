@@ -229,11 +229,15 @@ connectDB().then(async () => {
   if (process.env.WORKER_SECRET) {
     logger.info('[Server] 🔌 Modo híbrido activo — esperando conexión del worker local');
     logger.info('[Server]    Iniciá el worker en tu PC: cd worker && npm start');
+    // En modo híbrido los bots corren en el worker (que sigue vivo entre deploys).
+    // Igual lanzamos restoreActiveBots con delay para cubrir el caso de restart del worker.
+    setTimeout(() => botManager.restoreActiveBots().catch(() => {}), 15_000);
   } else {
     logger.warn('[Server] WORKER_SECRET no configurado — los bots correrán en el servidor');
     logger.warn('[Server] Para arquitectura híbrida: agregá WORKER_SECRET al .env');
-    // Fallback: restaurar bots localmente (sin worker)
-    await botManager.restoreActiveBots();
+    // Restaurar todos los bots cuya sesión WA está guardada en MongoDB.
+    // No necesita await — arranca en paralelo mientras el servidor ya atiende requests.
+    botManager.restoreActiveBots().catch(e => logger.error('[Server] restoreActiveBots:', e.message));
   }
 }).catch(err => {
   logger.error('Error conectando a MongoDB:', err);
@@ -244,7 +248,9 @@ connectDB().then(async () => {
 async function gracefulShutdown(signal) {
   logger.info(`[Server] ${signal} recibido — apagando gracefully...`);
   try {
-    await botManager.stopAllBots();
+    // shutdownGracioso: cierra los sockets de Baileys SIN tocar botActivo en DB.
+    // Así el próximo arranque puede restaurar todos los bots automáticamente.
+    await botManager.shutdownGracioso();
   } catch (e) {
     logger.warn('[Server] Error deteniendo bots:', e.message);
   }

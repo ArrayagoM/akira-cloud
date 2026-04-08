@@ -9,6 +9,7 @@ const fs      = require('fs');
 const User    = require('../models/User');
 const Config  = require('../models/Config');
 const Log     = require('../models/Log');
+const WAAuth  = require('../models/WAAuth');
 const logger  = require('../config/logger');
 const crearAkiraBot  = require('./akira.bot');
 const workerHandler  = require('./worker.handler');
@@ -436,19 +437,53 @@ async function panicStop(userId, motivo = 'Bloqueado por administrador') {
 // ────────────────────────────────────────────────────────────
 async function restoreActiveBots() {
   try {
-    const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id cuentasWA');
-    if (!usuarios.length) return;
+    // Solo usuarios con bot activo, plan vigente y que tienen sesión WA guardada en MongoDB
+    const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id cuentasWA planVence');
+    if (!usuarios.length) {
+      logger.info('[BotMgr] No hay bots que restaurar al arrancar.');
+      return;
+    }
 
-    logger.info(`[BotMgr] Restaurando bots...`);
-    for (const u of usuarios) {
+    // Filtrar usuarios que realmente tienen credenciales WA en DB (evita arrancar sin sesión)
+    const uidsConSesion = new Set();
+    const sesiones = await WAAuth.distinct('_id');
+    for (const sid of sesiones) {
+      // El _id tiene forma "userId:filename" — tomamos la parte antes de ':'
+      const uid = String(sid).split(':')[0];
+      uidsConSesion.add(uid);
+    }
+
+    const aRestaurar = usuarios.filter(u => uidsConSesion.has(u._id.toString()));
+    logger.info(`[BotMgr] 🔄 Restaurando ${aRestaurar.length}/${usuarios.length} bot(s) con sesión guardada...`);
+
+    for (let i = 0; i < aRestaurar.length; i++) {
+      const u   = aRestaurar[i];
       const uid = u._id.toString();
+
+      // Stagger: 3s entre cada usuario para no saturar WA ni MongoDB
+      if (i > 0) await new Promise(r => setTimeout(r, 3000));
+
       // Slot 0 (principal)
-      try { await startBot(uid, 0); } catch (e) { logger.error(`[BotMgr] Error restaurando bot ${uid} slot 0: ${e.message}`); }
-      // Slots adicionales (Agencia)
+      try {
+        logger.info(`[BotMgr] ▶ Iniciando bot ${uid} slot 0 (${i + 1}/${aRestaurar.length})`);
+        await startBot(uid, 0);
+      } catch (e) {
+        logger.error(`[BotMgr] Error restaurando bot ${uid} slot 0: ${e.message}`);
+      }
+
+      // Slots adicionales (plan Agencia)
       for (const cuenta of (u.cuentasWA || []).filter(c => c.slot > 0 && c.activo)) {
-        try { await startBot(uid, cuenta.slot); } catch (e) { logger.error(`[BotMgr] Error restaurando bot ${uid} slot ${cuenta.slot}: ${e.message}`); }
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          logger.info(`[BotMgr] ▶ Iniciando bot ${uid} slot ${cuenta.slot}`);
+          await startBot(uid, cuenta.slot);
+        } catch (e) {
+          logger.error(`[BotMgr] Error restaurando bot ${uid} slot ${cuenta.slot}: ${e.message}`);
+        }
       }
     }
+
+    logger.info('[BotMgr] ✅ Restauración de bots completada.');
   } catch (err) {
     logger.error('[BotMgr] Error en restoreActiveBots:', err.message);
   }
@@ -484,6 +519,23 @@ async function stopAllBots() {
     const [uid, slot] = key.split(':');
     return stopBot(uid, parseInt(slot) || 0);
   }));
+}
+
+// ── Shutdown gracioso del servidor — NO toca botActivo en DB ─
+// Se llama al cerrar el proceso (SIGTERM/SIGINT) para que en el
+// próximo arranque restoreActiveBots() pueda restaurar todos los bots.
+async function shutdownGracioso() {
+  const keys = Array.from(instancias.keys());
+  logger.info(`[BotMgr] Shutdown gracioso — cerrando ${keys.length} bot(s) (DB sin cambios)`);
+  await Promise.allSettled(
+    keys.map(async (key) => {
+      const bot = instancias.get(key);
+      if (!bot) return;
+      try { await bot.detener(); } catch {}
+      instancias.delete(key);
+      liberarPuerto(key);
+    })
+  );
 }
 
 function emitirAlUsuario(userId, evento, datos) {
@@ -577,6 +629,7 @@ module.exports = {
   panicStop,
   restoreActiveBots,
   stopAllBots,
+  shutdownGracioso,
   getBotStatus,
   getActiveCount,
   getActiveUserIds,
