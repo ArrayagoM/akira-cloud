@@ -308,8 +308,8 @@ export default function PreLanzamiento() {
 
         <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
           ¿Preguntas? Escribinos a{' '}
-          <a href="mailto:hola@akirachat.com" style={{ color: '#00e87b', textDecoration: 'none', fontWeight: '600' }}>
-            hola@akirachat.com
+          <a href="mailto:jarrayago@abc.gob.ar" style={{ color: '#00e87b', textDecoration: 'none', fontWeight: '600' }}>
+            jarrayago@abc.gob.ar
           </a>
         </p>
       </main>

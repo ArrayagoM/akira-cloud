@@ -68,7 +68,7 @@ const crecimientoData = [
   { mes: 'Dic',  val: 143 },
   { mes: 'Ene',  val: 196 },
   { mes: 'Feb',  val: 248 },
-  { mes: 'Hoy',  val: 267 },
+  { mes: 'Hoy',  val: 23 },
 ];
 const maxVal = Math.max(...crecimientoData.map(d => d.val));
 
@@ -305,7 +305,7 @@ function NavBar() {
 // HERO
 // ─────────────────────────────────────────────────────────────
 function HeroSection() {
-  const [liveUsers, setLiveUsers] = useState(267);
+  const [liveUsers, setLiveUsers] = useState(23);
   const [chatStep, setChatStep]   = useState(0);
   const [showPago, setShowPago]   = useState(false);
 
@@ -358,7 +358,7 @@ function HeroSection() {
             <div className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 mb-6 text-sm font-semibold"
               style={{ background: 'rgba(0,232,123,0.09)', border: '1px solid rgba(0,232,123,0.22)', color: 'var(--accent)' }}>
               <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--accent)', flexShrink: 0 }} />
-              <span><strong className="text-white">{liveUsers}</strong> negocios activos ahora mismo</span>
+              <span>Solo <strong className="text-white">{liveUsers}</strong> negocios en acceso anticipado</span>
             </div>
 
             {/* Headline */}
@@ -427,12 +427,8 @@ function HeroSection() {
                 ))}
               </div>
               <div>
-                <p className="text-sm font-semibold text-white">+{liveUsers} negocios ya lo usan</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  {[1,2,3,4,5].map(i => <Star key={i} size={12} fill="#f59e0b" color="#f59e0b" />)}
-                  <span className="text-xs font-bold text-white ml-1">4.9</span>
-                  <span className="text-xs ml-1" style={{ color: 'var(--muted)' }}>reseñas verificadas</span>
-                </div>
+                <p className="text-sm font-semibold text-white">{liveUsers} negocios en acceso anticipado</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Acceso exclusivo — cupos muy limitados</p>
               </div>
             </div>
 
@@ -555,7 +551,7 @@ function HeroSection() {
 // STATS — contadores animados
 // ─────────────────────────────────────────────────────────────
 function StatsSection() {
-  const [u, uRef] = useCountUp(267);
+  const [u, uRef] = useCountUp(23);
   const [m, mRef] = useCountUp(18400);
   const [t, tRef] = useCountUp(3200);
   const [r, rRef] = useCountUp(2400000);
@@ -1510,52 +1506,107 @@ function PreciosSection() {
           <h2 className="text-4xl font-bold text-white mb-4">Precios simples, sin sorpresas</h2>
           <p className="text-lg" style={{ color: 'var(--text2)' }}>7 días gratis en todos los planes. Cancelá cuando quieras.</p>
         </div>
-        <div className="flex justify-center mb-10">
+        {/* Toggle mensual/anual */}
+        <div className="flex flex-col items-center gap-3 mb-10">
           <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
             {['mensual','anual'].map(p => (
               <button key={p} onClick={() => setPeriodo(p)}
                 className="px-5 py-2 rounded-lg text-sm font-semibold transition-all duration-200"
                 style={periodo === p ? { background: 'var(--accent)', color: '#020f08' } : { color: 'var(--text2)' }}>
-                {p === 'mensual' ? 'Mensual' : <span className="flex items-center gap-2">Anual <span className="text-xs font-bold px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(0,232,123,0.15)', color: 'var(--accent)' }}>−20%</span></span>}
+                {p === 'mensual' ? 'Mensual' : (
+                  <span className="flex items-center gap-2">
+                    Anual
+                    <span className="text-xs font-extrabold px-2 py-0.5 rounded-md animate-pulse"
+                      style={{ background: 'rgba(0,232,123,0.2)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.3)' }}>
+                      AHORRÁS 20%
+                    </span>
+                  </span>
+                )}
               </button>
             ))}
           </div>
+          {periodo === 'anual' && (
+            <p className="text-sm font-semibold" style={{ color: '#f59e0b' }}>
+              🎉 Pagás 10 meses, usás 12 — 2 meses completamente gratis
+            </p>
+          )}
         </div>
+
         <div ref={gridRef} className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-          {planes.map((p, i) => (
-            <div key={i} className="reveal-up relative rounded-2xl p-6"
-              style={{
-                background: p.destacado ? 'linear-gradient(135deg, rgba(0,232,123,0.06) 0%, var(--surface) 60%)' : 'var(--surface)',
-                border:     p.destacado ? '1px solid rgba(0,232,123,0.28)' : '1px solid var(--border)',
-                boxShadow:  p.destacado ? '0 0 40px rgba(0,232,123,0.08)' : 'none',
-              }}>
-              {p.destacado && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"
-                  style={{ background: 'var(--accent)', color: '#020f08' }}>
-                  <Star size={10} /> Más popular
-                </div>
-              )}
-              <p className="text-sm mb-1 mt-1" style={{ color: 'var(--text2)' }}>{p.nombre}</p>
-              <div className="flex items-baseline gap-1 mb-1">
-                <span className="text-4xl font-extrabold text-white">{fmt(periodo === 'mensual' ? p.mensual : p.anual)}</span>
-                <span className="text-sm" style={{ color: 'var(--muted)' }}>{periodo === 'mensual' ? '/mes' : '/año'}</span>
+          {planes.map((p, i) => {
+            const precioMensualEfectivo = Math.round(p.anual / 12);
+            const ahorro = p.mensual * 12 - p.anual;
+            return (
+              <div key={i} className="reveal-up relative rounded-2xl p-6"
+                style={{
+                  background: p.destacado ? 'linear-gradient(135deg, rgba(0,232,123,0.06) 0%, var(--surface) 60%)' : 'var(--surface)',
+                  border:     p.destacado ? '1px solid rgba(0,232,123,0.28)' : '1px solid var(--border)',
+                  boxShadow:  p.destacado ? '0 0 40px rgba(0,232,123,0.08)' : 'none',
+                }}>
+                {/* Badge más popular */}
+                {p.destacado && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"
+                    style={{ background: 'var(--accent)', color: '#020f08' }}>
+                    <Star size={10} /> Más popular
+                  </div>
+                )}
+
+                {/* Badge ahorro anual */}
+                {periodo === 'anual' && (
+                  <div className="absolute -top-3 right-4 text-xs font-extrabold px-2.5 py-1 rounded-full"
+                    style={{ background: '#f59e0b', color: '#020f08' }}>
+                    −20% OFF
+                  </div>
+                )}
+
+                <p className="text-sm mb-2 mt-1" style={{ color: 'var(--text2)' }}>{p.nombre}</p>
+
+                {/* Precio */}
+                {periodo === 'mensual' ? (
+                  <div className="mb-1">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-extrabold text-white">{fmt(p.mensual)}</span>
+                      <span className="text-sm" style={{ color: 'var(--muted)' }}>/mes</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-1">
+                    {/* Precio tachado */}
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-lg line-through" style={{ color: 'var(--muted)' }}>{fmt(p.mensual)}/mes</span>
+                    </div>
+                    {/* Precio real */}
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-extrabold" style={{ color: 'var(--accent)' }}>{fmt(precioMensualEfectivo)}</span>
+                      <span className="text-sm" style={{ color: 'var(--muted)' }}>/mes</span>
+                    </div>
+                    {/* Cobro anual + ahorro */}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <span className="text-xs px-2 py-0.5 rounded-md font-bold"
+                        style={{ background: 'rgba(0,232,123,0.1)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.2)' }}>
+                        Ahorrás {fmt(ahorro)}/año
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Se cobra {fmt(p.anual)} una vez al año</p>
+                  </div>
+                )}
+
+                <p className="text-xs mb-5 mt-3" style={{ color: 'var(--muted)' }}>{p.desc}</p>
+                <ul className="space-y-2.5 mb-6">
+                  {p.features.map((f, j) => (
+                    <li key={j} className="flex items-start gap-2.5 text-sm" style={{ color: 'var(--text)' }}>
+                      <CheckCircle size={14} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} /> {f}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => navigate(localStorage.getItem('akira_token') ? `/planes?plan=${p.planKey}_${periodo}` : `/register?plan=${p.planKey}_${periodo}`)}
+                  className={p.destacado ? 'btn-primary w-full' : 'btn-secondary w-full'}>
+                  {periodo === 'anual' ? `Empezar con 20% OFF` : 'Empezar gratis 7 días'}
+                </button>
               </div>
-              {periodo === 'anual' && <p className="text-xs mb-3" style={{ color: 'var(--accent)' }}>Ahorrás {fmt(p.mensual * 12 - p.anual)}</p>}
-              <p className="text-xs mb-5" style={{ color: 'var(--muted)' }}>{p.desc}</p>
-              <ul className="space-y-2.5 mb-6">
-                {p.features.map((f, j) => (
-                  <li key={j} className="flex items-start gap-2.5 text-sm" style={{ color: 'var(--text)' }}>
-                    <CheckCircle size={14} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} /> {f}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => navigate(localStorage.getItem('akira_token') ? `/planes?plan=${p.planKey}_${periodo}` : `/register?plan=${p.planKey}_${periodo}`)}
-                className={p.destacado ? 'btn-primary w-full' : 'btn-secondary w-full'}>
-                Empezar gratis
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <p className="text-center mt-8 text-sm" style={{ color: 'var(--muted)' }}>
           <CheckCircle size={13} className="inline mr-1.5" style={{ color: 'var(--accent)' }} />
