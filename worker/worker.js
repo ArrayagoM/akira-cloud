@@ -36,6 +36,7 @@ if (process.env.ENCRYPTION_KEY.length < 16) {
 const User   = require('../backend/models/User');
 const Config = require('../backend/models/Config');
 const Log    = require('../backend/models/Log');
+const WAAuth = require('../backend/models/WAAuth');
 
 // ── Keep-alive Render: ping cada 14 min para que no se duerma ──
 // Render free tier suspende el servicio tras 15 min de inactividad.
@@ -69,8 +70,9 @@ const instancias       = new Map(); // userId → bot
 const arranqueEnCurso  = new Set();
 
 // ── MongoDB ───────────────────────────────────────────────────
+let mongoListo = false;
 mongoose.connect(MONGO_URI)
-  .then(() => console.log('[Worker] ✅ MongoDB conectado'))
+  .then(() => { mongoListo = true; console.log('[Worker] ✅ MongoDB conectado'); })
   .catch(e => { console.error('[Worker] ❌ MongoDB:', e.message); process.exit(1); });
 
 // ── Socket.io → Render (namespace /worker) ───────────────────
@@ -95,6 +97,17 @@ socket.on('connect', () => {
     platform:   process.platform,
     nodeVersion: process.version,
   });
+
+  // ── Auto-restaurar bots si no hay ninguno corriendo ─────────
+  // El servidor pudo haber arrancado antes que el worker, dejando
+  // los bots en Render (lento/limitado) o sin arrancar.
+  // El worker toma control: consulta MongoDB y arranca directamente.
+  if (instancias.size === 0) {
+    const esperar = mongoListo ? 3000 : 8000; // esperar a MongoDB si no está listo
+    setTimeout(() => autoRestaurarBots().catch(e =>
+      console.error('[Worker] ❌ Error auto-restaurando:', e.message)
+    ), esperar);
+  }
 });
 
 socket.on('connect_error', (e) => {
@@ -105,18 +118,12 @@ socket.on('disconnect', (reason) => {
   console.warn('[Worker] ⚠️ Desconectado del servidor:', reason);
 });
 
-// ── Comandos desde el servidor ────────────────────────────────
-
-socket.on('worker:start-bot', async ({ userId }) => {
-  const uid = String(userId);
-  console.log(`[Worker] → Arrancar bot ${uid}`);
-
-  if (instancias.has(uid)) {
-    return socket.emit('worker:bot-error', { userId: uid, msg: 'El bot ya está activo' });
-  }
-  if (arranqueEnCurso.has(uid)) {
-    return socket.emit('worker:bot-error', { userId: uid, msg: 'El bot ya está iniciando' });
-  }
+// ────────────────────────────────────────────────────────────
+//  INICIAR BOT LOCAL — lógica reutilizable
+// ────────────────────────────────────────────────────────────
+async function iniciarBotLocal(uid) {
+  if (instancias.has(uid)) return;
+  if (arranqueEnCurso.has(uid)) return;
 
   arranqueEnCurso.add(uid);
   try {
@@ -248,6 +255,60 @@ socket.on('worker:start-bot', async ({ userId }) => {
   } finally {
     arranqueEnCurso.delete(uid);
   }
+}
+
+// ────────────────────────────────────────────────────────────
+//  AUTO-RESTAURAR BOTS AL CONECTARSE
+//  Consulta MongoDB directamente — no depende de que el servidor
+//  envíe comandos. El worker es autónomo.
+// ────────────────────────────────────────────────────────────
+async function autoRestaurarBots() {
+  // Esperar a que MongoDB esté listo
+  if (!mongoListo) {
+    await new Promise(r => {
+      const check = setInterval(() => { if (mongoListo) { clearInterval(check); r(); } }, 500);
+      setTimeout(() => { clearInterval(check); r(); }, 15000); // timeout 15s
+    });
+  }
+
+  const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id');
+  if (!usuarios.length) {
+    console.log('[Worker] No hay bots activos para restaurar.');
+    return;
+  }
+
+  // Filtrar solo los que tienen sesión WA guardada en MongoDB
+  const sesiones = await WAAuth.distinct('_id');
+  const uidsConSesion = new Set(sesiones.map(sid => String(sid).split(':')[0]));
+  const aRestaurar = usuarios.filter(u => uidsConSesion.has(u._id.toString()));
+
+  if (!aRestaurar.length) {
+    console.log('[Worker] Hay bots activos pero ninguno tiene sesión WA guardada.');
+    return;
+  }
+
+  console.log(`[Worker] 🔄 Auto-restaurando ${aRestaurar.length} bot(s) con sesión guardada...`);
+
+  for (let i = 0; i < aRestaurar.length; i++) {
+    const uid = aRestaurar[i]._id.toString();
+    if (instancias.has(uid) || arranqueEnCurso.has(uid)) continue;
+
+    // Stagger: 3s entre bots para no saturar WhatsApp ni MongoDB
+    if (i > 0) await new Promise(r => setTimeout(r, 3000));
+
+    console.log(`[Worker] ▶ Auto-iniciando bot ${uid} (${i + 1}/${aRestaurar.length})`);
+    await iniciarBotLocal(uid);
+  }
+
+  console.log(`[Worker] ✅ Auto-restauración completada — ${instancias.size} bot(s) activo(s)`);
+}
+
+// ── Comandos desde el servidor ────────────────────────────────
+
+socket.on('worker:start-bot', async ({ userId }) => {
+  const uid = String(userId);
+  console.log(`[Worker] → Arrancar bot ${uid} (comando del servidor)`);
+  await iniciarBotLocal(uid);
 });
 
 socket.on('worker:stop-bot', async ({ userId }) => {
