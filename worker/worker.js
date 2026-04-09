@@ -38,11 +38,11 @@ const Config = require('../backend/models/Config');
 const Log    = require('../backend/models/Log');
 const WAAuth = require('../backend/models/WAAuth');
 
-// ── Keep-alive Render: ping cada 14 min para que no se duerma ──
+// ── Keep-alive Render: ping periódico para que no se duerma ──
 // Render free tier suspende el servicio tras 15 min de inactividad.
-// Este ping periódico mantiene el servidor siempre activo.
 const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutos
-setTimeout(function pingRender() {
+
+function pingRender() {
   try {
     const url     = new URL(RENDER_URL);
     const options = {
@@ -53,15 +53,18 @@ setTimeout(function pingRender() {
     };
     const req = https.request(options, (res) => {
       console.log(`[Worker] 💓 Keep-alive Render → ${res.statusCode}`);
-      res.resume(); // consume body para liberar la conexión
+      res.resume();
     });
-    req.on('error', () => {}); // silenciar errores de red
+    req.on('error', () => {});
     req.end();
   } catch (e) {
     console.warn('[Worker] ⚠️ Keep-alive error:', e.message);
   }
-  setTimeout(pingRender, PING_INTERVAL_MS);
-}, PING_INTERVAL_MS);
+}
+
+// Ping inmediato al arrancar para despertar Render + periódico cada 14 min
+pingRender();
+setInterval(pingRender, PING_INTERVAL_MS);
 
 const crearAkiraBot = require('../backend/services/akira.bot');
 
@@ -70,10 +73,21 @@ const instancias       = new Map(); // userId → bot
 const arranqueEnCurso  = new Set();
 
 // ── MongoDB ───────────────────────────────────────────────────
-let mongoListo = false;
-mongoose.connect(MONGO_URI)
-  .then(() => { mongoListo = true; console.log('[Worker] ✅ MongoDB conectado'); })
+mongoose.connect(MONGO_URI, {
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS:          45000,
+}).then(() => console.log('[Worker] ✅ MongoDB conectado'))
   .catch(e => { console.error('[Worker] ❌ MongoDB:', e.message); process.exit(1); });
+
+// Helper: esperar a que mongoose esté conectado (readyState === 1)
+function esperarMongo(timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    if (mongoose.connection.readyState === 1) return resolve();
+    const timeout = setTimeout(() => reject(new Error('MongoDB no conectó en ' + (timeoutMs/1000) + 's')), timeoutMs);
+    mongoose.connection.once('connected', () => { clearTimeout(timeout); resolve(); });
+    mongoose.connection.once('error', (e) => { clearTimeout(timeout); reject(e); });
+  });
+}
 
 // ── Socket.io → Render (namespace /worker) ───────────────────
 // El namespace raíz / requiere JWT (para el frontend).
@@ -103,10 +117,7 @@ socket.on('connect', () => {
   // los bots en Render (lento/limitado) o sin arrancar.
   // El worker toma control: consulta MongoDB y arranca directamente.
   if (instancias.size === 0) {
-    const esperar = mongoListo ? 3000 : 8000; // esperar a MongoDB si no está listo
-    setTimeout(() => autoRestaurarBots().catch(e =>
-      console.error('[Worker] ❌ Error auto-restaurando:', e.message)
-    ), esperar);
+    autoRestaurarConRetry();
   }
 });
 
@@ -262,16 +273,31 @@ async function iniciarBotLocal(uid) {
 //  Consulta MongoDB directamente — no depende de que el servidor
 //  envíe comandos. El worker es autónomo.
 // ────────────────────────────────────────────────────────────
-async function autoRestaurarBots() {
-  // Esperar a que MongoDB esté listo
-  if (!mongoListo) {
-    await new Promise(r => {
-      const check = setInterval(() => { if (mongoListo) { clearInterval(check); r(); } }, 500);
-      setTimeout(() => { clearInterval(check); r(); }, 15000); // timeout 15s
-    });
+async function autoRestaurarConRetry(intento = 0) {
+  const MAX_INTENTOS = 3;
+  const DELAY_RETRY  = [5000, 10000, 20000]; // 5s, 10s, 20s
+  try {
+    await autoRestaurarBots();
+  } catch (e) {
+    console.error(`[Worker] ❌ Error auto-restaurando (intento ${intento + 1}/${MAX_INTENTOS}): ${e.message}`);
+    if (intento < MAX_INTENTOS - 1) {
+      const delay = DELAY_RETRY[intento] || 20000;
+      console.log(`[Worker] Reintentando en ${delay / 1000}s...`);
+      setTimeout(() => autoRestaurarConRetry(intento + 1), delay);
+    } else {
+      console.error('[Worker] ❌ No se pudieron restaurar los bots después de ' + MAX_INTENTOS + ' intentos.');
+      console.log('[Worker] Podés iniciar bots manualmente desde el dashboard.');
+    }
   }
+}
 
-  const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id');
+async function autoRestaurarBots() {
+  // Esperar a que MongoDB esté verdaderamente conectado
+  console.log('[Worker] Esperando conexión MongoDB...');
+  await esperarMongo(30000);
+  console.log('[Worker] MongoDB listo — consultando bots activos...');
+
+  const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id').maxTimeMS(20000);
   if (!usuarios.length) {
     console.log('[Worker] No hay bots activos para restaurar.');
     return;
