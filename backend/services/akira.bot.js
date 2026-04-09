@@ -1537,10 +1537,45 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     const { version } = await fetchLatestBaileysVersion();
     log(`[Baileys] Versión WA: ${version.join('.')}`);
 
+    // ── Logger silencioso que detecta sesión corrupta (Bad MAC) ──
+    // Baileys usa pino internamente. Con level: 'silent' NO debería
+    // loguear nada, pero libsignal a veces escribe a stderr directo.
+    // Este logger intercepta errores para detectar corrupción de sesión
+    // y limpiarla automáticamente (auto-clear → pedir QR nuevo).
+    let _macErrorCount = 0;
+    let _sessionClearScheduled = false;
+    const noop = () => {};
+    const baileysLogger = {
+      level: 'silent',
+      trace: noop, debug: noop, info: noop, warn: noop, fatal: noop,
+      error(obj, msg) {
+        const text = [
+          typeof obj === 'string' ? obj : '',
+          obj?.err?.message || obj?.error?.message || '',
+          msg || '',
+        ].join(' ').toLowerCase();
+        if (text.includes('bad mac') || text.includes('bad_mac')) {
+          _macErrorCount++;
+          if (_macErrorCount >= 5 && !_sessionClearScheduled && !botDetenidoIntencional) {
+            _sessionClearScheduled = true;
+            log('⚠️ [Baileys] Sesión corrupta (Bad MAC ×' + _macErrorCount + ') — limpiando para pedir QR nuevo');
+            setTimeout(async () => {
+              try {
+                await clearAuth();
+                emitter.emit('disconnected', 'sesión corrupta — QR requerido');
+                await detener('session-cleared');
+              } catch (e) { log('❌ Error limpiando sesión corrupta: ' + e.message); }
+            }, 2000);
+          }
+        }
+      },
+      child() { return this; },
+    };
+
     sock = makeWASocket({
       version,
       auth:                  state,
-      logger:                pino({ level: 'silent' }),
+      logger:                baileysLogger,
       printQRInTerminal:     false,
       browser:               ['Akira Cloud', 'Chrome', '1.0.0'],
       connectTimeoutMs:      60000,
@@ -1554,13 +1589,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         emitter.emit('qr', qr);
       }
       if (connection === 'close') {
-        const code      = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut  = code === DisconnectReason.loggedOut;
+        const code       = lastDisconnect?.error?.output?.statusCode;
+        const loggedOut  = code === DisconnectReason.loggedOut;          // 401
         const replaced   = code === DisconnectReason.connectionReplaced; // 440
-        log(`⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : ''}`);
+        const badSession = code === DisconnectReason.badSession;         // 500
+        log(`⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : badSession ? ' — sesión corrupta' : ''}`);
 
-        if (loggedOut || replaced) {
-          // Sesión inválida — limpiar y detener para que el usuario escanee QR nuevo
+        if (loggedOut || replaced || badSession) {
+          // Sesión inválida/corrupta — limpiar y detener para que el usuario escanee QR nuevo
           emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
           await clearAuth().catch(() => {});
           log('🗑️ Sesión eliminada — iniciá el bot de nuevo para escanear un QR nuevo.');
@@ -1631,8 +1667,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         }
       }
       if (connection === 'open') {
-        reconectarIntentos = 0; // reset — conexión exitosa
-        tsUltimaConexion   = Date.now();
+        reconectarIntentos     = 0; // reset — conexión exitosa
+        _macErrorCount         = 0; // reset — sesión válida
+        _sessionClearScheduled = false;
+        tsUltimaConexion       = Date.now();
         log('✅ WhatsApp conectado y listo');
         emitter.emit('ready');
         reprogramarRecs();

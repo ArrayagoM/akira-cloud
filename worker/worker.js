@@ -73,8 +73,11 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('[Worker] ✅ MongoDB conectado'))
   .catch(e => { console.error('[Worker] ❌ MongoDB:', e.message); process.exit(1); });
 
-// ── Socket.io → Render ────────────────────────────────────────
-const socket = io(RENDER_URL, {
+// ── Socket.io → Render (namespace /worker) ───────────────────
+// El namespace raíz / requiere JWT (para el frontend).
+// El worker usa el namespace /worker que autentica con WORKER_SECRET.
+const socketUrl = RENDER_URL.replace(/\/$/, '');
+const socket = io(`${socketUrl}/worker`, {
   path:               '/socket.io',
   auth:               { secret: WORKER_SECRET, role: 'worker' },
   reconnection:       true,
