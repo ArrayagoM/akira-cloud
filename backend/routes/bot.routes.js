@@ -138,7 +138,7 @@ router.post('/reset-session', async (req, res) => {
     // Borrar sesión del slot correspondiente
     const sessionPrefix = slot === 0 ? `${uid}:` : `${uid}_slot${slot}:`;
     const result = await WAAuth.deleteMany({ _id: new RegExp(`^${sessionPrefix}`) });
-    await Log.registrar({ userId: uid, tipo: 'bot_reset', mensaje: `Slot ${slot}: Sesión reiniciada (${result.deletedCount} docs eliminados)` });
+    await Log.registrar({ userId: uid, tipo: 'bot_stop', nivel: 'warn', mensaje: `Slot ${slot}: Sesión WA eliminada y bot detenido (${result.deletedCount} docs eliminados)` });
     res.json({ ok: true, msg: 'Sesión eliminada. Iniciá el bot de nuevo para escanear el QR.', deleted: result.deletedCount });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -127,6 +127,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let   esNegocioWA          = null; // null=desconocido, false=no es Business, true=es Business
   let   reconectarIntentos   = 0;  // contador de reconexiones sin éxito
   let   tsUltimaConexion     = 0;  // timestamp del último 'open' exitoso
+  let   botDetenidoIntencional = false; // true solo cuando el manager llama a detener()
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) { return t.replace(/\p{Emoji}/gu, '').replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim(); }
@@ -139,14 +140,40 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   function extraerNumero(jid) { return (jid || '').split('@')[0].replace(/[^0-9]/g, ''); }
 
   // Extrae el texto de un mensaje Baileys
+  // Cubre mensajes normales, efímeros, y captions de media
   function getTexto(msg) {
     const m = msg.message;
     if (!m) return '';
+    // Mensaje efímero (desaparece) — el contenido real está anidado
+    if (m.ephemeralMessage?.message) {
+      const inner = m.ephemeralMessage.message;
+      return inner.conversation
+        || inner.extendedTextMessage?.text
+        || inner.imageMessage?.caption
+        || inner.videoMessage?.caption
+        || inner.documentMessage?.caption
+        || '';
+    }
+    // Mensaje editado
+    if (m.editedMessage?.message?.protocolMessage?.editedMessage) {
+      const edited = m.editedMessage.message.protocolMessage.editedMessage;
+      return edited.conversation || edited.extendedTextMessage?.text || '';
+    }
     return m.conversation
       || m.extendedTextMessage?.text
       || m.imageMessage?.caption
       || m.videoMessage?.caption
+      || m.documentMessage?.caption
       || '';
+  }
+
+  // Detecta si un mensaje es de un tipo que no tiene texto pero debería recibir respuesta
+  function esTipoSinTexto(msg) {
+    const m = msg.message;
+    if (!m) return false;
+    return !!(m.stickerMessage || m.reactionMessage || m.locationMessage
+      || m.contactMessage || m.contactsArrayMessage || m.pollCreationMessage
+      || m.pollUpdateMessage || m.liveLocationMessage || m.templateMessage);
   }
 
   function limpiarRespuesta(texto) {
@@ -1050,13 +1077,27 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         u.historial.push({ role: 'assistant', content: s }); clientesSvc.guardarMemoria(jid, u);
         await enviarMensaje(jid, s); return true;
       }
-      cacheTemporal[jid] = { esperandoNombre: true };
+      cacheTemporal[jid] = { esperandoNombre: true, intentosNombre: 0 };
       db.guardar(CACHE_PATH, cacheTemporal);
       await enviarMensaje(jid, `¡Hola! ✨ Soy Akira, asistente de *${MI_NOMBRE}* — ${NEGOCIO}.\n\n¿Cuál es tu nombre? 😊`);
       return true;
     }
     if (cacheTemporal[jid]?.esperandoNombre) {
-      if (!esNombreValido(texto.trim())) { await enviarMensaje(jid, '¿Me decís tu nombre real? (solo letras) 😊'); return true; }
+      cacheTemporal[jid].intentosNombre = (cacheTemporal[jid].intentosNombre || 0) + 1;
+      if (!esNombreValido(texto.trim())) {
+        // Después de 2 intentos fallidos, usar el texto como nombre de todas formas
+        // Evita que el cliente quede bloqueado en loop infinito
+        if (cacheTemporal[jid].intentosNombre >= 2) {
+          const nombre = texto.trim().slice(0, 30) || 'Cliente';
+          const u = { nombre, telefono: jid, numeroReal: tel, email: null, historial: [], silenciado: false };
+          delete cacheTemporal[jid]; db.guardar(CACHE_PATH, cacheTemporal); clientesSvc.guardarMemoria(jid, u);
+          const s = `¡Hola! ✨ ¿En qué te puedo ayudar?`;
+          u.historial.push({ role: 'assistant', content: s }); clientesSvc.guardarMemoria(jid, u);
+          await enviarMensaje(jid, s); return true;
+        }
+        db.guardar(CACHE_PATH, cacheTemporal);
+        await enviarMensaje(jid, '¿Me decís tu nombre? (solo tu nombre, ej: "María") 😊'); return true;
+      }
       const nombre = capitalizar(quitarEmojis(texto.trim()));
       const u = { nombre, telefono: jid, numeroReal: tel, email: null, historial: [{ role: 'assistant', content: '¡Hola! ¿Cómo es tu nombre?' }, { role: 'user', content: nombre }], silenciado: false };
       delete cacheTemporal[jid]; db.guardar(CACHE_PATH, cacheTemporal); clientesSvc.guardarMemoria(jid, u);
@@ -1081,12 +1122,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Comandos del dueño ───────────────────────────────────────
   async function manejarComando(bodyLower, jid, usuario) {
-    if (bodyLower.includes('akira stop'))       { if (usuario) { usuario.silenciado = true;  clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira apagada)*');    return; }
-    if (bodyLower.includes('akira reactivate')) { if (usuario) { usuario.silenciado = false; clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira reactivada)*'); return; }
+    if (bodyLower.includes('akira stop'))       { if (usuario) { usuario.silenciado = true;  clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira apagada — respondé vos. Se reactiva sola en 30min o escribí: akira reactivate)*'); return; }
+    if (bodyLower.includes('akira reactivate')) { if (usuario) { usuario.silenciado = false; clientesSvc.guardarMemoria(jid, usuario); } await enviarMensaje(jid, '*(Akira reactivada ✅ — vuelvo a responder)*'); return; }
+    if (bodyLower.includes('akira help')) {
+      await enviarMensaje(jid,
+        `*Comandos Akira:*\n` +
+        `• *akira stop* — pausar respuestas en este chat (30min)\n` +
+        `• *akira reactivate* — reactivar respuestas en este chat\n` +
+        `• *akira status* — ver estado de todos los clientes\n` +
+        `• *akira listo [info]* — avisar a un cliente que su trabajo está listo`
+      );
+      return;
+    }
     if (bodyLower.includes('akira status')) {
       const clientes = clientesSvc.listarClientes();
-      const lineas   = clientes.map(c => `${c.nombre || '?'}: ${c.silenciado ? 'SILENCIADO' : 'activo'}`);
-      await enviarMensaje(jid, `*Clientes (${clientes.length}):*\n${lineas.join('\n') || 'Sin clientes aún.'}`);
+      const silenciados = clientes.filter(c => c.silenciado);
+      const lineas   = clientes.map(c => `${c.nombre || '?'}: ${c.silenciado ? '🔇 SILENCIADO' : '✅ activo'}`);
+      await enviarMensaje(jid, `*Clientes (${clientes.length}):*\n${lineas.join('\n') || 'Sin clientes aún.'}${silenciados.length ? `\n\n⚠️ ${silenciados.length} silenciado(s) — escribí "akira reactivate" en cada chat para reactivar.` : ''}`);
     }
 
     // ── akira listo [info] — avisar al cliente que su trabajo está listo ──
@@ -1256,13 +1308,34 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     if (msg.key.fromMe) {
       const texto = getTexto(msg).toLowerCase().trim();
       if (texto.startsWith('akira ')) await manejarComando(texto, jid, clientesSvc.cargarMemoria(jid));
+      // Si el dueño responde manualmente en un chat silenciado → reactivar el bot automáticamente
+      // El dueño ya atendió al cliente, el bot puede retomar cuando el cliente vuelva a escribir
+      const uclient = clientesSvc.cargarMemoria(jid);
+      if (uclient?.silenciado && !texto.startsWith('akira')) {
+        uclient.silenciado = false;
+        clientesSvc.guardarMemoria(jid, uclient);
+        log(`✅ [Auto-reactivar] Bot reactivado en ${jid} — el dueño respondió manualmente`);
+      }
       return;
     }
 
     const msgType = Object.keys(msg.message)[0];
     const esAudio = msgType === 'audioMessage';
 
-    if (!esAudio && !getTexto(msg)) return;
+    if (!esAudio && !getTexto(msg)) {
+      // Si es un tipo de mensaje sin texto (sticker, reacción, ubicación, etc.) — responder amablemente
+      if (esTipoSinTexto(msg)) {
+        log(`📎 [${jid}] Mensaje tipo "${msgType}" sin texto — respondiendo con fallback`);
+        // Solo responder si el cliente ya está registrado o tenemos su nombre
+        const uc = clientesSvc.cargarMemoria(jid);
+        if (uc && !uc.silenciado) {
+          await enviarMensaje(jid, `¡Hola${uc.nombre ? ', ' + uc.nombre : ''}! 😊 Solo puedo responder mensajes de texto o audio. ¿En qué te puedo ayudar?`);
+        }
+      } else {
+        log(`⏭️ [${jid}] Mensaje tipo "${msgType}" descartado — sin texto extraíble`);
+      }
+      return;
+    }
 
     let texto   = getTexto(msg);
     let fueAudio = false;
@@ -1280,7 +1353,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     log(`${fueAudio ? '🎤' : '📩'} [${jid}]: ${texto.slice(0, 80)}`);
 
     let usuario = clientesSvc.cargarMemoria(jid);
-    if (usuario?.silenciado && !bodyLower.includes('akira')) return;
+    if (usuario?.silenciado && !bodyLower.includes('akira')) {
+      log(`🔇 [${jid}] Mensaje ignorado — cliente silenciado (el dueño debe responder manualmente o esperá 30min para auto-reactivación)`);
+      return;
+    }
 
     try {
       const pushName = msg.pushName || '';
@@ -1319,7 +1395,21 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
       if (quiereConDueno(bodyLower)) {
         const u = clientesSvc.cargarMemoria(jid);
-        if (u) { u.silenciado = true; clientesSvc.guardarMemoria(jid, u); }
+        if (u) {
+          u.silenciado = true;
+          clientesSvc.guardarMemoria(jid, u);
+          // Auto-reactivar después de 30 minutos si el dueño no respondió
+          // Evita que el bot quede muerto permanentemente para ese cliente
+          setTimeout(() => {
+            const uf = clientesSvc.cargarMemoria(jid);
+            if (uf?.silenciado) {
+              uf.silenciado = false;
+              clientesSvc.guardarMemoria(jid, uf);
+              log(`⏱️ [Auto-reactivar] Bot reactivado en ${jid} — 30min sin respuesta del dueño`);
+            }
+          }, 30 * 60 * 1000);
+        }
+        notificarDueno(`👤 *${u?.nombre || extraerNumero(jid)}* quiere hablar con vos directamente. Respondele en WhatsApp.`);
         await enviarMensaje(jid, `¡Dale, ${u?.nombre || ''}! Le aviso a ${MI_NOMBRE} para que te contacte. 🙌`);
         return;
       }
@@ -1485,7 +1575,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const tiempoDesdeConexion = Date.now() - tsUltimaConexion;
         const esCicloRapido = tiempoDesdeConexion < 120_000; // < 2 minutos
 
-        if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
+        // ── Sesión corrupta: solo limpiar si hay MUCHOS ciclos rápidos consecutivos
+        // Aumentado de 3 → 6 para no limpiar sesiones válidas en redes inestables
+        if (code === undefined && esCicloRapido && reconectarIntentos >= 6) {
           log(`🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`);
           emitter.emit('disconnected', `sesión inválida — QR requerido`);
           await clearAuth().catch(() => {});
@@ -1494,9 +1586,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           return;
         }
 
-        if (reconectarIntentos >= 15) {
+        if (reconectarIntentos >= 20) {
           // Demasiados intentos fallidos — sesión probablemente muerta
-          log(`❌ 15 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
+          log(`❌ 20 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
           emitter.emit('disconnected', `demasiados intentos — QR requerido`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
@@ -1514,9 +1606,26 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           log(`🔄 Reconectando en ${delay / 1000}s... (intento ${reconectarIntentos})`);
           setTimeout(() => {
             reconectando = false;
+            if (botDetenidoIntencional) return; // fue detenido manualmente mientras esperábamos
             if (sock !== null) conectar().catch(e => {
               log(`❌ Error al reconectar: ${e.message}`);
               reconectando = false;
+              // Si conectar() falla (e.g. MongoDB timeout), programar siguiente intento
+              // en lugar de quedar muertos en silencio
+              if (!botDetenidoIntencional && sock !== null && reconectarIntentos < 20) {
+                const nextDelay = Math.min(5000 * (reconectarIntentos + 1), 30_000);
+                log(`🔄 Reintentando reconexión en ${nextDelay / 1000}s...`);
+                setTimeout(() => {
+                  if (!botDetenidoIntencional && sock !== null) {
+                    reconectarIntentos++;
+                    conectar().catch(() => {});
+                  }
+                }, nextDelay);
+              } else if (!botDetenidoIntencional) {
+                // Agotados todos los intentos — notificar al manager para que reinicie
+                log('❌ No se pudo reconectar — notificando manager para reinicio externo');
+                emitter.emit('disconnected', 'error conectar — reinicio externo requerido');
+              }
             });
           }, delay);
         }
@@ -1547,23 +1656,38 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         if (nombre) {
           contactosWA.set(c.id, nombre);
           // Si el cliente ya existe en cache pero sin nombre, actualizarlo
+          // Solo actualizar en RAM — la DB se actualiza cuando llegue un mensaje real
           const existing = clientesSvc.cargarMemoria(c.id);
-          if (existing && !existing.nombre && nombre) {
-            clientesSvc.guardarMemoria(c.id, { ...existing, nombre });
+          if (existing && !existing.nombre) {
+            existing.nombre = nombre;
+            // No llamar guardarMemoria acá para no generar flood de DB al conectar
           }
         }
       }
     });
 
     // chats.set: WhatsApp envía la lista completa al conectarse
+    // Procesamos en background con delay para no interferir con mensajes reales
     sock.ev.on('chats.set', ({ chats: lista }) => {
-      for (const chat of (lista || [])) {
-        const jid = chat.id;
-        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue; // ignorar grupos, status, etc.
-        const num = jid.split('@')[0].replace(/\D/g, '');
-        const nombre = contactosWA.get(jid) || chat.name || '';
-        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
-      }
+      const nuevos = (lista || []).filter(c =>
+        c.id && c.id.endsWith('@s.whatsapp.net') && !clientesSvc.cargarMemoria(c.id)
+      );
+      if (nuevos.length === 0) return;
+      log(`[Chats] ${nuevos.length} chats nuevos detectados — registrando en background`);
+      // Procesar de a 10 por vez con delay para no saturar MongoDB
+      let i = 0;
+      const procesarLote = () => {
+        const lote = nuevos.slice(i, i + 10);
+        if (lote.length === 0) return;
+        i += 10;
+        for (const chat of lote) {
+          const num    = chat.id.split('@')[0].replace(/\D/g, '');
+          const nombre = contactosWA.get(chat.id) || chat.name || '';
+          clientesSvc.registrarNuevo(chat.id, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+        }
+        setTimeout(procesarLote, 500); // 500ms entre lotes
+      };
+      setTimeout(procesarLote, 5000); // 5s delay inicial — esperar que el bot esté estable
     });
 
     // chats.upsert: nuevos chats que aparecen luego de la conexión inicial
@@ -1571,7 +1695,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       for (const chat of (chats || [])) {
         const jid = chat.id;
         if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
-        const num = jid.split('@')[0].replace(/\D/g, '');
+        if (clientesSvc.cargarMemoria(jid)) continue; // ya existe — no hacer nada
+        const num    = jid.split('@')[0].replace(/\D/g, '');
         const nombre = contactosWA.get(jid) || chat.name || '';
         clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
       }
@@ -1600,24 +1725,35 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   }
 
   // ── Watchdog: detecta conexión zombie y reconecta ────────────
+  let watchdogPingFallos = 0; // contador de pings fallidos consecutivos
   function iniciarWatchdog() {
     if (watchdogTimer) clearInterval(watchdogTimer);
-    // Cada 3 minutos verifica si el socket sigue vivo
+    watchdogPingFallos = 0;
+    // Cada 5 minutos verifica si el socket sigue vivo
     watchdogTimer = setInterval(() => {
       // Top-level try/catch — si el watchdog falla no debe matar el intervalo
       try {
-        if (!sock) return;
-        const ZOMBIE_MS = 10 * 60 * 1000; // 10 min sin mensajes ni actividad
+        if (!sock || botDetenidoIntencional) return;
+        const ZOMBIE_MS = 15 * 60 * 1000; // 15 min sin mensajes — negocios tranquilos tienen períodos largos sin chats
         const silencio  = Date.now() - ultimoMensajeTs;
-        try {
-          if (sock.ws && typeof sock.ws.ping === 'function') sock.ws.ping();
-        } catch (pingErr) {
-          log(`⚠️ [Watchdog] Ping falló (${pingErr.message}) — forzando reconexión`);
-          detenerWatchdog();
-          if (!reconectando) {
-            try { sock.end(new Error('watchdog_ping_fail')); } catch {}
+        if (sock.ws && typeof sock.ws.ping === 'function') {
+          try {
+            sock.ws.ping();
+            watchdogPingFallos = 0; // ping exitoso — reset contador
+          } catch (pingErr) {
+            watchdogPingFallos++;
+            log(`⚠️ [Watchdog] Ping falló x${watchdogPingFallos} (${pingErr.message})`);
+            // 2 pings fallidos consecutivos → reconectar
+            if (watchdogPingFallos >= 2) {
+              log('⚠️ [Watchdog] 2 pings fallidos — forzando reconexión');
+              watchdogPingFallos = 0;
+              detenerWatchdog();
+              if (!reconectando) {
+                try { sock.end(new Error('watchdog_ping_fail')); } catch {}
+              }
+            }
+            return;
           }
-          return;
         }
         if (silencio > ZOMBIE_MS) {
           log(`⚠️ [Watchdog] Sin actividad por ${Math.round(silencio/60000)}min — reconectando`);
@@ -1630,7 +1766,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       } catch (e) {
         log(`❌ [Watchdog] Error interno: ${e.message}`);
       }
-    }, 3 * 60 * 1000);
+    }, 5 * 60 * 1000);
   }
 
   function detenerWatchdog() {
@@ -1703,6 +1839,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   }
 
   async function detener(motivo = null) {
+    botDetenidoIntencional = true; // marcar antes de nulificar sock para cortar todos los timers
     const sockRef = sock;
     sock = null; // null primero para cortar reconexión automática
     reconectando = false;

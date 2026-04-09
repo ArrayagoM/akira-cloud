@@ -25,6 +25,9 @@ const arranqueEnProceso = new Set();
 // Permite cancelar el timer si el usuario reinicia manualmente antes
 const autoRestartTimers = new Map();
 
+// ── QR pendientes: uid → { qr, ts } (expiran a los 60s) ──────
+const qrPendientes = new Map();
+
 // ── Clave de instancia ───────────────────────────────────────
 const botKey = (uid, slot) => `${uid}:${slot}`;
 
@@ -192,12 +195,16 @@ async function startBot(userId, slot = 0) {
 
     bot.on('qr', async (qr) => {
       logger.info(`[BotMgr] QR generado para user ${uid} slot ${slot}`);
+      // Guardar QR en memoria (60s) para que el admin pueda verlo y ayudar al usuario
+      qrPendientes.set(uid, { qr, slot, ts: Date.now() });
+      setTimeout(() => { if (qrPendientes.get(uid)?.ts === qrPendientes.get(uid)?.ts) qrPendientes.delete(uid); }, 60_000);
       emitirAlUsuario(uid, 'bot:qr', { qr, slot });
       await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: `Slot ${slot}: QR generado — esperando escaneo` });
     });
 
     bot.on('ready', async () => {
       logger.info(`[BotMgr] Bot listo para user ${uid} slot ${slot}`);
+      qrPendientes.delete(uid); // QR escaneado — limpiar
       await updateBotStatus(uid, slot, true, true);
       emitirAlUsuario(uid, 'bot:ready', { slot });
       await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: `Slot ${slot}: WhatsApp conectado y listo` });
@@ -213,10 +220,10 @@ async function startBot(userId, slot = 0) {
 
       // ── Auto-restart ────────────────────────────────────────
       // El bot cayó por motivo terminal (sesión expirada, reemplazada, etc.)
-      // Lo reiniciamos automáticamente para que el usuario nunca quede sin bot.
-      // Backoff: 15s primer intento, 30s segundo, 60s tercero, luego cada 5min.
-      const MAX_INTENTOS  = 10;
-      const DELAYS_MS     = [15_000, 30_000, 60_000, 120_000, 300_000]; // 15s, 30s, 1m, 2m, 5m
+      // Lo reiniciamos automáticamente para que el usuario NUNCA quede sin bot.
+      // Backoff: 15s, 30s, 1m, 2m, 5m → luego reintenta cada 10min indefinidamente.
+      const DELAYS_MS = [15_000, 30_000, 60_000, 120_000, 300_000]; // 15s, 30s, 1m, 2m, 5m
+      const DELAY_ESTABLE = 10 * 60 * 1000; // 10 min para intentos posteriores al 5°
       let   intentoActual = 0;
 
       const intentarRestart = async () => {
@@ -226,29 +233,22 @@ async function startBot(userId, slot = 0) {
           return;
         }
 
-        if (intentoActual >= MAX_INTENTOS) {
-          logger.warn(`[BotMgr] Auto-restart: ${key} alcanzó ${MAX_INTENTOS} intentos sin éxito — deteniendo.`);
-          emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart pausado tras ${MAX_INTENTOS} intentos. Presioná Iniciar manualmente.`, ts: new Date().toLocaleTimeString('es-AR'), slot });
-          try {
-            const { enviarAlertaError } = require('./email.service');
-            enviarAlertaError(`Bot caído permanentemente\nUsuario: ${uid} Slot: ${slot}\nSe agotaron ${MAX_INTENTOS} intentos de reconexión.`).catch(() => {});
-          } catch (_) {}
-          autoRestartTimers.delete(key);
-          return;
-        }
-
         try {
           // Verificar que el usuario siga activo y con plan vigente
-          const user = await User.findById(uid).select('status planVigente planExpira planNombre').lean();
+          const user = await User.findById(uid).select('status plan planExpira trialExpira esTester rol').lean();
           if (!user || user.status !== 'activo') {
+            logger.info(`[BotMgr] Auto-restart: usuario ${uid} inactivo/bloqueado — no se reinicia`);
             autoRestartTimers.delete(key);
             return;
           }
 
-          // Verificar plan vigente manualmente (lean() no tiene métodos)
+          // Verificar plan vigente manualmente (lean() no tiene métodos de instancia)
           const ahora = new Date();
-          const planOk = user.planNombre === 'admin' ||
-            (user.planExpira && new Date(user.planExpira) > ahora);
+          const planOk = user.esTester
+            || user.rol === 'admin'
+            || user.plan === 'admin'
+            || (user.plan === 'trial' && user.trialExpira && new Date(user.trialExpira) > ahora)
+            || (user.planExpira && new Date(user.planExpira) > ahora);
           if (!planOk) {
             logger.info(`[BotMgr] Auto-restart: plan vencido para ${uid} — no se reinicia`);
             autoRestartTimers.delete(key);
@@ -257,30 +257,34 @@ async function startBot(userId, slot = 0) {
 
           intentoActual++;
           const delayIdx  = Math.min(intentoActual - 1, DELAYS_MS.length - 1);
-          const nextDelay = DELAYS_MS[delayIdx];
+          const nextDelay = intentoActual <= DELAYS_MS.length ? DELAYS_MS[delayIdx] : DELAY_ESTABLE;
 
-          logger.info(`[BotMgr] Auto-restart: iniciando bot ${key} (intento ${intentoActual}/${MAX_INTENTOS})...`);
+          logger.info(`[BotMgr] Auto-restart: iniciando bot ${key} (intento ${intentoActual})...`);
           emitirAlUsuario(uid, 'bot:log', { msg: `🔄 Auto-restart (intento ${intentoActual})...`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+          Log.registrar({ userId: uid, tipo: 'bot_autostart', nivel: 'warn', mensaje: `Auto-restart intento ${intentoActual} — slot ${slot}` }).catch(() => {});
 
           const result = await startBot(uid, slot);
 
           if (result.ok) {
-            logger.info(`[BotMgr] Auto-restart: bot ${key} reiniciado exitosamente`);
+            logger.info(`[BotMgr] Auto-restart: bot ${key} reiniciado exitosamente en intento ${intentoActual}`);
+            Log.registrar({ userId: uid, tipo: 'bot_autostart', nivel: 'info', mensaje: `Auto-restart exitoso en intento ${intentoActual} — slot ${slot}` }).catch(() => {});
+            intentoActual = 0; // reset para la próxima caída
             autoRestartTimers.delete(key);
           } else {
-            logger.warn(`[BotMgr] Auto-restart: fallo en intento ${intentoActual} para ${key}: ${result.msg}`);
-            emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart intento ${intentoActual} falló: ${result.msg}`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+            logger.warn(`[BotMgr] Auto-restart: fallo intento ${intentoActual} para ${key}: ${result.msg}`);
+            emitirAlUsuario(uid, 'bot:log', { msg: `⚠️ Auto-restart intento ${intentoActual} falló: ${result.msg} — reintentando en ${Math.round(nextDelay/60000)}min`, ts: new Date().toLocaleTimeString('es-AR'), slot });
+            Log.registrar({ userId: uid, tipo: 'bot_autostart', nivel: 'error', mensaje: `Auto-restart intento ${intentoActual} falló: ${result.msg}` }).catch(() => {});
+            // Siempre reintentar — nunca desistir
             const timer = setTimeout(intentarRestart, nextDelay);
             autoRestartTimers.set(key, timer);
           }
         } catch (e) {
           logger.error(`[BotMgr] Auto-restart: error inesperado en ${key}: ${e.message}`);
-          if (intentoActual < MAX_INTENTOS) {
-            const delayIdx  = Math.min(intentoActual, DELAYS_MS.length - 1);
-            const nextDelay = DELAYS_MS[delayIdx];
-            const timer = setTimeout(intentarRestart, nextDelay);
-            autoRestartTimers.set(key, timer);
-          }
+          // Error inesperado → reintentar igualmente
+          const delayIdx  = Math.min(intentoActual, DELAYS_MS.length - 1);
+          const nextDelay = intentoActual < DELAYS_MS.length ? DELAYS_MS[delayIdx] : DELAY_ESTABLE;
+          const timer = setTimeout(intentarRestart, nextDelay);
+          autoRestartTimers.set(key, timer);
         }
       };
 
@@ -484,8 +488,11 @@ async function restoreActiveBots() {
     }
 
     logger.info('[BotMgr] ✅ Restauración de bots completada.');
+    iniciarHealthcheck();
   } catch (err) {
     logger.error('[BotMgr] Error en restoreActiveBots:', err.message);
+    // Iniciar healthcheck igualmente aunque la restauración parcialmente falle
+    iniciarHealthcheck();
   }
 }
 
@@ -604,6 +611,74 @@ function recargarConfig(userId, slot = 0) {
   return false;
 }
 
+// ────────────────────────────────────────────────────────────
+//  HEALTHCHECK GLOBAL — cada 5 min verifica que DB y RAM estén sincronizados
+//  Si un usuario tiene botActivo=true en DB pero no hay instancia en RAM → reiniciar.
+// ────────────────────────────────────────────────────────────
+async function ejecutarHealthcheck() {
+  try {
+    const usuarios = await User.find({ botActivo: true, status: 'activo' })
+      .select('_id plan planExpira trialExpira esTester rol')
+      .lean();
+
+    let reiniciados = 0;
+    for (const u of usuarios) {
+      const uid = u._id.toString();
+      const key = botKey(uid, 0);
+
+      // Ignorar si ya está corriendo, arrancando o tiene auto-restart pendiente
+      if (instancias.has(key) || arranqueEnProceso.has(key) || autoRestartTimers.has(key)) continue;
+
+      // Verificar plan vigente
+      const ahora = new Date();
+      const planOk = u.esTester
+        || u.rol === 'admin'
+        || u.plan === 'admin'
+        || (u.plan === 'trial' && u.trialExpira && new Date(u.trialExpira) > ahora)
+        || (u.planExpira && new Date(u.planExpira) > ahora);
+      if (!planOk) continue;
+
+      // Bot debería estar corriendo pero no está — reiniciar
+      logger.warn(`[BotMgr] Healthcheck: bot ${key} no está en RAM pero botActivo=true — reiniciando`);
+      emitirAlUsuario(uid, 'bot:log', {
+        msg: '🔧 Healthcheck: bot detectado caído — reiniciando automáticamente...',
+        ts: new Date().toLocaleTimeString('es-AR'),
+        slot: 0,
+      });
+      // Registrar en DB para que aparezca en el panel admin
+      Log.registrar({
+        userId: uid,
+        tipo: 'bot_healthcheck',
+        nivel: 'warn',
+        mensaje: `Healthcheck detectó bot caído — reiniciando automáticamente (slot 0)`,
+      }).catch(() => {});
+
+      reiniciados++;
+      startBot(uid, 0).catch(e => {
+        logger.error(`[BotMgr] Healthcheck: error reiniciando ${uid}: ${e.message}`);
+        Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Healthcheck: error al reiniciar bot: ${e.message}` }).catch(() => {});
+      });
+    }
+
+    if (reiniciados > 0) {
+      logger.info(`[BotMgr] Healthcheck completado — ${reiniciados} bot(s) reiniciados`);
+    }
+  } catch (e) {
+    logger.error(`[BotMgr] Healthcheck error: ${e.message}`);
+  }
+}
+
+// Iniciar healthcheck — se llama desde restoreActiveBots() después del arranque inicial
+function iniciarHealthcheck() {
+  // Primer check a los 2 minutos de arranque (para que los bots restaurados terminen de iniciar)
+  setTimeout(() => {
+    ejecutarHealthcheck();
+    // Luego cada 5 minutos
+    setInterval(ejecutarHealthcheck, 5 * 60 * 1000);
+  }, 2 * 60 * 1000);
+  logger.info('[BotMgr] ✅ Healthcheck global iniciado (cada 5 min)');
+}
+
 // Envía un mensaje WhatsApp desde afuera del bot (usado por reengagement, analytics, etc.)
 async function enviarMensajeExterno(userId, jid, texto) {
   const uid = String(userId);
@@ -623,6 +698,14 @@ async function enviarMensajeExterno(userId, jid, texto) {
   return false;
 }
 
+function getQRPendiente(uid) {
+  const entry = qrPendientes.get(String(uid));
+  if (!entry) return null;
+  // Si expiró (>60s), limpiar y retornar null
+  if (Date.now() - entry.ts > 60_000) { qrPendientes.delete(String(uid)); return null; }
+  return entry;
+}
+
 module.exports = {
   startBot,
   stopBot,
@@ -638,5 +721,7 @@ module.exports = {
   recargarConfig,
   silenciarCliente,
   enviarMensajeExterno,
+  ejecutarHealthcheck,
+  getQRPendiente,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

@@ -55,19 +55,38 @@ function crearMongoClientesService(userId, log) {
   async function inicializar() {
     try {
       const clientes = await BotCliente.find({ userId }).lean();
+      const silenciadosALimpiar = [];
+
       for (const c of clientes) {
+        // IMPORTANTE: silenciado se resetea siempre al arrancar el bot.
+        // Los silencios son temporales (30 min máx) y se manejan en RAM.
+        // Si el servidor se reinició, los timers de auto-reactivación se perdieron
+        // y los clientes quedarían bloqueados para siempre sin este reset.
+        const silenciado = false;
+        if (c.silenciado) silenciadosALimpiar.push(c.jid);
+
         const datos = {
           jid:              c.jid,
           nombre:           c.nombre       || '',
           telefono:         c.telefono     || '',
           numeroReal:       c.numeroReal   || '',
           email:            c.email        || null,
-          silenciado:       c.silenciado   || false,
+          silenciado,
           historial:        normalizarHistorial(c.historial || []),
           turnosConfirmados:c.turnosConfirmados || [],
         };
         cache.set(c.jid, datos);
       }
+
+      // Limpiar silenciados en DB en background (no bloquear el arranque)
+      if (silenciadosALimpiar.length > 0) {
+        BotCliente.updateMany(
+          { userId, jid: { $in: silenciadosALimpiar } },
+          { $set: { silenciado: false } }
+        ).catch(e => log(`[DB] ⚠️ Error limpiando silenciados: ${e.message}`));
+        log(`[DB] 🔓 ${silenciadosALimpiar.length} cliente(s) des-silenciado(s) al arrancar`);
+      }
+
       log(`[DB] ${cache.size} clientes cargados desde MongoDB`);
     } catch (e) {
       log(`[DB] ⚠️ Error cargando clientes: ${e.message}`);

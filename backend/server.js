@@ -197,6 +197,12 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Trigger manual del healthcheck (solo en production — acceso interno)
+app.post('/api/health/check', async (_req, res) => {
+  await botManager.ejecutarHealthcheck().catch(() => {});
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
+
 // ── 404 ─────────────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });

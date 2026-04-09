@@ -6,8 +6,10 @@ import {
   Users, Bot, AlertTriangle, Activity, Search, Shield,
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
   Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck,
-  Lightbulb, TrendingUp
+  Lightbulb, TrendingUp, RotateCcw, Zap, WifiOff, Wifi,
+  Info, Filter
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
 function AdminStat({ icon, label, value, color = 'text-white' }) {
@@ -194,6 +196,117 @@ function UserModal({ user, onClose, onAction }) {
   );
 }
 
+// ── Modal de diagnóstico de bot ──────────────────────────────
+function BotDiagModal({ botId, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    api.get(`/admin/users/${botId}/bot-diagnostic`)
+      .then(r => setData(r.data))
+      .catch(e => setError(e.response?.data?.error || 'Error al cargar diagnóstico'))
+      .finally(() => setLoading(false));
+  }, [botId]);
+
+  const ok  = v => v ? <span className="text-green-400">✓ Sí</span> : <span className="text-red-400">✗ No</span>;
+  const row = (label, val) => (
+    <div className="flex justify-between gap-3 py-1.5 border-b" style={{ borderColor: 'var(--border)' }}>
+      <span className="text-gray-500 text-sm">{label}</span>
+      <span className="text-sm">{val}</span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto"
+        style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '20px 20px 0 0' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex justify-center pt-3 pb-1 sm:hidden">
+          <div className="w-10 h-1 rounded-full" style={{ background: 'var(--border2)' }} />
+        </div>
+        <div className="px-5 pb-6 pt-3 sm:p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-white flex items-center gap-2"><Info size={16} className="text-blue-400" /> Diagnóstico del Bot</h3>
+            <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
+          </div>
+
+          {loading && <p className="text-center text-gray-500 py-8">Analizando bot...</p>}
+          {error   && <p className="text-center text-red-400 py-4">{error}</p>}
+
+          {data && (
+            <>
+              {/* QR pendiente — mostrarlo prominentemente */}
+              {data.qr && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-yellow-400 uppercase">⚡ QR pendiente — mostrárselo al usuario para que escanee</p>
+                  <div className="flex justify-center p-4 rounded-xl" style={{ background: 'white' }}>
+                    <QRCodeSVG value={data.qr} size={192} />
+                  </div>
+                  <p className="text-xs text-gray-500 text-center">El usuario debe escanearlo desde WhatsApp → Dispositivos vinculados</p>
+                </div>
+              )}
+
+              {/* Causa probable */}
+              {data.causaProbable ? (
+                <div className="flex items-start gap-2 px-3 py-3 rounded-xl text-sm"
+                  style={{ background: data.esperandoQR ? 'rgba(234,179,8,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${data.esperandoQR ? 'rgba(234,179,8,0.25)' : 'rgba(239,68,68,0.25)'}` }}>
+                  <AlertTriangle size={15} className={`${data.esperandoQR ? 'text-yellow-400' : 'text-red-400'} flex-shrink-0 mt-0.5`} />
+                  <div>
+                    <p className={`${data.esperandoQR ? 'text-yellow-300' : 'text-red-300'} font-semibold`}>Causa probable</p>
+                    <p className={`${data.esperandoQR ? 'text-yellow-200' : 'text-red-200'} mt-0.5`}>{data.causaProbable}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-3 rounded-xl text-sm"
+                  style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                  <Wifi size={15} className="text-green-400 flex-shrink-0" />
+                  <p className="text-green-300">Bot parece estar en orden — sin causa obvia de fallo</p>
+                </div>
+              )}
+
+              {/* Checks */}
+              <div className="space-y-0">
+                {row('En memoria RAM',        ok(data.enRAM))}
+                {row('Sesión WhatsApp (WAAuth)', ok(data.tieneWAAuth))}
+                {row('Documentos WA guardados', <span className="text-gray-300">{data.waAuthDocCount}</span>)}
+                {row('Configuración guardada', ok(data.tieneConfig))}
+                {row('Clave Groq configurada', ok(data.tieneGroq))}
+                {row('Clientes en DB',        <span className="text-gray-300">{data.clientesTotal}</span>)}
+                {row('Clientes silenciados',  <span className={data.clientesSilenciados > 0 ? 'text-yellow-400 font-semibold' : 'text-gray-300'}>{data.clientesSilenciados}</span>)}
+                {row('Bot activo en DB',      ok(data.user?.botActivo))}
+                {row('Bot conectado en DB',   ok(data.user?.botConectado))}
+              </div>
+
+              {/* Últimos logs */}
+              {data.ultimosLogs?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Últimos logs</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {data.ultimosLogs.map(l => {
+                      const c = { error: 'text-red-400', critical: 'text-red-500', warn: 'text-yellow-400', info: 'text-blue-400' }[l.nivel] || 'text-gray-400';
+                      return (
+                        <div key={l._id} className="text-xs rounded-lg px-2.5 py-2" style={{ background: 'var(--surface2)' }}>
+                          <span className={`font-semibold ${c} mr-1.5`}>{l.nivel?.toUpperCase()}</span>
+                          <span className="text-gray-500 mr-1.5 font-mono">{l.tipo}</span>
+                          <span className="text-gray-300">{l.mensaje}</span>
+                          <span className="text-gray-600 ml-1.5">{new Date(l.createdAt).toLocaleString('es-AR')}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const [stats,          setStats]          = useState(null);
   const [users,          setUsers]          = useState([]);
@@ -223,6 +336,13 @@ export default function AdminPanel() {
     } catch {} finally { setLoadingSugs(false); }
   }, []);
 
+  const [filtroLog,  setFiltroLog]  = useState('');
+  const [tipoLog,    setTipoLog]    = useState('');
+  const [buscarLog,  setBuscarLog]  = useState('');
+  const [botStats,   setBotStats]   = useState(null);
+  const [actionBot,  setActionBot]  = useState({}); // {[id]: 'stop'|'restart'}
+  const [diagBotId,  setDiagBotId]  = useState(null); // id del bot a diagnosticar
+
   const cargarStats     = useCallback(async () => { const r = await api.get('/admin/dashboard'); setStats(r.data.stats); }, []);
   const cargarUsuarios  = useCallback(async () => {
     setLoading(true);
@@ -231,8 +351,19 @@ export default function AdminPanel() {
       setUsers(r.data.users); setPages(r.data.pages); setTotal(r.data.total);
     } finally { setLoading(false); }
   }, [page, search, filtro]);
-  const cargarLogs      = useCallback(async () => { const r = await api.get('/admin/logs?limit=50&nivel=error'); setLogs(r.data.logs); }, []);
-  const cargarBots      = useCallback(async () => { const r = await api.get('/admin/bots/active'); setBots(r.data.bots); }, []);
+  const cargarLogs = useCallback(async () => {
+    const params = new URLSearchParams({ limit: 100 });
+    if (filtroLog) params.set('nivel', filtroLog);
+    if (tipoLog)   params.set('tipo', tipoLog);
+    if (buscarLog) params.set('buscar', buscarLog);
+    const r = await api.get(`/admin/logs?${params}`);
+    setLogs(r.data.logs);
+  }, [filtroLog, tipoLog, buscarLog]);
+  const cargarBots = useCallback(async () => {
+    const r = await api.get('/admin/bots/active');
+    setBots(r.data.bots || []);
+    setBotStats({ conectados: r.data.conectados, iniciando: r.data.iniciando, caidos: r.data.caidos });
+  }, []);
   const cargarReferidos = useCallback(async () => {
     const r = await api.get('/admin/referidos');
     setReferidos(r.data.referidos);
@@ -252,7 +383,7 @@ export default function AdminPanel() {
 
   useEffect(() => { cargarStats(); }, []);
   useEffect(() => { if (tab === 'usuarios')  cargarUsuarios(); },  [tab, page, search, filtro, cargarUsuarios]);
-  useEffect(() => { if (tab === 'logs')      cargarLogs(); },      [tab]);
+  useEffect(() => { if (tab === 'logs')      cargarLogs(); },      [tab, filtroLog, tipoLog, buscarLog, cargarLogs]);
   useEffect(() => { if (tab === 'bots')      cargarBots(); },      [tab]);
   useEffect(() => { if (tab === 'referidos') cargarReferidos(); }, [tab]);
   useEffect(() => { if (tab === 'ideas') cargarSugerencias(); }, [tab, cargarSugerencias]);
@@ -263,6 +394,13 @@ export default function AdminPanel() {
       if (tipo === 'unblock')     await api.post(`/admin/users/${userId}/unblock`)               .then(() => toast.success('Usuario desbloqueado'));
       if (tipo === 'password')    await api.post(`/admin/users/${userId}/password`, payload)     .then(() => toast.success('Contraseña cambiada'));
       if (tipo === 'stopBot')     await api.post(`/admin/bots/${userId}/stop`)                   .then(() => toast.success('Bot detenido'));
+      if (tipo === 'restartBot') {
+        setActionBot(a => ({ ...a, [userId]: 'restart' }));
+        await api.post(`/admin/bots/${userId}/restart`);
+        toast.success('Bot reiniciado — esperá el QR si es necesario');
+        setActionBot(a => ({ ...a, [userId]: null }));
+        setTimeout(cargarBots, 3000);
+      }
       if (tipo === 'activarPlan') {
         const r = await api.post(`/admin/users/${userId}/activar-plan`, payload);
         toast.success(`✅ Plan ${payload.plan} activado — expira ${new Date(r.data.expira).toLocaleDateString('es-AR')}`);
@@ -271,12 +409,21 @@ export default function AdminPanel() {
         const r = await api.post(`/admin/users/${userId}/tester`);
         toast.success(r.data.esTester ? '🧪 Modo tester activado' : 'Modo tester desactivado');
       }
-      setSelected(null);
+      if (tipo !== 'restartBot') { setSelected(null); }
       cargarUsuarios();
       cargarStats();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Error al ejecutar acción');
+      setActionBot(a => ({ ...a, [userId]: null }));
     }
+  };
+
+  const forzarHealthcheck = async () => {
+    try {
+      await api.post('/admin/bots/healthcheck');
+      toast.success('Healthcheck ejecutado — bots caídos serán reiniciados');
+      setTimeout(() => { cargarBots(); cargarStats(); }, 3000);
+    } catch { toast.error('Error al ejecutar healthcheck'); }
   };
 
   const actualizarSugerencia = async (id, update) => {
@@ -316,16 +463,36 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        {/* Stats — 2 cols mobile, 4 cols md, 7 cols xl */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 sm:gap-3">
-          <AdminStat icon={<Users size={11}/>}       label="Total"        value={stats?.totalUsuarios} />
-          <AdminStat icon={<Activity size={11}/>}    label="Activos"      value={stats?.activos}        color="text-green-400" />
-          <AdminStat icon={<Ban size={11}/>}         label="Bloqueados"   value={stats?.bloqueados}     color="text-red-400" />
-          <AdminStat icon={<Bot size={11}/>}         label="Bots WA"      value={stats?.botsActivos}    color="text-blue-400" />
-          <AdminStat icon={<Bot size={11}/>}         label="En memoria"   value={stats?.activeInMemory} color="text-purple-400" />
-          <AdminStat icon={<AlertTriangle size={11}/>} label="Errores hoy" value={stats?.erroresHoy}   color="text-yellow-400" />
-          <AdminStat icon={<Users size={11}/>}       label="Registros hoy" value={stats?.registrosHoy} color="text-cyan-400" />
+        {/* Stats — 2 cols mobile, 4 cols md, 8 cols xl */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2 sm:gap-3">
+          <AdminStat icon={<Users size={11}/>}         label="Total usuarios"   value={stats?.totalUsuarios} />
+          <AdminStat icon={<Activity size={11}/>}      label="Activos"          value={stats?.activos}            color="text-green-400" />
+          <AdminStat icon={<Bot size={11}/>}           label="Bots en RAM"      value={stats?.activeInMemory}     color="text-blue-400" />
+          <AdminStat icon={<Wifi size={11}/>}          label="WA conectados"    value={stats?.botsConectadosDB}   color="text-green-400" />
+          <AdminStat
+            icon={<WifiOff size={11}/>}
+            label="Caídos (DB≠RAM)"
+            value={stats?.discrepancias ?? 0}
+            color={stats?.discrepancias > 0 ? 'text-red-400' : 'text-gray-600'}
+          />
+          <AdminStat icon={<AlertTriangle size={11}/>} label="Errores hoy"      value={stats?.erroresHoy}         color={stats?.erroresHoy > 0 ? 'text-red-400' : 'text-gray-600'} />
+          <AdminStat icon={<AlertTriangle size={11}/>} label="Warnings hoy"     value={stats?.warningsHoy}        color={stats?.warningsHoy > 5 ? 'text-yellow-400' : 'text-gray-600'} />
+          <AdminStat icon={<Users size={11}/>}         label="Registros hoy"    value={stats?.registrosHoy}       color="text-cyan-400" />
         </div>
+        {/* Alerta visible si hay bots caídos */}
+        {stats?.discrepancias > 0 && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm"
+            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+            <AlertTriangle size={15} className="text-red-400 flex-shrink-0" />
+            <span className="text-red-300 flex-1">
+              <strong>{stats.discrepancias}</strong> bot{stats.discrepancias > 1 ? 's' : ''} que debería estar corriendo no está en memoria.
+            </span>
+            <button onClick={forzarHealthcheck}
+              className="flex items-center gap-1.5 text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
+              <Zap size={11} /> Reiniciar caídos
+            </button>
+          </div>
+        )}
 
         {/* Tabs — scrollables en mobile */}
         <div className="overflow-x-auto -mx-4 px-4" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -435,48 +602,177 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ── TAB: Bots activos ── */}
+        {/* ── TAB: Bots ── */}
         {tab === 'bots' && (
           <div className="space-y-3">
-            {bots.length === 0 ? (
-              <div className="card text-center py-12 text-gray-600">No hay bots activos en este momento.</div>
-            ) : bots.map(b => (
-              <div key={b._id} className="card flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-medium text-white truncate">{b.nombre}</p>
-                  <p className="text-xs text-gray-500 truncate">{b.email}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="hidden sm:flex items-center gap-1.5 text-xs text-green-400">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /> Conectado
-                  </span>
-                  <button onClick={() => handleAction('stopBot', b._id, {})} className="btn-danger py-1.5 px-3 text-xs">
-                    <Square size={12} /> Detener
-                  </button>
-                </div>
+            {/* Sub-stats + acciones globales */}
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+              <div className="flex gap-3 flex-wrap text-xs">
+                <span className="flex items-center gap-1.5 text-green-400">
+                  <span className="w-2 h-2 rounded-full bg-green-400" />
+                  {botStats?.conectados ?? 0} conectados
+                </span>
+                <span className="flex items-center gap-1.5 text-yellow-400">
+                  <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  {botStats?.iniciando ?? 0} iniciando
+                </span>
+                <span className="flex items-center gap-1.5 text-red-400">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  {botStats?.caidos ?? 0} caídos
+                </span>
               </div>
-            ))}
+              <div className="flex gap-2">
+                <button onClick={cargarBots} className="btn-secondary text-xs py-1.5 px-3">
+                  <RefreshCw size={12} /> Actualizar
+                </button>
+                <button onClick={forzarHealthcheck} className="btn-secondary text-xs py-1.5 px-3 text-yellow-400">
+                  <Zap size={12} /> Healthcheck
+                </button>
+              </div>
+            </div>
+
+            {bots.length === 0 ? (
+              <div className="card text-center py-12 text-gray-600">No hay bots con botActivo=true en la base de datos.</div>
+            ) : bots.map(b => {
+              const esCaido    = b.discrepancia;
+              const esInicio   = b.estado === 'iniciando';
+              const esConectado = b.estado === 'conectado';
+              const isActing   = actionBot[b._id];
+              return (
+                <div key={b._id} className="card flex items-center gap-3 py-3"
+                  style={esCaido ? { border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.04)' } : {}}>
+                  {/* Estado indicator */}
+                  <div className="flex-shrink-0">
+                    {esConectado && <span className="w-2.5 h-2.5 rounded-full bg-green-400 flex animate-pulse" />}
+                    {esInicio    && <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 flex animate-pulse" />}
+                    {esCaido     && <span className="w-2.5 h-2.5 rounded-full bg-red-400 flex" />}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-white text-sm truncate">{b.nombre || '(sin nombre)'}</p>
+                      {esCaido  && <span className="text-xs text-red-400 font-semibold">CAÍDO</span>}
+                      {esInicio && <span className="text-xs text-yellow-400">iniciando...</span>}
+                      {esConectado && <span className="text-xs text-green-400">conectado</span>}
+                      {!b.enRAM && <span className="text-xs text-gray-600">· no en RAM</span>}
+                    </div>
+                    <p className="text-xs text-gray-500 truncate">{b.email}</p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Plan: <span className="text-gray-400">{b.plan || '—'}</span>
+                      {b.planExpira && <span className="ml-2">· expira: {new Date(b.planExpira).toLocaleDateString('es-AR')}</span>}
+                    </p>
+                  </div>
+
+                  {/* Acciones */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => setDiagBotId(b._id)}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors text-gray-400 border-gray-600/40 hover:bg-gray-700/30">
+                      <Info size={11} />
+                      <span className="hidden sm:inline">Diagnóstico</span>
+                    </button>
+                    <button
+                      onClick={() => handleAction('restartBot', b._id, {})}
+                      disabled={!!isActing}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors text-blue-400 border-blue-500/30 hover:bg-blue-500/10 disabled:opacity-40">
+                      {isActing === 'restart'
+                        ? <span className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        : <RotateCcw size={11} />}
+                      <span className="hidden sm:inline">Reiniciar</span>
+                    </button>
+                    {b.enRAM && (
+                      <button
+                        onClick={() => { handleAction('stopBot', b._id, {}); setTimeout(cargarBots, 1500); }}
+                        disabled={!!isActing}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors text-red-400 border-red-500/30 hover:bg-red-500/10 disabled:opacity-40">
+                        <Square size={11} />
+                        <span className="hidden sm:inline">Detener</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
-        {/* ── TAB: Logs de error ── */}
+        {/* ── TAB: Logs ── */}
         {tab === 'logs' && (
-          <div className="space-y-2">
-            {logs.length === 0 ? (
-              <div className="card text-center py-12 text-gray-600">Sin errores recientes. ✅</div>
-            ) : logs.map(l => (
-              <div key={l._id} className="card flex items-start gap-3 py-3 px-3 sm:px-4">
-                <AlertTriangle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                    <span className="text-xs text-gray-500">{new Date(l.createdAt).toLocaleString('es-AR')}</span>
-                    {l.userId && <span className="text-xs text-blue-400 truncate max-w-[120px]">{l.userId.email || l.userId}</span>}
-                  </div>
-                  <p className="text-sm text-gray-300 break-words">{l.mensaje}</p>
-                  {l.detalle && <p className="text-xs text-gray-600 mt-0.5 break-words">{typeof l.detalle === 'string' ? l.detalle : JSON.stringify(l.detalle)}</p>}
-                </div>
+          <div className="space-y-3">
+            {/* Filtros */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input value={buscarLog} onChange={e => setBuscarLog(e.target.value)}
+                  placeholder="Buscar en mensajes..."
+                  className="input-base pl-9 w-full text-sm" />
               </div>
-            ))}
+              <select value={filtroLog} onChange={e => setFiltroLog(e.target.value)} className="input-base text-sm sm:w-36">
+                <option value="">Todos</option>
+                <option value="error">Error</option>
+                <option value="warn">Warning</option>
+                <option value="critical">Crítico</option>
+                <option value="info">Info</option>
+              </select>
+              <select value={tipoLog} onChange={e => setTipoLog(e.target.value)} className="input-base text-sm sm:w-48">
+                <option value="">Todos los tipos</option>
+                <option value="bot_connected">Bot conectado</option>
+                <option value="bot_disconnected">Bot desconectado</option>
+                <option value="bot_start">Bot iniciado</option>
+                <option value="bot_stop">Bot detenido</option>
+                <option value="bot_autostart">Auto-restart</option>
+                <option value="bot_healthcheck">Healthcheck</option>
+                <option value="bot_qr">QR generado</option>
+                <option value="error">Errores</option>
+                <option value="admin_action">Acciones admin</option>
+              </select>
+              <button onClick={cargarLogs} className="btn-secondary text-xs py-2 px-3 flex-shrink-0">
+                <RefreshCw size={12} />
+              </button>
+            </div>
+
+            {/* Lista */}
+            {logs.length === 0 ? (
+              <div className="card text-center py-12 text-gray-600">Sin logs con esos filtros. ✅</div>
+            ) : logs.map(l => {
+              const nivelColor = {
+                error:    'text-red-400',
+                critical: 'text-red-500',
+                warn:     'text-yellow-400',
+                info:     'text-blue-400',
+              }[l.nivel] || 'text-gray-400';
+              const nivelIcon = {
+                error:    <AlertTriangle size={13} />,
+                critical: <AlertTriangle size={13} />,
+                warn:     <AlertTriangle size={13} />,
+                info:     <Info size={13} />,
+              }[l.nivel] || <Info size={13} />;
+              return (
+                <div key={l._id} className="card flex items-start gap-3 py-3 px-3 sm:px-4"
+                  style={l.nivel === 'error' || l.nivel === 'critical' ? { borderColor: 'rgba(239,68,68,0.2)' } : {}}>
+                  <span className={`${nivelColor} mt-0.5 flex-shrink-0`}>{nivelIcon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                      <span className="text-xs text-gray-500">{new Date(l.createdAt).toLocaleString('es-AR')}</span>
+                      <span className={`text-xs font-semibold uppercase ${nivelColor}`}>{l.nivel}</span>
+                      <span className="text-xs text-gray-600 font-mono">{l.tipo}</span>
+                      {l.userId && (
+                        <span className="text-xs text-blue-400 truncate max-w-[140px]">
+                          {typeof l.userId === 'object' ? l.userId.email : l.userId}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-300 break-words">{l.mensaje}</p>
+                    {l.detalle && (
+                      <p className="text-xs text-gray-600 mt-0.5 break-all font-mono">
+                        {typeof l.detalle === 'string' ? l.detalle : JSON.stringify(l.detalle)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -713,8 +1009,9 @@ export default function AdminPanel() {
           </div>
         )}
 
-      {/* Modal */}
-      {selected && <UserModal user={selected} onClose={() => setSelected(null)} onAction={handleAction} />}
+      {/* Modales */}
+      {selected   && <UserModal user={selected} onClose={() => setSelected(null)} onAction={handleAction} />}
+      {diagBotId  && <BotDiagModal botId={diagBotId} onClose={() => setDiagBotId(null)} />}
     </Layout>
   );
 }

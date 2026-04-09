@@ -18,26 +18,50 @@ router.use(requireAuth, requireAdmin);
 // ─────────────────────────────────────────────────────────────
 router.get('/dashboard', async (req, res) => {
   try {
+    const hace24h = new Date(Date.now() - 24*60*60*1000);
     const [
       totalUsuarios,
       activos,
       bloqueados,
-      botsActivos,
+      botsActivosDB,
+      botsConectadosDB,
       erroresHoy,
+      warningsHoy,
       registrosHoy,
+      desconexionesHoy,
     ] = await Promise.all([
       User.countDocuments({ rol: 'user' }),
       User.countDocuments({ rol: 'user', status: 'activo' }),
       User.countDocuments({ rol: 'user', status: 'bloqueado' }),
-      User.countDocuments({ botActivo: true, botConectado: true }),
-      Log.countDocuments({ nivel: 'error', createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) } }),
-      User.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) } }),
+      User.countDocuments({ botActivo: true, status: 'activo' }),
+      User.countDocuments({ botActivo: true, botConectado: true, status: 'activo' }),
+      Log.countDocuments({ nivel: 'error', createdAt: { $gte: hace24h } }),
+      Log.countDocuments({ nivel: 'warn', createdAt: { $gte: hace24h } }),
+      User.countDocuments({ createdAt: { $gte: hace24h } }),
+      Log.countDocuments({ tipo: 'bot_disconnected', createdAt: { $gte: hace24h } }),
     ]);
 
-    const activeInMemory = botManager.getActiveCount();
+    const activeInMemory  = botManager.getActiveCount();
+    // Discrepancias: DB dice botActivo pero no están en RAM
+    const keysEnRAM       = botManager.getActiveUserIds();
+    const idsEnRAM        = new Set(keysEnRAM.map(k => k.split(':')[0]));
+    const discrepancias   = Math.max(0, botsActivosDB - idsEnRAM.size);
 
     res.json({
-      stats: { totalUsuarios, activos, bloqueados, botsActivos, activeInMemory, erroresHoy, registrosHoy },
+      stats: {
+        totalUsuarios,
+        activos,
+        bloqueados,
+        botsActivos:     activeInMemory,      // bots realmente corriendo en RAM
+        botsConectadosDB,                      // bots con sesión WA confirmada en DB
+        botsActivosDB,                         // bots que "deberían" estar corriendo según DB
+        discrepancias,                         // diferencia DB vs RAM (bots caídos sin reiniciar)
+        activeInMemory,
+        erroresHoy,
+        warningsHoy,
+        registrosHoy,
+        desconexionesHoy,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -263,11 +287,26 @@ router.post('/users/:id/password', [
 });
 
 // ─────────────────────────────────────────────────────────────
+//  POST /api/admin/bots/healthcheck — forzar healthcheck global
+//  IMPORTANTE: debe ir ANTES de /bots/:id/* para que Express no confunda "healthcheck" con un :id
+// ─────────────────────────────────────────────────────────────
+router.post('/bots/healthcheck', async (req, res) => {
+  try {
+    await botManager.ejecutarHealthcheck();
+    await Log.registrar({ userId: req.user._id, tipo: 'bot_healthcheck', nivel: 'info', mensaje: `Admin forzó healthcheck global de bots` });
+    res.json({ ok: true, ts: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  POST /api/admin/bots/:id/stop — detener bot específico
 // ─────────────────────────────────────────────────────────────
 router.post('/bots/:id/stop', async (req, res) => {
   try {
     const result = await botManager.stopBot(req.params.id);
+    await Log.registrar({ userId: req.params.id, tipo: 'bot_stop', nivel: 'warn', mensaje: `Admin detuvo bot manualmente (admin: ${req.user.email})` });
     await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Admin detuvo bot de ${req.params.id}` });
     res.json(result);
   } catch (err) {
@@ -275,6 +314,24 @@ router.post('/bots/:id/stop', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/bots/:id/restart — reiniciar bot específico
+// ─────────────────────────────────────────────────────────────
+router.post('/bots/:id/restart', async (req, res) => {
+  try {
+    const uid = req.params.id;
+    // Detener primero (si está corriendo)
+    await botManager.stopBot(uid).catch(() => {});
+    // Pequeño delay para que Baileys cierre el socket limpiamente
+    await new Promise(r => setTimeout(r, 2000));
+    const result = await botManager.startBot(uid, 0);
+    await Log.registrar({ userId: uid, tipo: 'bot_autostart', nivel: 'info', mensaje: `Admin reinició bot manualmente (admin: ${req.user.email})` });
+    await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Admin reinició bot de ${uid}` });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 //  POST /api/admin/users/:id/promote — promover a admin
@@ -409,20 +466,87 @@ router.post('/referidos/:id/pagar', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  GET /api/admin/users/:id/bot-diagnostic — diagnóstico completo del bot de un usuario
+// ─────────────────────────────────────────────────────────────
+router.get('/users/:id/bot-diagnostic', async (req, res) => {
+  try {
+    const uid = req.params.id;
+
+    const WAAuth     = require('../models/WAAuth');
+    const BotCliente = require('../models/BotCliente');
+    const Config     = require('../models/Config');
+
+    const [
+      waAuthDocs,
+      clientesTotal,
+      clientesSilenciados,
+      configDoc,
+      ultimosLogs,
+      user,
+    ] = await Promise.all([
+      WAAuth.find({ _id: { $regex: `^${uid}:` } }).select('_id').lean(),
+      BotCliente.countDocuments({ userId: uid }),
+      BotCliente.countDocuments({ userId: uid, silenciado: true }),
+      Config.findOne({ userId: uid }).select('keyGroq miNombre negocio').lean(),
+      Log.find({ userId: uid }).sort({ createdAt: -1 }).limit(15).lean(),
+      User.findById(uid).select('nombre email botActivo botConectado plan status esTester').lean(),
+    ]);
+
+    const keysEnRAM = botManager.getActiveUserIds();
+    const enRAM     = keysEnRAM.some(k => k.split(':')[0] === uid);
+    const qrData    = botManager.getQRPendiente(uid);
+
+    const tieneWAAuth  = waAuthDocs.length > 0;
+    const tieneConfig  = !!configDoc;
+    const tieneGroq    = !!(configDoc?.keyGroq?.encrypted);
+    const esperandoQR  = !!qrData;
+
+    // Determinar causa probable de fallo
+    let causaProbable = null;
+    if (esperandoQR)           causaProbable = '⚡ QR listo — el usuario debe escanearlo desde su panel ahora (expira en 60s)';
+    else if (!tieneWAAuth)     causaProbable = 'Sin sesión WhatsApp — necesita iniciar el bot y escanear el QR desde su panel';
+    else if (!tieneGroq)       causaProbable = 'Sin clave Groq — el bot no puede responder con IA';
+    else if (!enRAM && user?.botActivo) causaProbable = 'Bot caído — no está en memoria RAM (usá Reiniciar)';
+    else if (clientesSilenciados > 0) causaProbable = `${clientesSilenciados} cliente(s) silenciado(s) — bot no les responde`;
+
+    res.json({
+      user,
+      enRAM,
+      tieneWAAuth,
+      waAuthDocCount: waAuthDocs.length,
+      tieneConfig,
+      tieneGroq,
+      clientesTotal,
+      clientesSilenciados,
+      causaProbable,
+      esperandoQR,
+      qr: qrData?.qr || null, // QR base64 si está pendiente (el admin puede mostrárselo al usuario)
+      ultimosLogs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  GET /api/admin/logs — logs globales del sistema
 // ─────────────────────────────────────────────────────────────
 router.get('/logs', async (req, res) => {
   try {
     const page    = Math.max(1, parseInt(req.query.page) || 1);
-    const limit   = Math.min(100, parseInt(req.query.limit) || 50);
-    const nivel   = req.query.nivel;
-    const tipo    = req.query.tipo;
+    const limit   = Math.min(200, parseInt(req.query.limit) || 50);
+    const nivel   = req.query.nivel;   // error|warn|info|critical
+    const tipo    = req.query.tipo;    // bot_start|bot_disconnected|etc
     const userId  = req.query.userId;
+    const desde   = req.query.desde;   // ISO date — filtrar desde esta fecha
+    const buscar  = req.query.buscar;  // búsqueda libre en mensaje
 
     const query = {};
     if (nivel)  query.nivel  = nivel;
     if (tipo)   query.tipo   = tipo;
     if (userId) query.userId = userId;
+    if (desde)  query.createdAt = { $gte: new Date(desde) };
+    if (buscar) query.mensaje = { $regex: buscar, $options: 'i' };
 
     const [logs, total] = await Promise.all([
       Log.find(query)
@@ -441,15 +565,47 @@ router.get('/logs', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-//  GET /api/admin/bots/active — bots activos en memoria
+//  GET /api/admin/bots/active — estado completo de todos los bots
+//  Cruza DB (botActivo=true) con RAM (instancias activas) para detectar discrepancias
 // ─────────────────────────────────────────────────────────────
 router.get('/bots/active', async (req, res) => {
   try {
-    const ids = botManager.getActiveUserIds();
-    const users = ids.length > 0
-      ? await User.find({ _id: { $in: ids } }).select('nombre email botActivo botConectado').lean()
-      : [];
-    res.json({ count: ids.length, bots: users });
+    // IDs activos en RAM (instancias corriendo ahora mismo)
+    const keysEnRAM = botManager.getActiveUserIds(); // formato "userId:slot"
+    const idsEnRAM  = new Set(keysEnRAM.map(k => k.split(':')[0]));
+
+    // Usuarios con botActivo=true en DB
+    const usersDB = await User.find({ botActivo: true, status: 'activo' })
+      .select('nombre email botActivo botConectado plan planExpira esTester createdAt')
+      .lean();
+
+    // Usuarios en RAM pero sin botActivo en DB (edge case)
+    const idsEnDBSet = new Set(usersDB.map(u => u._id.toString()));
+    const enRAMnoEnDB = [...idsEnRAM].filter(id => !idsEnDBSet.has(id));
+
+    // Construir lista enriquecida
+    const bots = usersDB.map(u => {
+      const uid         = u._id.toString();
+      const enRAM       = idsEnRAM.has(uid);
+      const discrepancia = u.botActivo && !enRAM; // DB dice activo pero no está en RAM
+      return {
+        ...u,
+        enRAM,
+        discrepancia,
+        estado: enRAM ? (u.botConectado ? 'conectado' : 'iniciando') : 'caido',
+      };
+    });
+
+    // Agregar los raros que están en RAM pero no en DB
+    for (const uid of enRAMnoEnDB) {
+      bots.push({ _id: uid, nombre: '(sin datos)', email: uid, enRAM: true, discrepancia: false, estado: 'conectado', botActivo: true, botConectado: true });
+    }
+
+    const caidos       = bots.filter(b => b.discrepancia).length;
+    const conectados   = bots.filter(b => b.estado === 'conectado').length;
+    const iniciando    = bots.filter(b => b.estado === 'iniciando').length;
+
+    res.json({ count: bots.length, conectados, iniciando, caidos, bots });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
