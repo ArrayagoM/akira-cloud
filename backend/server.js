@@ -39,38 +39,38 @@ process.on('unhandledRejection', (reason) => {
   // Salir causaría que un error de red tire el servidor entero
 });
 
-const express      = require('express');
-const http         = require('http');
-const cors         = require('cors');
-const helmet       = require('helmet');
-const morgan       = require('morgan');
-const compression  = require('compression');
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const compression = require('compression');
 const mongoSanitize = require('express-mongo-sanitize');
-const hpp          = require('hpp');
-const rateLimit    = require('express-rate-limit');
-const passport     = require('passport');
-const { Server }   = require('socket.io');
+const hpp = require('hpp');
+const rateLimit = require('express-rate-limit');
+const passport = require('passport');
+const { Server } = require('socket.io');
 
-const connectDB      = require('./config/db');
-const logger         = require('./config/logger');
-const botManager     = require('./services/bot.manager');
-const workerHandler  = require('./services/worker.handler');
+const connectDB = require('./config/db');
+const logger = require('./config/logger');
+const botManager = require('./services/bot.manager');
+const workerHandler = require('./services/worker.handler');
 
 // ── Importar rutas ──────────────────────────────────────────
-const authRoutes         = require('./routes/auth.routes');
-const adminRoutes        = require('./routes/admin.routes');
-const configRoutes       = require('./routes/config.routes');
-const botRoutes          = require('./routes/bot.routes');
+const authRoutes = require('./routes/auth.routes');
+const adminRoutes = require('./routes/admin.routes');
+const configRoutes = require('./routes/config.routes');
+const botRoutes = require('./routes/bot.routes');
 const subscriptionRoutes = require('./routes/subscription.routes');
-const turnosRoutes       = require('./routes/turnos.routes');
-const supportRoutes      = require('./routes/support.routes');
-const suggestionsRoutes  = require('./routes/suggestions.routes');
+const turnosRoutes = require('./routes/turnos.routes');
+const supportRoutes = require('./routes/support.routes');
+const suggestionsRoutes = require('./routes/suggestions.routes');
 
 // ── Passport config ─────────────────────────────────────────
 require('./config/passport')(passport);
 
 // ── Crear app ───────────────────────────────────────────────
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 
 // ── Socket.io ───────────────────────────────────────────────
@@ -115,7 +115,9 @@ io.on('connection', (socket) => {
   // Mantener compatibilidad: si el cliente envía join-room, verificar que sea su propio userId
   socket.on('join-room', (userId) => {
     if (String(userId) !== socket.userId) {
-      logger.warn(`[Socket] ⚠️ join-room rechazado: ${socket.id} intentó unirse a user:${userId} (es user:${socket.userId})`);
+      logger.warn(
+        `[Socket] ⚠️ join-room rechazado: ${socket.id} intentó unirse a user:${userId} (es user:${socket.userId})`,
+      );
       return;
     }
     // Ya está en la sala, no hacer nada extra
@@ -133,13 +135,15 @@ app.use(hpp());
 app.use(compression());
 
 // Rate limiting global
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  message: { error: 'Demasiadas solicitudes. Intentá en 15 minutos.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-}));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    message: { error: 'Demasiadas solicitudes. Intentá en 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
 
 // Rate limiting estricto para auth (no aplica a OAuth redirects)
 const authLimiter = rateLimit({
@@ -156,44 +160,46 @@ const allowedOrigins = [
   'http://localhost:5173',
 ].filter(Boolean);
 
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // Postman / server-to-server
-    const ok = allowedOrigins.some(o => origin === o || origin.startsWith(o));
-    if (ok) return cb(null, true);
-    logger.warn(`[CORS] Origen bloqueado: ${origin}`);
-    cb(new Error('CORS: origen no permitido'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // Postman / server-to-server
+      const ok = allowedOrigins.some((o) => origin === o || origin.startsWith(o));
+      if (ok) return cb(null, true);
+      logger.warn(`[CORS] Origen bloqueado: ${origin}`);
+      cb(new Error('CORS: origen no permitido'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }),
+);
 
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }));
+app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) } }));
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 app.use(passport.initialize());
 
 // ── Rutas ───────────────────────────────────────────────────
-app.use('/api/auth',         authLimiter, authRoutes);
-app.use('/api/admin',        adminRoutes);
-app.use('/api/config',       configRoutes);
-app.use('/api/bot',          botRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/config', configRoutes);
+app.use('/api/bot', botRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/turnos',       turnosRoutes);
-app.use('/api/support',      supportRoutes);
-app.use('/api/suggestions',  suggestionsRoutes);
+app.use('/api/turnos', turnosRoutes);
+app.use('/api/support', supportRoutes);
+app.use('/api/suggestions', suggestionsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     version: '1.0.0',
-    bots:   botManager.getActiveCount(),
+    bots: botManager.getActiveCount(),
     worker: botManager.getWorkerInfo(),
-    ts:     new Date().toISOString(),
+    ts: new Date().toISOString(),
   });
 });
 
@@ -213,37 +219,38 @@ app.use((err, _req, res, _next) => {
   logger.error(`[Error] ${err.message}`, { stack: err.stack });
   const status = err.status || 500;
   res.status(status).json({
-    error: process.env.NODE_ENV === 'production'
-      ? 'Error interno del servidor'
-      : err.message,
+    error: process.env.NODE_ENV === 'production' ? 'Error interno del servidor' : err.message,
   });
 });
 
 // ── Iniciar ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(async () => {
-  server.listen(PORT, () => {
-    logger.info(`\x1b[32m🚀 Akira Cloud corriendo en puerto ${PORT}\x1b[0m`);
-    logger.info(`\x1b[36m📡 WebSocket listo\x1b[0m`);
-  });
+connectDB()
+  .then(async () => {
+    server.listen(PORT, () => {
+      logger.info(`\x1b[32m🚀 Akira Cloud corriendo en puerto ${PORT}\x1b[0m`);
+      logger.info(`\x1b[36m📡 WebSocket listo\x1b[0m`);
+    });
 
-  // ── Arquitectura híbrida ────────────────────────────────
-  if (process.env.WORKER_SECRET) {
-    logger.info('[Server] 🔌 Modo híbrido activo — esperando conexión del worker local');
-    logger.info('[Server]    Iniciá el worker en tu PC: cd worker && npm start');
-    
-    // 🔥 ELIMINADO EL setTimeout de restoreActiveBots() AQUÍ. 
-    // Render ya NO intentará levantar los bots. Esa es tarea exclusiva de tu PC.
-    
-  } else {
-    logger.warn('[Server] WORKER_SECRET no configurado — los bots correrán en el servidor');
-    botManager.restoreActiveBots().catch(e => logger.error('[Server] restoreActiveBots:', e.message));
-  }
-}).catch(err => {
-  logger.error('Error conectando a MongoDB:', err);
-  process.exit(1);
-});
+    // ── Arquitectura híbrida ────────────────────────────────
+    if (process.env.WORKER_SECRET) {
+      logger.info('[Server] 🔌 Modo híbrido activo — esperando conexión del worker local');
+      logger.info('[Server]    Iniciá el worker en tu PC: cd worker && npm start');
+
+      // 🔥 ELIMINADO EL setTimeout de restoreActiveBots() AQUÍ.
+      // Render ya NO intentará levantar los bots. Esa es tarea exclusiva de tu PC.
+    } else {
+      logger.warn('[Server] WORKER_SECRET no configurado — los bots correrán en el servidor');
+      botManager
+        .restoreActiveBots()
+        .catch((e) => logger.error('[Server] restoreActiveBots:', e.message));
+    }
+  })
+  .catch((err) => {
+    logger.error('Error conectando a MongoDB:', err);
+    process.exit(1);
+  });
 
 // ── Graceful shutdown (SIGTERM = PM2 stop/reload, SIGINT = Ctrl+C dev) ──
 async function gracefulShutdown(signal) {
@@ -267,31 +274,34 @@ async function gracefulShutdown(signal) {
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // ── Keep-alive: evitar que Render entre en reposo ─────────────
 if (process.env.NODE_ENV === 'production') {
   const PING_URL = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/health`;
-  setInterval(async () => {
-    try {
-      const https = require('https');
-      const http  = require('http');
-      const mod   = PING_URL.startsWith('https') ? https : http;
-      const req   = mod.get(PING_URL, (r) => {
-        r.resume(); // consume response body para liberar memoria
-        logger.info(`[Keep-alive] ping → ${r.statusCode}`);
-      });
-      req.setTimeout(10000, () => {
-        req.destroy();
-        logger.warn('[Keep-alive] timeout — conexión destruida');
-      });
-      req.on('error', (e) => {
-        logger.warn(`[Keep-alive] error: ${e.message}`);
-      });
-    } catch (e) {
-      logger.warn('[Keep-alive] ping failed:', e.message);
-    }
-  }, 14 * 60 * 1000); // cada 14 minutos
+  setInterval(
+    async () => {
+      try {
+        const https = require('https');
+        const http = require('http');
+        const mod = PING_URL.startsWith('https') ? https : http;
+        const req = mod.get(PING_URL, (r) => {
+          r.resume(); // consume response body para liberar memoria
+          logger.info(`[Keep-alive] ping → ${r.statusCode}`);
+        });
+        req.setTimeout(10000, () => {
+          req.destroy();
+          logger.warn('[Keep-alive] timeout — conexión destruida');
+        });
+        req.on('error', (e) => {
+          logger.warn(`[Keep-alive] error: ${e.message}`);
+        });
+      } catch (e) {
+        logger.warn('[Keep-alive] ping failed:', e.message);
+      }
+    },
+    14 * 60 * 1000,
+  ); // cada 14 minutos
   logger.info('[Keep-alive] ✅ Auto-ping habilitado (cada 14 min)');
 }
 

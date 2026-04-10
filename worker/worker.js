@@ -1,4 +1,6 @@
 // worker/worker.js — Akira Worker Local
+// Corre en tu PC (que siempre está encendida).
+// Se conecta al servidor en Render via Socket.io y ejecuta todos los bots ahí.
 'use strict';
 
 require('dotenv').config({ path: __dirname + '/.env' });
@@ -20,13 +22,19 @@ if (!RENDER_URL || !WORKER_SECRET || !MONGO_URI) {
   process.exit(1);
 }
 
+if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length < 16) {
+  console.error('[Worker] ❌ Falta ENCRYPTION_KEY en el .env (min 16 caracteres)');
+  process.exit(1);
+}
+
 // ── Modelos ────────────────────────────────────────────────────
 const User = require('../backend/models/User');
 const Config = require('../backend/models/Config');
 const Log = require('../backend/models/Log');
+const WAAuth = require('../backend/models/WAAuth');
 
 // ── Keep-alive Render ──────────────────────────────────────────
-const PING_INTERVAL_MS = 10 * 60 * 1000;
+const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutos
 
 function pingRender() {
   try {
@@ -45,7 +53,9 @@ function pingRender() {
     req.on('error', () => {});
     req.setTimeout(10000, () => req.destroy());
     req.end();
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[Worker] ⚠️ Keep-alive error:', e.message);
+  }
 }
 
 pingRender();
@@ -54,32 +64,47 @@ setInterval(pingRender, PING_INTERVAL_MS);
 const crearAkiraBot = require('../backend/services/akira.bot');
 
 // ── Estado ────────────────────────────────────────────────────
-const instancias = new Map();
+const instancias = new Map(); // userId → bot
 const arranqueEnCurso = new Set();
-let isRestoring = false;
+let isRestoring = false; // Candado para evitar bucles de reconexión
 
 // ── MongoDB ───────────────────────────────────────────────────
-// Forzamos bufferCommands a false desde la misma conexión inicial.
+mongoose.set('bufferTimeoutMS', 30000);
 mongoose
   .connect(MONGO_URI, {
-    bufferCommands: false,
-    serverSelectionTimeoutMS: 5000,
+    maxPoolSize: 200, // 🔥 CLAVE: Evita que wa_auth colapse al escanear el QR
+    serverSelectionTimeoutMS: 30000,
     socketTimeoutMS: 45000,
-    connectTimeoutMS: 10000,
+    connectTimeoutMS: 30000,
+    family: 4, // Fuerza IPv4 para mayor estabilidad local
   })
   .then(() => {
     console.log('[Worker] ✅ MongoDB conectado');
-    autoRestaurarConRetry();
+    // Disparamos la restauración aquí de forma segura
+    if (instancias.size === 0) {
+      autoRestaurarConRetry();
+    }
   })
   .catch((e) => {
-    console.error('[Worker] ❌ MongoDB error fatal:', e.message);
+    console.error('[Worker] ❌ MongoDB:', e.message);
     process.exit(1);
   });
 
-async function esperarMongo() {
-  const db = mongoose.connection.db;
-  if (!db) throw new Error('Driver DB no está listo');
-  await db.admin().ping();
+async function esperarMongo(timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  if (mongoose.connection.readyState !== 1) {
+    await mongoose.connection.asPromise().catch(() => {});
+  }
+  while (Date.now() < deadline) {
+    try {
+      if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+        await mongoose.connection.db.admin().ping();
+        return;
+      }
+    } catch (e) {}
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error('MongoDB no responde después de ' + timeoutMs / 1000 + 's');
 }
 
 // ── Socket.io → Render ───────────────────────────────────────
@@ -104,48 +129,26 @@ socket.on('connect', () => {
   });
 });
 
-socket.on('connect_error', (e) =>
-  console.error('[Worker] ❌ Error de conexión Socket:', e.message),
-);
+socket.on('connect_error', (e) => console.error('[Worker] ❌ Error de conexión:', e.message));
 socket.on('disconnect', (reason) => console.warn('[Worker] ⚠️ Desconectado del servidor:', reason));
 
 // ────────────────────────────────────────────────────────────
-//  INICIAR BOT LOCAL (VERSIÓN BULLETPROOF CON DRIVER NATIVO)
+//  INICIAR BOT LOCAL
 // ────────────────────────────────────────────────────────────
 async function iniciarBotLocal(uid) {
-  if (instancias.has(uid) || arranqueEnCurso.has(uid)) return;
+  if (instancias.has(uid)) return;
+  if (arranqueEnCurso.has(uid)) return;
 
   arranqueEnCurso.add(uid);
   try {
     await esperarMongo();
-    const db = mongoose.connection.db;
 
-    // 1. BYPASS QUIRÚRGICO DE MONGOOSE: Usamos el driver nativo puro (cero buffering).
-    let rawUser = null;
-    if (mongoose.isValidObjectId(uid)) {
-      rawUser = await db
-        .collection(User.collection.name)
-        .findOne({ _id: new mongoose.Types.ObjectId(uid) });
-    } else {
-      rawUser = await db.collection(User.collection.name).findOne({ _id: uid });
-    }
+    const [user, config] = await Promise.all([User.findById(uid), Config.findOne({ userId: uid })]);
 
-    if (!rawUser) throw new Error('Usuario no encontrado');
-
-    // Buscamos la config intentando tanto con String como con ObjectId
-    let rawConfig = await db.collection(Config.collection.name).findOne({ userId: String(uid) });
-    if (!rawConfig && mongoose.isValidObjectId(uid)) {
-      rawConfig = await db
-        .collection(Config.collection.name)
-        .findOne({ userId: new mongoose.Types.ObjectId(uid) });
-    }
-
-    // 2. HIDRATACIÓN: Convertimos la data cruda en modelos de Mongoose para que funcionen tus métodos.
-    const user = User.hydrate(rawUser);
-    const config = rawConfig ? Config.hydrate(rawConfig) : null;
-
+    if (!user) throw new Error('Usuario no encontrado');
     if (user.status === 'bloqueado') throw new Error('Cuenta bloqueada');
-    if (!config || !config.estaCompleta()) throw new Error('Configuración incompleta');
+    if (!config || !config.estaCompleta())
+      throw new Error('Configuración incompleta — cargá la Groq API Key primero');
     if (!user.planVigente()) throw new Error('Plan vencido — renovar suscripción');
 
     const credenciales = {
@@ -182,17 +185,21 @@ async function iniciarBotLocal(uid) {
 
     if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada');
 
+    // Directorios de forma ASÍNCRONA para no bloquear Node
     const sessionDir = path.resolve(SESSIONS_PATH, uid);
     const dataDir = path.resolve(SESSIONS_PATH, uid, 'data');
     await fs.promises.mkdir(sessionDir, { recursive: true });
     await fs.promises.mkdir(dataDir, { recursive: true });
 
+    // Google Calendar
     const hasStoredTokens = !!config.googleCalendarTokens?.encrypted;
     const googleTokens = hasStoredTokens ? config.getKey('googleCalendarTokens') : null;
 
     if (googleTokens) {
       credenciales.GOOGLE_CALENDAR_TOKENS = googleTokens;
       credenciales.GOOGLE_EMAIL = config.googleEmail || '';
+    } else if (hasStoredTokens) {
+      console.error('[Worker] ❌ ENCRYPTION_KEY del worker no coincide con la de Render.');
     }
 
     const credGoogle = config.credentialsGoogleB64?.encrypted
@@ -202,12 +209,15 @@ async function iniciarBotLocal(uid) {
       try {
         JSON.parse(credGoogle);
         await fs.promises.writeFile(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
-      } catch (e) {}
+      } catch (e) {
+        console.warn(`[Worker] Credenciales Google inválidas para ${uid}:`, e.message);
+      }
     }
 
     const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
     instancias.set(uid, bot);
 
+    // ── Eventos del bot → servidor ────────────────────────────
     bot.on('log', (msg) =>
       socket.emit('worker:bot-log', {
         userId: uid,
@@ -221,30 +231,22 @@ async function iniciarBotLocal(uid) {
       socket.emit('worker:bot-disconnected', { userId: uid, reason }),
     );
     bot.on('error', (err) => socket.emit('worker:bot-error', { userId: uid, msg: err.message }));
-
     bot.on('stopped', async (data) => {
       instancias.delete(uid);
       liberarPuerto(uid);
       socket.emit('worker:bot-stopped', { userId: uid, sessionCleared: !!data?.sessionCleared });
-      await User.collection
-        .updateOne(
-          { _id: new mongoose.Types.ObjectId(uid) },
-          { $set: { botActivo: false, botConectado: false } },
-        )
-        .catch(() => {});
+      await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
     });
 
+    // ── Catálogo ──────────────────────────────────────────────
     bot.on('catalog:update', async (catalogo) => {
       try {
         const waProds = catalogo.filter((p) => p.fuente === 'wa_catalog');
-        const dbCat = mongoose.connection.db;
-        const rawCfg = await dbCat
-          .collection(Config.collection.name)
-          .findOne({ userId: String(uid) });
-        const manuales = (rawCfg?.catalogo || []).filter((p) => p.fuente !== 'wa_catalog');
+        const cfg = await Config.findOne({ userId: uid });
+        const manuales = (cfg?.catalogo || []).filter((p) => p.fuente !== 'wa_catalog');
         const merged = [...waProds, ...manuales];
-        await Config.collection.updateOne(
-          { userId: String(uid) },
+        await Config.findOneAndUpdate(
+          { userId: uid },
           { $set: { catalogo: merged } },
           { upsert: true },
         );
@@ -253,23 +255,30 @@ async function iniciarBotLocal(uid) {
           count: waProds.length,
           total: merged.length,
         });
-      } catch (e) {}
+      } catch (e) {
+        console.warn(`[Worker] Error guardando catálogo ${uid}:`, e.message);
+      }
     });
 
     bot.on('catalog:candidate', async (producto) => {
       try {
-        await Config.collection.updateOne(
-          { userId: String(uid) },
+        await Config.findOneAndUpdate(
+          { userId: uid },
           { $push: { catalogo: { ...producto, disponible: true, fuente: 'status' } } },
         );
         socket.emit('worker:catalog-new-product', { userId: uid, product: producto });
-      } catch (e) {}
+      } catch (e) {
+        console.warn(`[Worker] Error guardando candidato catálogo ${uid}:`, e.message);
+      }
     });
 
     await bot.iniciar();
-    await User.collection
-      .updateOne({ _id: new mongoose.Types.ObjectId(uid) }, { $set: { botActivo: true } })
-      .catch(() => {});
+    await User.findByIdAndUpdate(uid, { botActivo: true });
+    await Log.registrar({
+      userId: uid,
+      tipo: 'bot_start',
+      mensaje: 'Bot iniciado (worker local)',
+    }).catch(() => {});
     socket.emit('worker:bot-started', { userId: uid });
     console.log(`[Worker] ✅ Bot iniciado exitosamente: ${uid}`);
   } catch (err) {
@@ -277,14 +286,7 @@ async function iniciarBotLocal(uid) {
     instancias.delete(uid);
     liberarPuerto(uid);
     socket.emit('worker:bot-error', { userId: uid, msg: err.message });
-    if (mongoose.connection.db && mongoose.isValidObjectId(uid)) {
-      await User.collection
-        .updateOne(
-          { _id: new mongoose.Types.ObjectId(uid) },
-          { $set: { botActivo: false, botConectado: false } },
-        )
-        .catch(() => {});
-    }
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
   } finally {
     arranqueEnCurso.delete(uid);
   }
@@ -294,33 +296,37 @@ async function iniciarBotLocal(uid) {
 //  AUTO-RESTAURAR BOTS
 // ────────────────────────────────────────────────────────────
 async function autoRestaurarConRetry(intento = 0) {
-  if (isRestoring && intento === 0) return;
+  if (isRestoring) return;
   isRestoring = true;
 
   const MAX_INTENTOS = 3;
   const DELAY_RETRY = [5000, 10000, 20000];
-
   try {
     await autoRestaurarBots();
     isRestoring = false;
   } catch (e) {
-    console.error(`[Worker] ❌ Error auto-restaurando (intento ${intento + 1}): ${e.message}`);
+    console.error(
+      `[Worker] ❌ Error auto-restaurando (intento ${intento + 1}/${MAX_INTENTOS}): ${e.message}`,
+    );
     if (intento < MAX_INTENTOS - 1) {
-      setTimeout(() => autoRestaurarConRetry(intento + 1), DELAY_RETRY[intento]);
+      setTimeout(() => {
+        isRestoring = false;
+        autoRestaurarConRetry(intento + 1);
+      }, DELAY_RETRY[intento]);
     } else {
       isRestoring = false;
-      console.error('[Worker] ❌ Restauración fallida tras 3 intentos.');
     }
   }
 }
 
 async function autoRestaurarBots() {
-  await esperarMongo();
+  await esperarMongo(30000);
 
   const db = mongoose.connection.db;
   const usuariosRaw = await db
     .collection('users')
     .find({ botActivo: true, status: 'activo' }, { projection: { _id: 1 } })
+    .maxTimeMS(20000)
     .toArray();
 
   if (!usuariosRaw.length) return console.log('[Worker] No hay bots activos para restaurar.');
@@ -329,48 +335,22 @@ async function autoRestaurarBots() {
   const uidsConSesion = new Set(sesionesRaw.map((sid) => String(sid).split(':')[0]));
   const aRestaurar = usuariosRaw.filter((u) => uidsConSesion.has(u._id.toString()));
 
-  if (!aRestaurar.length) return console.log('[Worker] Bots activos pero sin sesión WA guardada.');
+  if (!aRestaurar.length)
+    return console.log('[Worker] Hay bots activos pero ninguno tiene sesión WA guardada.');
 
-  console.log(`[Worker] 🔄 Auto-restaurando ${aRestaurar.length} bot(s)...`);
+  console.log(`[Worker] 🔄 Auto-restaurando ${aRestaurar.length} bot(s) con sesión guardada...`);
 
   for (let i = 0; i < aRestaurar.length; i++) {
     const uid = aRestaurar[i]._id.toString();
     if (instancias.has(uid) || arranqueEnCurso.has(uid)) continue;
 
     if (i > 0) await new Promise((r) => setTimeout(r, 3000));
-
     console.log(`[Worker] ▶ Auto-iniciando bot ${uid} (${i + 1}/${aRestaurar.length})`);
     await iniciarBotLocal(uid);
   }
+
+  console.log(`[Worker] ✅ Auto-restauración completada.`);
 }
-
-// ── Watchdog: Supervisor de Autosanación (24/7) ──────────────
-setInterval(
-  async () => {
-    if (isRestoring || arranqueEnCurso.size > 0) return;
-    try {
-      const db = mongoose.connection.db;
-      if (!db) return;
-
-      const deberianEstar = await db
-        .collection('users')
-        .find({ botActivo: true, status: 'activo' }, { projection: { _id: 1 } })
-        .toArray();
-
-      for (const u of deberianEstar) {
-        const uid = u._id.toString();
-        if (!instancias.has(uid)) {
-          console.log(
-            `[Watchdog] 🕵️ Bot ${uid} marcado activo pero no está corriendo. Resucitando...`,
-          );
-          await iniciarBotLocal(uid);
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-      }
-    } catch (e) {}
-  },
-  5 * 60 * 1000,
-);
 
 // ── Comandos desde el servidor ────────────────────────────────
 socket.on('worker:start-bot', async ({ userId }) => {
@@ -387,10 +367,12 @@ socket.on('worker:stop-bot', async ({ userId }) => {
     await bot.detener();
     instancias.delete(uid);
     liberarPuerto(uid);
-    await User.collection.updateOne(
-      { _id: new mongoose.Types.ObjectId(uid) },
-      { $set: { botActivo: false, botConectado: false } },
-    );
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false });
+    await Log.registrar({
+      userId: uid,
+      tipo: 'bot_stop',
+      mensaje: 'Bot detenido (worker local)',
+    }).catch(() => {});
   } catch (err) {
     console.error(`[Worker] ❌ Error deteniendo ${uid}:`, err.message);
     instancias.delete(uid);
@@ -407,14 +389,12 @@ socket.on('worker:panic-stop', async ({ userId, motivo }) => {
     } catch {}
   instancias.delete(uid);
   liberarPuerto(uid);
-  await User.collection
-    .updateOne(
-      { _id: new mongoose.Types.ObjectId(uid) },
-      {
-        $set: { status: 'bloqueado', botActivo: false, botConectado: false, bloqueadoPor: motivo },
-      },
-    )
-    .catch(() => {});
+  await User.findByIdAndUpdate(uid, {
+    status: 'bloqueado',
+    botActivo: false,
+    botConectado: false,
+    bloqueadoPor: motivo,
+  }).catch(() => {});
 });
 
 socket.on('worker:catalog-sync', ({ userId }) => {
@@ -451,24 +431,14 @@ function liberarPuerto(uid) {
 
 // ── Graceful shutdown ─────────────────────────────────────────
 async function shutdown() {
-  console.log('\n[Worker] Apagando — deteniendo bots de forma limpia...');
-  isRestoring = true;
+  console.log('\n[Worker] Apagando — deteniendo bots...');
   const uids = Array.from(instancias.keys());
-
   for (const uid of uids) {
     try {
       await instancias.get(uid)?.detener();
     } catch {}
-    if (mongoose.connection.db && mongoose.isValidObjectId(uid)) {
-      await User.collection
-        .updateOne(
-          { _id: new mongoose.Types.ObjectId(uid) },
-          { $set: { botActivo: false, botConectado: false } },
-        )
-        .catch(() => {});
-    }
+    await User.findByIdAndUpdate(uid, { botActivo: false, botConectado: false }).catch(() => {});
   }
-
   socket.disconnect();
   await mongoose.disconnect();
   console.log('[Worker] ✅ Apagado limpio.');
