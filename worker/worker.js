@@ -73,20 +73,36 @@ const instancias       = new Map(); // userId → bot
 const arranqueEnCurso  = new Set();
 
 // ── MongoDB ───────────────────────────────────────────────────
+// bufferTimeoutMS default es 10s — muy corto si Atlas/red es lenta
+mongoose.set('bufferTimeoutMS', 30000);
 mongoose.connect(MONGO_URI, {
   serverSelectionTimeoutMS: 30000,
   socketTimeoutMS:          45000,
+  connectTimeoutMS:         30000,
 }).then(() => console.log('[Worker] ✅ MongoDB conectado'))
   .catch(e => { console.error('[Worker] ❌ MongoDB:', e.message); process.exit(1); });
 
-// Helper: esperar a que mongoose esté conectado (readyState === 1)
-function esperarMongo(timeoutMs = 30000) {
-  return new Promise((resolve, reject) => {
-    if (mongoose.connection.readyState === 1) return resolve();
-    const timeout = setTimeout(() => reject(new Error('MongoDB no conectó en ' + (timeoutMs/1000) + 's')), timeoutMs);
-    mongoose.connection.once('connected', () => { clearTimeout(timeout); resolve(); });
-    mongoose.connection.once('error', (e) => { clearTimeout(timeout); reject(e); });
-  });
+// Helper: esperar a que MongoDB esté REALMENTE listo (no solo readyState)
+// Hace un ping real para verificar que la conexión funciona
+async function esperarMongo(timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  // Primero: esperar que Mongoose reporte connected
+  if (mongoose.connection.readyState !== 1) {
+    await mongoose.connection.asPromise().catch(() => {});
+  }
+  // Segundo: verificar con un ping real que la DB responde
+  while (Date.now() < deadline) {
+    try {
+      if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+        await mongoose.connection.db.admin().ping();
+        return; // ✅ Conexión verificada con ping real
+      }
+    } catch (e) {
+      // Ping falló — esperar y reintentar
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error('MongoDB no responde después de ' + (timeoutMs / 1000) + 's');
 }
 
 // ── Socket.io → Render (namespace /worker) ───────────────────
@@ -297,15 +313,22 @@ async function autoRestaurarBots() {
   await esperarMongo(30000);
   console.log('[Worker] MongoDB listo — consultando bots activos...');
 
-  const usuarios = await User.find({ botActivo: true, status: 'activo' }).select('_id').maxTimeMS(20000);
+  // Usar driver raw de MongoDB (bypass Mongoose buffering que causa timeouts)
+  const db = mongoose.connection.db;
+  const usuariosRaw = await db.collection('users')
+    .find({ botActivo: true, status: 'activo' }, { projection: { _id: 1 } })
+    .maxTimeMS(20000)
+    .toArray();
+
+  const usuarios = usuariosRaw.map(u => ({ _id: u._id }));
   if (!usuarios.length) {
     console.log('[Worker] No hay bots activos para restaurar.');
     return;
   }
 
   // Filtrar solo los que tienen sesión WA guardada en MongoDB
-  const sesiones = await WAAuth.distinct('_id');
-  const uidsConSesion = new Set(sesiones.map(sid => String(sid).split(':')[0]));
+  const sesionesRaw = await db.collection('wa_auth').distinct('_id');
+  const uidsConSesion = new Set(sesionesRaw.map(sid => String(sid).split(':')[0]));
   const aRestaurar = usuarios.filter(u => uidsConSesion.has(u._id.toString()));
 
   if (!aRestaurar.length) {
