@@ -95,14 +95,7 @@ async function startBot(userId, slot = 0) {
   arranqueEnProceso.add(key);
 
   try {
-    // ── Modo híbrido: delegar al worker si está conectado ──
-    if (workerHandler.isWorkerAvailable()) {
-      logger.info(`[BotMgr] Delegando bot ${key} al worker local`);
-      workerHandler.sendToWorker('worker:start-bot', { userId: uid, slot });
-      arranqueEnProceso.delete(key);
-      return { ok: true, msg: 'Bot iniciando en worker local — esperá el QR' };
-    }
-
+    // Cargar user+config desde MongoDB (backend en Render tiene Mongo estable)
     const [user, config] = await Promise.all([
       User.findById(uid),
       Config.findOne({ userId: uid }),
@@ -149,6 +142,37 @@ async function startBot(userId, slot = 0) {
 
     if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada o inválida');
 
+    // Tokens Google Calendar OAuth (desencriptados, se envían también al worker)
+    const googleCalendarTokens = config.googleCalendarTokens?.encrypted
+      ? config.getKey('googleCalendarTokens')
+      : null;
+    if (googleCalendarTokens) {
+      credenciales.GOOGLE_CALENDAR_TOKENS = googleCalendarTokens;
+      credenciales.GOOGLE_EMAIL           = config.googleEmail || '';
+    }
+
+    // Credenciales de Google Calendar (service account) — se envía el JSON raw
+    const credGoogleEncriptado = config.credentialsGoogleB64?.encrypted
+      ? config.getKey('credentialsGoogleB64')
+      : null;
+    if (credGoogleEncriptado) {
+      credenciales._GOOGLE_CREDENTIALS_JSON = credGoogleEncriptado;
+    }
+
+    // ── Modo híbrido: delegar al worker si está conectado ──
+    // Ahora enviamos el objeto `credenciales` COMPLETO al worker.
+    // El worker NO necesita tocar MongoDB: todo viene pre-cargado por Render.
+    if (workerHandler.isWorkerAvailable()) {
+      logger.info(`[BotMgr] Delegando bot ${key} al worker local (con credenciales embebidas)`);
+      workerHandler.sendToWorker('worker:start-bot', {
+        userId: uid,
+        slot,
+        credenciales,
+      });
+      arranqueEnProceso.delete(key);
+      return { ok: true, msg: 'Bot iniciando en worker local — esperá el QR' };
+    }
+
     // Directorio de sesión — slot 0 usa path legacy para backward compat
     const sessionDirName = slot === 0 ? uid : `${uid}_slot${slot}`;
     const sessionDir = path.resolve(SESSIONS_PATH, sessionDirName);
@@ -158,27 +182,14 @@ async function startBot(userId, slot = 0) {
     const dataDir = path.resolve(SESSIONS_PATH, sessionDirName, 'data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-    // Tokens Google Calendar OAuth (prioridad sobre service account)
-    const googleCalendarTokens = config.googleCalendarTokens?.encrypted
-      ? config.getKey('googleCalendarTokens')
-      : null;
-
-    if (googleCalendarTokens) {
-      credenciales.GOOGLE_CALENDAR_TOKENS = googleCalendarTokens;
-      credenciales.GOOGLE_EMAIL           = config.googleEmail || '';
-    }
-
     // Credenciales de Google Calendar (service account — fallback)
-    const credGoogleEncriptado = config.credentialsGoogleB64?.encrypted
-      ? config.getKey('credentialsGoogleB64')
-      : null;
-
-    if (credGoogleEncriptado) {
+    // Google OAuth tokens ya están en `credenciales` (asignados arriba).
+    // Acá sólo escribimos el credentials.json al disco para el modo local.
+    if (credenciales._GOOGLE_CREDENTIALS_JSON) {
       try {
-        // Validar que sea JSON válido antes de escribir al disco
-        JSON.parse(credGoogleEncriptado);
+        JSON.parse(credenciales._GOOGLE_CREDENTIALS_JSON);
         const credPath = path.join(dataDir, 'credentials.json');
-        fs.writeFileSync(credPath, credGoogleEncriptado, 'utf8');
+        fs.writeFileSync(credPath, credenciales._GOOGLE_CREDENTIALS_JSON, 'utf8');
       } catch (e) {
         logger.warn(`[BotMgr] Credenciales Google inválidas para user ${uid} — Calendar desactivado: ${e.message}`);
       }
@@ -669,10 +680,13 @@ async function ejecutarHealthcheck() {
       }
 
       // ── Si hay un worker conectado, los bots corren ahí — no reiniciar localmente
-      // Solo notificar que el bot parece caído para que el worker lo restaure.
+      // Delegamos al worker, llamando a startBot() que ahora carga credenciales
+      // desde Mongo (Render) y las envía embebidas al worker.
       if (workerHandler.isWorkerAvailable()) {
         logger.info(`[BotMgr] Healthcheck: bot ${key} no está en RAM local, pero worker está conectado — delegando`);
-        workerHandler.sendToWorker('worker:start-bot', { userId: uid, slot: 0 });
+        startBot(uid, 0).catch((e) => {
+          logger.warn(`[BotMgr] Healthcheck delegate falló para ${key}: ${e.message}`);
+        });
         reiniciados++;
         continue;
       }

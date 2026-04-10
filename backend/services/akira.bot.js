@@ -10,8 +10,11 @@ const {
   downloadMediaMessage,
   isJidGroup,
   isJidStatusBroadcast,
+  useMultiFileAuthState,
 } = require('@whiskeysockets/baileys');
-const { useMongoAuthState } = require('./bot/mongo-auth.service');
+// useMongoAuthState removido — ahora usamos useMultiFileAuthState (filesystem local)
+// para eliminar a MongoDB del camino crítico del arranque de bots.
+// const { useMongoAuthState } = require('./bot/mongo-auth.service');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -2486,11 +2489,36 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       } catch {}
     }
 
+    // ── Auth state en FILESYSTEM LOCAL ──────────────────────────
+    // Las credenciales de WhatsApp se guardan en {sessionDir}/ como archivos JSON.
+    // Esto elimina a MongoDB del camino crítico del arranque de bots, que es lo
+    // que estaba causando los timeouts de buffering.
     let state, saveCreds, clearAuth;
     try {
-      ({ state, saveCreds, clearAuth } = await useMongoAuthState(USER_ID));
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+      const fsAuth = await useMultiFileAuthState(sessionDir);
+      state = fsAuth.state;
+      saveCreds = fsAuth.saveCreds;
+      // clearAuth: borra el contenido del sessionDir (equivalente al clearAuth de Mongo)
+      clearAuth = async () => {
+        try {
+          if (fs.existsSync(sessionDir)) {
+            const files = fs.readdirSync(sessionDir);
+            for (const f of files) {
+              try {
+                fs.unlinkSync(path.join(sessionDir, f));
+              } catch {}
+            }
+          }
+        } catch (e) {
+          log(`⚠️ clearAuth FS: ${e.message}`);
+        }
+      };
+      log(`📂 Auth state cargado desde filesystem: ${sessionDir}`);
     } catch (authErr) {
-      log(`❌ Error cargando sesión desde MongoDB: ${authErr.message}`);
+      log(`❌ Error cargando sesión desde filesystem: ${authErr.message}`);
       throw authErr; // Propagar para que el handler de reconexión lo capture
     }
 

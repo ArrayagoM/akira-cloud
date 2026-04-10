@@ -13,6 +13,8 @@ const https = require('https');
 
 // 🔥 LA SOLUCIÓN AL CONGELAMIENTO 24/7 (Desactiva la cola de espera de Mongoose globalmente)
 mongoose.set('bufferCommands', false);
+// Si Mongoose buffers de todas formas (e.g. connection stale), fallar en 3s en vez de 10s
+mongoose.set('bufferTimeoutMS', 3000);
 
 // ── Config ────────────────────────────────────────────────────
 const RENDER_URL = process.env.RENDER_URL;
@@ -72,42 +74,132 @@ const arranqueEnCurso = new Set();
 let isRestoring = false; // Candado para evitar bucles de reconexión
 
 // ── MongoDB ───────────────────────────────────────────────────
+// Opciones compartidas entre el connect inicial y las reconexiones forzadas.
+const MONGO_OPTS = {
+  maxPoolSize: 20,
+  minPoolSize: 2,
+  bufferCommands: false,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  heartbeatFrequencyMS: 10000,
+  family: 4,
+};
+
 mongoose
-  .connect(MONGO_URI, {
-    maxPoolSize: 200, // 🔥 CLAVE: Absorbe la ráfaga de llaves criptográficas de Baileys
-    serverSelectionTimeoutMS: 5000, // Fallar rápido en vez de colgar todo
-    socketTimeoutMS: 45000,
-    connectTimeoutMS: 10000,
-    family: 4, // Fuerza IPv4 para mayor estabilidad local
-  })
+  .connect(MONGO_URI, MONGO_OPTS)
   .then(() => {
     console.log('[Worker] ✅ MongoDB conectado');
-    // Disparamos la restauración aquí de forma segura
-    if (instancias.size === 0) {
-      autoRestaurarConRetry();
-    }
   })
   .catch((e) => {
-    console.error('[Worker] ❌ MongoDB:', e.message);
-    process.exit(1);
+    console.error('[Worker] ⚠️ MongoDB no conectó al arranque:', e.message);
+    console.warn('[Worker] El worker continuará igual — usará cache local para los bots.');
+    // NO exit: queremos que el worker arranque los bots aunque Mongo esté caído
   });
 
-async function esperarMongo(timeoutMs = 10000) {
-  const deadline = Date.now() + timeoutMs;
-  if (mongoose.connection.readyState !== 1) {
-    await mongoose.connection.asPromise().catch(() => {});
+// Auto-restaurar bots desde filesystem INMEDIATAMENTE, sin esperar a Mongo.
+// Damos 2 segundos para que Mongo tenga chance de conectar (si va a conectar),
+// para que el primer arranque use datos frescos si puede.
+setTimeout(() => {
+  if (instancias.size === 0) {
+    autoRestaurarConRetry();
   }
+}, 2000);
+
+// Monitorear reconexiones de MongoDB para detectar problemas temprano
+mongoose.connection.on('disconnected', () => {
+  console.warn('[Worker] ⚠️ MongoDB desconectado — esperando reconexión automática...');
+});
+mongoose.connection.on('reconnected', () => {
+  console.log('[Worker] ✅ MongoDB reconectado');
+});
+mongoose.connection.on('error', (err) => {
+  console.error('[Worker] ❌ MongoDB error:', err.message);
+});
+
+// ── Forzar reconexión completa de MongoDB ─────────────────────
+// Se usa cuando las queries fallan con "buffering timed out" a pesar
+// de que readyState reporta conectado (conexión TCP stale/zombie).
+let reconexionEnCurso = false;
+async function forzarReconexionMongo() {
+  if (reconexionEnCurso) {
+    // Ya hay una reconexión en curso — esperar a que termine
+    while (reconexionEnCurso) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return;
+  }
+  reconexionEnCurso = true;
+  try {
+    console.warn('[Worker] 🔄 Forzando reconexión completa a MongoDB...');
+    try {
+      await mongoose.disconnect();
+    } catch (e) {
+      console.warn('[Worker] ⚠️ Error en disconnect (ignorado):', e.message);
+    }
+    await mongoose.connect(MONGO_URI, MONGO_OPTS);
+    console.log('[Worker] ✅ MongoDB reconectado exitosamente (forzado)');
+  } finally {
+    reconexionEnCurso = false;
+  }
+}
+
+// ── Verificar que MongoDB responda a queries REALES de Mongoose ──
+// No basta con ping() del driver: Mongoose puede seguir buffering aunque
+// el driver responda. Hacemos una query real y si falla, forzamos reconexión.
+// Usamos estimatedDocumentCount() porque pasa por el pipeline de Mongoose
+// (detecta buffering) pero no tiene problemas de casteo como findOne({_id:'...'}).
+async function esperarMongo(timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  let ultimoError = null;
+
   while (Date.now() < deadline) {
     try {
-      if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
-        await mongoose.connection.db.admin().ping();
-        return;
+      if (mongoose.connection.readyState === 1) {
+        await User.estimatedDocumentCount().maxTimeMS(4000).exec();
+        return; // éxito: Mongoose responde
+      } else {
+        ultimoError = new Error(`readyState=${mongoose.connection.readyState}`);
       }
-    } catch (e) {}
-    await new Promise((r) => setTimeout(r, 2000));
+    } catch (err) {
+      ultimoError = err;
+      const msg = String(err?.message || '').toLowerCase();
+      const esBuffering = msg.includes('buffering') || msg.includes('timed out');
+
+      console.warn(`[Worker] ⚠️ Healthcheck MongoDB falló: ${err.message}`);
+      if (esBuffering) {
+        try {
+          await forzarReconexionMongo();
+        } catch (e) {
+          console.error('[Worker] ❌ Error forzando reconexión:', e.message);
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 1500));
   }
-  throw new Error('MongoDB no responde después de ' + timeoutMs / 1000 + 's');
+  throw new Error(
+    `MongoDB no responde después de ${timeoutMs / 1000}s` +
+      (ultimoError ? ` (último error: ${ultimoError.message})` : '')
+  );
 }
+
+// ── Keep-alive MongoDB ────────────────────────────────────────
+// Atlas cierra conexiones ociosas (~5 min en free tier). Cada 3 minutos
+// hacemos una query REAL de Mongoose para mantenerla viva. Si detectamos
+// buffering, forzamos reconexión automáticamente.
+const MONGO_KEEPALIVE_MS = 3 * 60 * 1000; // cada 3 minutos
+setInterval(async () => {
+  try {
+    if (mongoose.connection.readyState !== 1) return;
+    await User.estimatedDocumentCount().maxTimeMS(4000).exec();
+  } catch (e) {
+    const msg = String(e?.message || '').toLowerCase();
+    if (msg.includes('buffering') || msg.includes('timed out')) {
+      console.warn('[Worker] ⚠️ Keep-alive detectó conexión stale — forzando reconexión');
+      forzarReconexionMongo().catch(() => {});
+    }
+  }
+}, MONGO_KEEPALIVE_MS);
 
 // ── Socket.io → Render ───────────────────────────────────────
 const socketUrl = RENDER_URL.replace(/\/$/, '');
@@ -137,84 +229,81 @@ socket.on('disconnect', (reason) => console.warn('[Worker] ⚠️ Desconectado d
 // ────────────────────────────────────────────────────────────
 //  INICIAR BOT LOCAL
 // ────────────────────────────────────────────────────────────
-async function iniciarBotLocal(uid) {
+// El worker NO toca MongoDB para arrancar bots. Las credenciales vienen
+// pre-cargadas desde el backend en Render (que tiene Mongo estable) a través
+// del evento 'worker:start-bot', o desde el cache local en disco si el
+// backend no las mandó (ej. auto-restauración al arranque).
+async function iniciarBotLocal(uid, credencialesRemotas = null) {
   if (instancias.has(uid)) return;
   if (arranqueEnCurso.has(uid)) return;
 
   arranqueEnCurso.add(uid);
   try {
-    await esperarMongo();
-
-    const [user, config] = await Promise.all([User.findById(uid), Config.findOne({ userId: uid })]);
-
-    if (!user) throw new Error('Usuario no encontrado');
-    if (user.status === 'bloqueado') throw new Error('Cuenta bloqueada');
-    if (!config || !config.estaCompleta())
-      throw new Error('Configuración incompleta — cargá la Groq API Key primero');
-    if (!user.planVigente()) throw new Error('Plan vencido — renovar suscripción');
-
-    const credenciales = {
-      GROQ_API_KEY: config.getKey('keyGroq'),
-      MP_ACCESS_TOKEN: config.getKey('keyMP') || '',
-      CALENDAR_ID: config.getKey('idCalendar') || '',
-      RIME_API_KEY: config.getKey('keyRime') || '',
-      NGROK_AUTH_TOKEN: config.getKey('keyNgrok') || '',
-      NGROK_DOMAIN: config.dominioNgrok || '',
-      MI_NOMBRE: config.miNombre,
-      NEGOCIO: config.negocio,
-      SERVICIOS: config.servicios,
-      PRECIO_TURNO: String(config.precioTurno),
-      HORAS_MINIMAS_CANCELACION: String(config.horasCancelacion),
-      PROMPT_PERSONALIZADO: config.promptPersonalizado || '',
-      ALIAS_TRANSFERENCIA: config.aliasTransferencia || '',
-      CBU_TRANSFERENCIA: config.cbuTransferencia || '',
-      BANCO_TRANSFERENCIA: config.bancoTransferencia || '',
-      SERVICIOS_LIST: JSON.stringify(config.serviciosList || []),
-      HORARIOS_ATENCION: JSON.stringify(config.horariosAtencion || {}),
-      DIAS_BLOQUEADOS: JSON.stringify(config.diasBloqueados || []),
-      MODO_PAUSA: String(config.modoPausa || false),
-      CELULAR_NOTIFICACIONES: config.celularNotificaciones || '',
-      TIPO_NEGOCIO: config.tipoNegocio || 'turnos',
-      CHECK_IN_HORA: config.checkInHora || '14:00',
-      CHECK_OUT_HORA: config.checkOutHora || '10:00',
-      MINIMA_ESTADIA: String(config.minimaEstadia || 1),
-      UNIDADES_ALOJAMIENTO: JSON.stringify(config.unidadesAlojamiento || []),
-      DIRECCION_PROPIEDAD: config.direccionPropiedad || '',
-      LINK_UBICACION: config.linkUbicacion || '',
-      CATALOGO: JSON.stringify(config.catalogo || []),
-      PORT: String(asignarPuerto(uid)),
-    };
-
-    if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada');
-
-    // Directorios de forma ASÍNCRONA para no bloquear Node
+    // Directorios SIEMPRE — antes de tocar nada
     const sessionDir = path.resolve(SESSIONS_PATH, uid);
     const dataDir = path.resolve(SESSIONS_PATH, uid, 'data');
     await fs.promises.mkdir(sessionDir, { recursive: true });
     await fs.promises.mkdir(dataDir, { recursive: true });
 
-    // Google Calendar
-    const hasStoredTokens = !!config.googleCalendarTokens?.encrypted;
-    const googleTokens = hasStoredTokens ? config.getKey('googleCalendarTokens') : null;
+    const cachePath = path.join(sessionDir, '_credentials.cache.json');
 
-    if (googleTokens) {
-      credenciales.GOOGLE_CALENDAR_TOKENS = googleTokens;
-      credenciales.GOOGLE_EMAIL = config.googleEmail || '';
-    } else if (hasStoredTokens) {
-      console.error('[Worker] ❌ ENCRYPTION_KEY del worker no coincide con la de Render.');
-    }
+    let credenciales = null;
+    let fuenteDatos = null;
 
-    const credGoogle = config.credentialsGoogleB64?.encrypted
-      ? config.getKey('credentialsGoogleB64')
-      : null;
-    if (credGoogle) {
+    // ── Fuente 1: credenciales pre-cargadas desde el backend ────
+    if (credencialesRemotas && typeof credencialesRemotas === 'object') {
+      credenciales = { ...credencialesRemotas };
+      fuenteDatos = 'backend (socket.io)';
+
+      // Escribir credentials.json de Google si vino en el payload
+      if (credenciales._GOOGLE_CREDENTIALS_JSON) {
+        try {
+          JSON.parse(credenciales._GOOGLE_CREDENTIALS_JSON);
+          await fs.promises.writeFile(
+            path.join(dataDir, 'credentials.json'),
+            credenciales._GOOGLE_CREDENTIALS_JSON,
+            'utf8'
+          );
+        } catch (e) {
+          console.warn(`[Worker] Credenciales Google inválidas para ${uid}: ${e.message}`);
+        }
+        delete credenciales._GOOGLE_CREDENTIALS_JSON;
+      }
+
+      // Guardar cache para auto-restauración futura
       try {
-        JSON.parse(credGoogle);
-        await fs.promises.writeFile(path.join(dataDir, 'credentials.json'), credGoogle, 'utf8');
+        await fs.promises.writeFile(
+          cachePath,
+          JSON.stringify({ credenciales, savedAt: new Date().toISOString() }, null, 2),
+          'utf8'
+        );
       } catch (e) {
-        console.warn(`[Worker] Credenciales Google inválidas para ${uid}:`, e.message);
+        console.warn(`[Worker] ⚠️ No se pudo guardar cache: ${e.message}`);
+      }
+    } else {
+      // ── Fuente 2: cache local en disco ────────────────────────
+      // Usado en auto-restauración al arrancar el worker, cuando no hay
+      // backend emitiendo start-bot (los bots se levantan desde disco).
+      try {
+        const raw = await fs.promises.readFile(cachePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        credenciales = parsed.credenciales || parsed;
+        fuenteDatos = `cache local (${parsed.savedAt || 'desconocido'})`;
+      } catch (cacheErr) {
+        throw new Error(
+          `Sin credenciales para ${uid}: no vinieron en el payload y no hay cache local. ` +
+            `Iniciá el bot desde el dashboard (eso dispara start-bot con credenciales).`
+        );
       }
     }
+
+    if (!credenciales) throw new Error('No se pudieron cargar credenciales');
+    if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada');
+
+    // El puerto se reasigna siempre, no se cachea
+    credenciales.PORT = String(asignarPuerto(uid));
+
+    console.log(`[Worker] 📦 Credenciales cargadas para ${uid} desde: ${fuenteDatos}`);
 
     const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
     instancias.set(uid, bot);
@@ -322,42 +411,72 @@ async function autoRestaurarConRetry(intento = 0) {
 }
 
 async function autoRestaurarBots() {
-  await esperarMongo(30000);
+  // Escaneamos el filesystem local para encontrar qué bots tienen sesión guardada.
+  // Antes consultábamos MongoDB (wa_auth collection), pero ahora las sesiones
+  // viven en disco, así que este método es infinitamente más confiable y no
+  // depende de que MongoDB esté vivo.
+  let dirs = [];
+  try {
+    dirs = await fs.promises.readdir(SESSIONS_PATH, { withFileTypes: true });
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.log('[Worker] No existe carpeta de sesiones aún, nada para restaurar.');
+      return;
+    }
+    throw e;
+  }
 
-  const db = mongoose.connection.db;
-  const usuariosRaw = await db
-    .collection('users')
-    .find({ botActivo: true, status: 'activo' }, { projection: { _id: 1 } })
-    .maxTimeMS(20000)
-    .toArray();
+  const aRestaurar = [];
+  for (const dirent of dirs) {
+    if (!dirent.isDirectory()) continue;
+    const uid = dirent.name;
+    // Un session dir es válido si tiene creds.json (el archivo que escribe Baileys)
+    const credsPath = path.join(SESSIONS_PATH, uid, 'creds.json');
+    try {
+      await fs.promises.access(credsPath, fs.constants.R_OK);
+      aRestaurar.push(uid);
+    } catch {
+      // no tiene creds.json → bot sin vincular → saltar
+    }
+  }
 
-  if (!usuariosRaw.length) return console.log('[Worker] No hay bots activos para restaurar.');
+  if (!aRestaurar.length) {
+    return console.log('[Worker] No hay bots con sesión guardada en disco.');
+  }
 
-  const sesionesRaw = await db.collection('wa_auth').distinct('_id');
-  const uidsConSesion = new Set(sesionesRaw.map((sid) => String(sid).split(':')[0]));
-  const aRestaurar = usuariosRaw.filter((u) => uidsConSesion.has(u._id.toString()));
-
-  if (!aRestaurar.length)
-    return console.log('[Worker] Hay bots activos pero ninguno tiene sesión WA guardada.');
-
-  console.log(`[Worker] 🔄 Auto-restaurando ${aRestaurar.length} bot(s) con sesión guardada...`);
+  console.log(
+    `[Worker] 🔄 Auto-restaurando ${aRestaurar.length} bot(s) con sesión guardada en disco...`
+  );
 
   for (let i = 0; i < aRestaurar.length; i++) {
-    const uid = aRestaurar[i]._id.toString();
+    const uid = aRestaurar[i];
     if (instancias.has(uid) || arranqueEnCurso.has(uid)) continue;
 
     if (i > 0) await new Promise((r) => setTimeout(r, 3000));
     console.log(`[Worker] ▶ Auto-iniciando bot ${uid} (${i + 1}/${aRestaurar.length})`);
-    await iniciarBotLocal(uid);
+    try {
+      await iniciarBotLocal(uid);
+    } catch (err) {
+      console.error(`[Worker] ❌ Error auto-iniciando ${uid}: ${err.message}`);
+      // NO propagar: si un bot falla, seguimos con el resto
+    }
   }
 
   console.log(`[Worker] ✅ Auto-restauración completada.`);
 }
 
 // ── Comandos desde el servidor ────────────────────────────────
-socket.on('worker:start-bot', async ({ userId }) => {
-  console.log(`[Worker] → Arrancar bot ${userId}`);
-  await iniciarBotLocal(String(userId));
+socket.on('worker:start-bot', async ({ userId, credenciales }) => {
+  const uid = String(userId);
+  console.log(
+    `[Worker] → Arrancar bot ${uid}${credenciales ? ' (con credenciales del backend)' : ' (sin payload)'}`
+  );
+  try {
+    await iniciarBotLocal(uid, credenciales || null);
+  } catch (err) {
+    console.error(`[Worker] ❌ Error iniciando ${uid}: ${err.message}`);
+    socket.emit('worker:bot-error', { userId: uid, msg: err.message });
+  }
 });
 
 socket.on('worker:stop-bot', async ({ userId }) => {
