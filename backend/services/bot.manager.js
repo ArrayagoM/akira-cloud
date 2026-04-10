@@ -196,8 +196,10 @@ async function startBot(userId, slot = 0) {
     bot.on('qr', async (qr) => {
       logger.info(`[BotMgr] QR generado para user ${uid} slot ${slot}`);
       // Guardar QR en memoria (60s) para que el admin pueda verlo y ayudar al usuario
-      qrPendientes.set(uid, { qr, slot, ts: Date.now() });
-      setTimeout(() => { if (qrPendientes.get(uid)?.ts === qrPendientes.get(uid)?.ts) qrPendientes.delete(uid); }, 60_000);
+      const qrTs = Date.now();
+      qrPendientes.set(uid, { qr, slot, ts: qrTs });
+      // Solo borrar si el QR no fue reemplazado por uno más nuevo
+      setTimeout(() => { if (qrPendientes.get(uid)?.ts === qrTs) qrPendientes.delete(uid); }, 60_000);
       emitirAlUsuario(uid, 'bot:qr', { qr, slot });
       await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: `Slot ${slot}: QR generado — esperando escaneo` });
     });
@@ -218,9 +220,29 @@ async function startBot(userId, slot = 0) {
       instancias.delete(key);
       liberarPuerto(key);
 
-      // ── Auto-restart ────────────────────────────────────────
-      // El bot cayó por motivo terminal (sesión expirada, reemplazada, etc.)
-      // Lo reiniciamos automáticamente para que el usuario NUNCA quede sin bot.
+      // ── NO auto-reiniciar si la sesión fue limpiada y necesita QR ──
+      // Estas razones indican que el usuario DEBE escanear un QR nuevo manualmente.
+      // Auto-reiniciar crearía un loop infinito: inicia → espera QR → timeout → reinicia.
+      const razonStr = String(reason || '').toLowerCase();
+      const requiereQR = razonStr.includes('qr requerido')
+        || razonStr.includes('sesión inválida')
+        || razonStr.includes('sesión corrupta')
+        || razonStr.includes('código: 401')
+        || razonStr.includes('código: 440')
+        || razonStr.includes('código: 500')
+        || razonStr.includes('demasiados intentos');
+
+      if (requiereQR) {
+        logger.info(`[BotMgr] Bot ${key} necesita QR nuevo — NO auto-reiniciar (el usuario debe iniciar manualmente)`);
+        emitirAlUsuario(uid, 'bot:log', {
+          msg: '⚠️ Sesión expirada — iniciá el bot de nuevo desde el panel para escanear un QR nuevo.',
+          ts: new Date().toLocaleTimeString('es-AR'), slot
+        });
+        await Log.registrar({ userId: uid, tipo: 'bot_session_expired', nivel: 'warn', mensaje: `Slot ${slot}: Sesión expirada — requiere QR nuevo. No se auto-reinicia.` });
+        return; // ← NO programar auto-restart
+      }
+
+      // ── Auto-restart para desconexiones transitorias ─────────
       // Backoff: 15s, 30s, 1m, 2m, 5m → luego reintenta cada 10min indefinidamente.
       const DELAYS_MS = [15_000, 30_000, 60_000, 120_000, 300_000]; // 15s, 30s, 1m, 2m, 5m
       const DELAY_ESTABLE = 10 * 60 * 1000; // 10 min para intentos posteriores al 5°
@@ -622,6 +644,8 @@ async function ejecutarHealthcheck() {
       .lean();
 
     let reiniciados = 0;
+    let marcadosInactivos = 0;
+
     for (const u of usuarios) {
       const uid = u._id.toString();
       const key = botKey(uid, 0);
@@ -636,7 +660,37 @@ async function ejecutarHealthcheck() {
         || u.plan === 'admin'
         || (u.plan === 'trial' && u.trialExpira && new Date(u.trialExpira) > ahora)
         || (u.planExpira && new Date(u.planExpira) > ahora);
-      if (!planOk) continue;
+
+      if (!planOk) {
+        // Plan vencido pero botActivo=true — limpiar estado inconsistente
+        await updateBotStatus(uid, 0, false, false).catch(() => {});
+        marcadosInactivos++;
+        continue;
+      }
+
+      // ── Si hay un worker conectado, los bots corren ahí — no reiniciar localmente
+      // Solo notificar que el bot parece caído para que el worker lo restaure.
+      if (workerHandler.isWorkerAvailable()) {
+        logger.info(`[BotMgr] Healthcheck: bot ${key} no está en RAM local, pero worker está conectado — delegando`);
+        workerHandler.sendToWorker('worker:start-bot', { userId: uid, slot: 0 });
+        reiniciados++;
+        continue;
+      }
+
+      // ── Sin worker: verificar que el usuario tenga sesión WA antes de reiniciar
+      // Si no tiene sesión, solo necesita escanear QR (no auto-reiniciar)
+      const tieneSesion = await WAAuth.exists({ _id: new RegExp(`^${uid}:creds$`) });
+      if (!tieneSesion) {
+        logger.info(`[BotMgr] Healthcheck: bot ${key} sin sesión WA — marcando inactivo (necesita QR)`);
+        await updateBotStatus(uid, 0, false, false).catch(() => {});
+        emitirAlUsuario(uid, 'bot:log', {
+          msg: '⚠️ Bot caído y sin sesión — iniciá el bot desde el panel para escanear un QR nuevo.',
+          ts: new Date().toLocaleTimeString('es-AR'),
+          slot: 0,
+        });
+        marcadosInactivos++;
+        continue;
+      }
 
       // Bot debería estar corriendo pero no está — reiniciar
       logger.warn(`[BotMgr] Healthcheck: bot ${key} no está en RAM pero botActivo=true — reiniciando`);
@@ -645,7 +699,6 @@ async function ejecutarHealthcheck() {
         ts: new Date().toLocaleTimeString('es-AR'),
         slot: 0,
       });
-      // Registrar en DB para que aparezca en el panel admin
       Log.registrar({
         userId: uid,
         tipo: 'bot_healthcheck',
@@ -660,8 +713,8 @@ async function ejecutarHealthcheck() {
       });
     }
 
-    if (reiniciados > 0) {
-      logger.info(`[BotMgr] Healthcheck completado — ${reiniciados} bot(s) reiniciados`);
+    if (reiniciados > 0 || marcadosInactivos > 0) {
+      logger.info(`[BotMgr] Healthcheck completado — ${reiniciados} reiniciado(s), ${marcadosInactivos} marcado(s) inactivo(s)`);
     }
   } catch (e) {
     logger.error(`[BotMgr] Healthcheck error: ${e.message}`);

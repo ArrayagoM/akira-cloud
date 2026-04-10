@@ -191,6 +191,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let reconectarIntentos = 0; // contador de reconexiones sin éxito
   let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
   let botDetenidoIntencional = false; // true solo cuando el manager llama a detener()
+  let reconnectTimer = null; // 🔥 Timer de reconexión — se cancela para evitar timers cascading
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) {
@@ -2485,8 +2486,21 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       } catch {}
     }
 
-    const { state, saveCreds, clearAuth } = await useMongoAuthState(USER_ID);
-    const { version } = await fetchLatestBaileysVersion();
+    let state, saveCreds, clearAuth;
+    try {
+      ({ state, saveCreds, clearAuth } = await useMongoAuthState(USER_ID));
+    } catch (authErr) {
+      log(`❌ Error cargando sesión desde MongoDB: ${authErr.message}`);
+      throw authErr; // Propagar para que el handler de reconexión lo capture
+    }
+
+    let version;
+    try {
+      ({ version } = await fetchLatestBaileysVersion());
+    } catch (vErr) {
+      log(`⚠️ No se pudo obtener versión de Baileys, usando fallback`);
+      version = [2, 3000, 0]; // Fallback seguro
+    }
     log(`[Baileys] Versión WA: ${version.join('.')}`);
 
     // ── Logger silencioso que detecta sesión corrupta (Bad MAC) ──
@@ -2514,7 +2528,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           .toLowerCase();
         if (text.includes('bad mac') || text.includes('bad_mac')) {
           _macErrorCount++;
-          if (_macErrorCount >= 5 && !_sessionClearScheduled && !botDetenidoIntencional) {
+          if (_macErrorCount >= 2 && !_sessionClearScheduled && !botDetenidoIntencional) {
             _sessionClearScheduled = true;
             log(
               '⚠️ [Baileys] Sesión corrupta (Bad MAC ×' +
@@ -2579,9 +2593,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         const tiempoDesdeConexion = Date.now() - tsUltimaConexion;
         const esCicloRapido = tiempoDesdeConexion < 120_000; // < 2 minutos
 
-        // ── Sesión corrupta: solo limpiar si hay MUCHOS ciclos rápidos consecutivos
-        // Aumentado de 3 → 6 para no limpiar sesiones válidas en redes inestables
-        if (code === undefined && esCicloRapido && reconectarIntentos >= 6) {
+        // ── Sesión corrupta: limpiar tras ciclos rápidos consecutivos
+        // 3 desconexiones rápidas (< 2 min cada una) = sesión muerta con certeza
+        if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
           log(
             `🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`,
           );
@@ -2592,9 +2606,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           return;
         }
 
-        if (reconectarIntentos >= 20) {
+        if (reconectarIntentos >= 10) {
           // Demasiados intentos fallidos — sesión probablemente muerta
-          log(`❌ 20 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
+          log(`❌ 10 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
           emitter.emit('disconnected', `demasiados intentos — QR requerido`);
           await clearAuth().catch(() => {});
           reconectarIntentos = 0;
@@ -2603,37 +2617,41 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         }
 
         // Desconexión transitoria — reconectar automáticamente.
-        // Resetear reconectando SIN importar quién lo seteó (watchdog, otro origen),
-        // para que el reconect siempre se programe si el socket sigue referenciado.
+        // IMPORTANTE: Cancelar timer anterior antes de crear uno nuevo
+        // para evitar timers cascading (múltiples reconexiones en paralelo).
         reconectando = false;
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
         if (sock !== null) {
           reconectando = true;
           const delay = Math.min(5000 * reconectarIntentos, 30_000); // backoff: 5s, 10s, 15s... max 30s
           log(`🔄 Reconectando en ${delay / 1000}s... (intento ${reconectarIntentos})`);
-          setTimeout(() => {
+          reconnectTimer = setTimeout(async () => {
+            reconnectTimer = null;
             reconectando = false;
-            if (botDetenidoIntencional) return; // fue detenido manualmente mientras esperábamos
-            if (sock !== null)
-              conectar().catch((e) => {
-                log(`❌ Error al reconectar: ${e.message}`);
-                reconectando = false;
-                // Si conectar() falla (e.g. MongoDB timeout), programar siguiente intento
-                // en lugar de quedar muertos en silencio
-                if (!botDetenidoIntencional && sock !== null && reconectarIntentos < 20) {
-                  const nextDelay = Math.min(5000 * (reconectarIntentos + 1), 30_000);
-                  log(`🔄 Reintentando reconexión en ${nextDelay / 1000}s...`);
-                  setTimeout(() => {
-                    if (!botDetenidoIntencional && sock !== null) {
-                      reconectarIntentos++;
-                      conectar().catch(() => {});
-                    }
-                  }, nextDelay);
-                } else if (!botDetenidoIntencional) {
-                  // Agotados todos los intentos — notificar al manager para que reinicie
-                  log('❌ No se pudo reconectar — notificando manager para reinicio externo');
-                  emitter.emit('disconnected', 'error conectar — reinicio externo requerido');
-                }
-              });
+            if (botDetenidoIntencional) return;
+            if (sock === null) return;
+            try {
+              await conectar();
+            } catch (e) {
+              log(`❌ Error al reconectar: ${e.message}`);
+              // Si conectar() falla (e.g. MongoDB timeout), programar siguiente intento
+              if (!botDetenidoIntencional && sock !== null && reconectarIntentos < 10) {
+                reconectarIntentos++;
+                const nextDelay = Math.min(5000 * reconectarIntentos, 30_000);
+                log(`🔄 Reintentando reconexión en ${nextDelay / 1000}s...`);
+                if (reconnectTimer) clearTimeout(reconnectTimer);
+                reconnectTimer = setTimeout(async () => {
+                  reconnectTimer = null;
+                  if (!botDetenidoIntencional && sock !== null) {
+                    try { await conectar(); } catch {}
+                  }
+                }, nextDelay);
+              } else if (!botDetenidoIntencional) {
+                log('❌ No se pudo reconectar — notificando manager para reinicio externo');
+                emitter.emit('disconnected', 'error conectar — reinicio externo requerido');
+              }
+            }
           }, delay);
         }
       }
@@ -2877,6 +2895,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     const sockRef = sock;
     sock = null; // null primero para cortar reconexión automática
     reconectando = false;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     detenerWatchdog();
     for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
     if (sockRef) {

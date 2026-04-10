@@ -11,6 +11,9 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 
+// 🔥 LA SOLUCIÓN AL CONGELAMIENTO 24/7 (Desactiva la cola de espera de Mongoose globalmente)
+mongoose.set('bufferCommands', false);
+
 // ── Config ────────────────────────────────────────────────────
 const RENDER_URL = process.env.RENDER_URL;
 const WORKER_SECRET = process.env.WORKER_SECRET;
@@ -69,13 +72,12 @@ const arranqueEnCurso = new Set();
 let isRestoring = false; // Candado para evitar bucles de reconexión
 
 // ── MongoDB ───────────────────────────────────────────────────
-mongoose.set('bufferTimeoutMS', 30000);
 mongoose
   .connect(MONGO_URI, {
-    maxPoolSize: 200, // 🔥 CLAVE: Evita que wa_auth colapse al escanear el QR
-    serverSelectionTimeoutMS: 30000,
+    maxPoolSize: 200, // 🔥 CLAVE: Absorbe la ráfaga de llaves criptográficas de Baileys
+    serverSelectionTimeoutMS: 5000, // Fallar rápido en vez de colgar todo
     socketTimeoutMS: 45000,
-    connectTimeoutMS: 30000,
+    connectTimeoutMS: 10000,
     family: 4, // Fuerza IPv4 para mayor estabilidad local
   })
   .then(() => {
@@ -90,7 +92,7 @@ mongoose
     process.exit(1);
   });
 
-async function esperarMongo(timeoutMs = 45000) {
+async function esperarMongo(timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
   if (mongoose.connection.readyState !== 1) {
     await mongoose.connection.asPromise().catch(() => {});

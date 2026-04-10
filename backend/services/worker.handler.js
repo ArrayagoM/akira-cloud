@@ -105,11 +105,32 @@ function inicializarWorkerHandler(io) {
     });
 
     // ── Desconexión del worker ─────────────────────────────
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       logger.warn(`[WorkerHandler] ⚠️ Worker desconectado: ${reason}`);
       if (workerSocket?.id === socket.id) {
+        const botIds = workerInfo.botIds || [];
         workerSocket = null;
         workerInfo   = {};
+
+        // Notificar a todos los usuarios cuyos bots estaban corriendo en el worker
+        // que su bot se cayó y marcar como desconectado en la DB.
+        // Esto evita que queden en estado "activo" fantasma en el panel.
+        if (botIds.length > 0) {
+          logger.warn(`[WorkerHandler] Worker tenía ${botIds.length} bot(s) activos — marcándolos como caídos`);
+          for (const uid of botIds) {
+            try {
+              await User.findByIdAndUpdate(uid, { botConectado: false });
+              _emitirAlUsuario(io, uid, 'bot:disconnected', { reason: 'Worker desconectado — tu PC se desconectó del servidor' });
+              _emitirAlUsuario(io, uid, 'bot:log', {
+                msg: '⚠️ Tu PC perdió conexión con el servidor. El bot se reconectará automáticamente cuando tu PC vuelva a estar online.',
+                ts: new Date().toLocaleTimeString('es-AR'),
+              });
+              Log.registrar({ userId: uid, tipo: 'worker_disconnected', nivel: 'warn', mensaje: `Worker desconectado: ${reason}` }).catch(() => {});
+            } catch (e) {
+              logger.error(`[WorkerHandler] Error actualizando estado de ${uid}: ${e.message}`);
+            }
+          }
+        }
       }
     });
   });
