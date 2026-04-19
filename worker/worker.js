@@ -17,7 +17,9 @@ mongoose.set('bufferCommands', false);
 mongoose.set('bufferTimeoutMS', 3000);
 
 // ── Config ────────────────────────────────────────────────────
-const RENDER_URL = process.env.RENDER_URL;
+// BACKEND_URL: en Railway es http://localhost:5000 (mismo contenedor)
+//              en PC local es la URL de Render o el backend local
+const RENDER_URL = process.env.BACKEND_URL || process.env.RENDER_URL;
 const WORKER_SECRET = process.env.WORKER_SECRET;
 const MONGO_URI = process.env.MONGO_URI;
 const SESSIONS_PATH = process.env.WA_SESSIONS_PATH || path.resolve(__dirname, '../sessions');
@@ -38,33 +40,39 @@ const Config = require('../backend/models/Config');
 const Log = require('../backend/models/Log');
 const WAAuth = require('../backend/models/WAAuth');
 
-// ── Keep-alive Render ──────────────────────────────────────────
-const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutos
+// ── Keep-alive Backend ─────────────────────────────────────────
+// En Railway el backend NO se duerme, pero el ping sirve para detectar
+// desconexiones tempranas y loguear uptime del sistema.
+const PING_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
 
-function pingRender() {
+function pingBackend() {
   try {
-    const url = new URL(RENDER_URL);
+    const url = new URL(RENDER_URL); // sigue leyendo RENDER_URL — renombralo a BACKEND_URL en Railway
+    const mod = url.protocol === 'https:' ? https : require('http');
     const options = {
       hostname: url.hostname,
       path: '/api/health',
       method: 'GET',
       headers: { 'User-Agent': 'AkiraWorker/keepalive', Connection: 'close' },
-      timeout: 10000,
+      timeout: 8000,
     };
-    const req = https.request(options, (res) => {
+    const req = mod.request(options, (res) => {
       res.on('data', () => {});
-      res.on('end', () => console.log(`[Worker] 💓 Keep-alive Render → ${res.statusCode}`));
+      res.on('end', () => {
+        if (res.statusCode !== 200)
+          console.warn(`[Worker] ⚠️ Backend health: ${res.statusCode}`);
+      });
     });
     req.on('error', () => {});
-    req.setTimeout(10000, () => req.destroy());
+    req.setTimeout(8000, () => req.destroy());
     req.end();
   } catch (e) {
-    console.warn('[Worker] ⚠️ Keep-alive error:', e.message);
+    // silencioso — el socket.io maneja la reconexión
   }
 }
 
-pingRender();
-setInterval(pingRender, PING_INTERVAL_MS);
+pingBackend();
+setInterval(pingBackend, PING_INTERVAL_MS);
 
 const crearAkiraBot = require('../backend/services/akira.bot');
 
@@ -184,18 +192,21 @@ async function esperarMongo(timeoutMs = 20000) {
 }
 
 // ── Keep-alive MongoDB ────────────────────────────────────────
-// Atlas cierra conexiones ociosas (~5 min en free tier). Cada 3 minutos
-// hacemos una query REAL de Mongoose para mantenerla viva. Si detectamos
-// buffering, forzamos reconexión automáticamente.
-const MONGO_KEEPALIVE_MS = 3 * 60 * 1000; // cada 3 minutos
+// Verifica la conexión cada 5 min. Solo fuerza reconexión después de 3 fallos
+// consecutivos para evitar loops innecesarios (especialmente con Mongo local).
+const MONGO_KEEPALIVE_MS = 5 * 60 * 1000;
+let mongoKeepAliveFailCount = 0;
 setInterval(async () => {
   try {
     if (mongoose.connection.readyState !== 1) return;
     await User.estimatedDocumentCount().maxTimeMS(4000).exec();
+    mongoKeepAliveFailCount = 0; // Reset en éxito
   } catch (e) {
+    mongoKeepAliveFailCount++;
     const msg = String(e?.message || '').toLowerCase();
-    if (msg.includes('buffering') || msg.includes('timed out')) {
-      console.warn('[Worker] ⚠️ Keep-alive detectó conexión stale — forzando reconexión');
+    if ((msg.includes('buffering') || msg.includes('timed out')) && mongoKeepAliveFailCount >= 3) {
+      console.warn(`[Worker] ⚠️ Keep-alive: ${mongoKeepAliveFailCount} fallos consecutivos — forzando reconexión`);
+      mongoKeepAliveFailCount = 0;
       forzarReconexionMongo().catch(() => {});
     }
   }
@@ -364,8 +375,11 @@ async function iniciarBotLocal(uid, credencialesRemotas = null) {
     });
 
     await bot.iniciar();
-    await User.findByIdAndUpdate(uid, { botActivo: true });
-    await Log.registrar({
+    // Actualizar estado en background — NO bloquear el bot si Mongo tarda
+    User.findByIdAndUpdate(uid, { botActivo: true }).catch((e) =>
+      console.warn(`[Worker] ⚠️ No se pudo marcar botActivo en DB (no bloqueante): ${e.message}`)
+    );
+    Log.registrar({
       userId: uid,
       tipo: 'bot_start',
       mensaje: 'Bot iniciado (worker local)',
