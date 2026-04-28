@@ -42,12 +42,16 @@ const ConfigSchema = new mongoose.Schema(
     cbuTransferencia:   { type: String, default: '', trim: true },
     bancoTransferencia: { type: String, default: '', trim: true },
 
-    // Servicios múltiples: [{ nombre, precio, duracion }]
+    // Servicios múltiples: [{ nombre, precio, duracion, intervaloRecordatorioDias, mensajeRecordatorio }]
     serviciosList: {
       type: [{
         nombre:   { type: String, required: true },
         precio:   { type: Number, required: true, min: 0 },
         duracion: { type: Number, default: 60 }, // minutos
+        // Cada cuántos días recordarle al cliente que vuelva por este servicio (0 = desactivado)
+        intervaloRecordatorioDias: { type: Number, default: 0, min: 0 },
+        // Mensaje custom para el recordatorio. Variables: {nombre}, {negocio}, {dias}
+        mensajeRecordatorio: { type: String, default: '', trim: true, maxlength: 500 },
       }],
       default: [],
     },

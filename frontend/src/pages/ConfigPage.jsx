@@ -251,7 +251,7 @@ export default function ConfigPage() {
     minimaEstadia: '1',
     unidadesAlojamiento: [], direccionPropiedad: '', linkUbicacion: '',
   });
-  const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60' });
+  const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60', intervaloRecordatorioDias: '0', mensajeRecordatorio: '' });
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
   const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' });
   const [mostrarFormUnidad, setMostrarFormUnidad] = useState(false);
@@ -436,9 +436,11 @@ export default function ConfigPage() {
       nombre:   nuevoServicio.nombre.trim(),
       precio:   parseFloat(nuevoServicio.precio),
       duracion: parseInt(nuevoServicio.duracion) || 60,
+      intervaloRecordatorioDias: Math.max(0, parseInt(nuevoServicio.intervaloRecordatorioDias) || 0),
+      mensajeRecordatorio: (nuevoServicio.mensajeRecordatorio || '').trim(),
     };
     setForm(f => ({ ...f, serviciosList: [...f.serviciosList, servicio] }));
-    setNuevoServicio({ nombre: '', precio: '', duracion: '60' });
+    setNuevoServicio({ nombre: '', precio: '', duracion: '60', intervaloRecordatorioDias: '0', mensajeRecordatorio: '' });
     setMostrarFormServicio(false);
   };
 
@@ -989,16 +991,28 @@ export default function ConfigPage() {
                   const h = Math.floor(mins / 60);
                   const m = mins % 60;
                   const durLabel = h === 0 ? `${mins} min` : m === 0 ? `${h} h` : `${h} h ${m} min`;
+                  const recordar = s.intervaloRecordatorioDias > 0;
                   return (
-                  <div key={idx} className="flex items-center justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <span className="text-sm font-medium text-white truncate">{s.nombre}</span>
-                      <span className="text-xs text-green-400 flex-shrink-0">${s.precio.toLocaleString('es-AR')}</span>
-                      <span className="text-xs text-gray-500 flex-shrink-0">⏱ {durLabel}</span>
+                  <div key={idx} className="bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-4 min-w-0 flex-wrap">
+                        <span className="text-sm font-medium text-white truncate">{s.nombre}</span>
+                        <span className="text-xs text-green-400 flex-shrink-0">${s.precio.toLocaleString('es-AR')}</span>
+                        <span className="text-xs text-gray-500 flex-shrink-0">⏱ {durLabel}</span>
+                        {recordar && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1"
+                            style={{ background: 'rgba(56,189,248,0.10)', color: '#7dd3fc', border: '1px solid rgba(56,189,248,0.22)' }}>
+                            🔔 cada {s.intervaloRecordatorioDias} d
+                          </span>
+                        )}
+                      </div>
+                      <button onClick={() => eliminarServicio(idx)} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0 ml-2">
+                        <X size={14} />
+                      </button>
                     </div>
-                    <button onClick={() => eliminarServicio(idx)} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0 ml-2">
-                      <X size={14} />
-                    </button>
+                    {recordar && s.mensajeRecordatorio && (
+                      <p className="text-[11px] text-gray-500 mt-1.5 italic truncate">"{s.mensajeRecordatorio}"</p>
+                    )}
                   </div>
                   );
                 })}
@@ -1056,11 +1070,61 @@ export default function ConfigPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* ── Recordatorios automáticos ─────────────────────────── */}
+                <div className="border-t border-gray-700/50 pt-3 mt-1">
+                  <p className="text-xs font-semibold text-gray-300 mb-1 flex items-center gap-1.5">
+                    🔔 Recordatorio automático
+                    <span className="text-[10px] text-gray-500 font-normal">(opcional)</span>
+                  </p>
+                  <p className="text-[11px] text-gray-500 mb-3">
+                    El bot le enviará un WhatsApp al cliente cuando pase este tiempo desde su último turno de este servicio.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Cada cuántos días</label>
+                      <select
+                        value={nuevoServicio.intervaloRecordatorioDias}
+                        onChange={e => setNuevoServicio(s => ({ ...s, intervaloRecordatorioDias: e.target.value }))}
+                        className="input-base"
+                      >
+                        <option value="0">Sin recordatorio</option>
+                        <option value="7">7 días (semanal)</option>
+                        <option value="14">14 días</option>
+                        <option value="21">21 días (3 semanas)</option>
+                        <option value="30">30 días (mensual)</option>
+                        <option value="45">45 días</option>
+                        <option value="60">60 días (bimestral)</option>
+                        <option value="90">90 días (trimestral)</option>
+                        <option value="180">180 días (semestral)</option>
+                      </select>
+                    </div>
+                  </div>
+                  {nuevoServicio.intervaloRecordatorioDias !== '0' && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+                        Mensaje del recordatorio <span className="text-gray-500 normal-case font-normal">(usa <code className="text-[var(--accent)]">{'{nombre}'}</code>, <code className="text-[var(--accent)]">{'{servicio}'}</code>, <code className="text-[var(--accent)]">{'{dias}'}</code>, <code className="text-[var(--accent)]">{'{negocio}'}</code>)</span>
+                      </label>
+                      <textarea
+                        value={nuevoServicio.mensajeRecordatorio}
+                        onChange={e => setNuevoServicio(s => ({ ...s, mensajeRecordatorio: e.target.value }))}
+                        rows={3}
+                        maxLength={500}
+                        className="input-base w-full resize-none text-sm"
+                        placeholder="Ej: ¡Hola {nombre}! 👋 Pasaron {dias} días desde tu último {servicio}. ¿Reservamos?"
+                      />
+                      <p className="text-[10px] text-gray-600 mt-1 text-right">
+                        {(nuevoServicio.mensajeRecordatorio || '').length}/500 — si lo dejás vacío, el bot arma uno automáticamente.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-2">
                   <button onClick={agregarServicio} disabled={!nuevoServicio.nombre.trim() || !nuevoServicio.precio} className="btn-primary text-xs px-4 py-2">
                     <Plus size={13} /> Agregar
                   </button>
-                  <button onClick={() => { setMostrarFormServicio(false); setNuevoServicio({ nombre: '', precio: '', duracion: '60' }); }} className="btn-secondary text-xs px-4 py-2">
+                  <button onClick={() => { setMostrarFormServicio(false); setNuevoServicio({ nombre: '', precio: '', duracion: '60', intervaloRecordatorioDias: '0', mensajeRecordatorio: '' }); }} className="btn-secondary text-xs px-4 py-2">
                     Cancelar
                   </button>
                 </div>

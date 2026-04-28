@@ -18,6 +18,7 @@ import ForgotPassword    from './pages/ForgotPassword';
 import ResetPassword     from './pages/ResetPassword';
 import SugerenciasPage   from './pages/SugerenciasPage';
 import ChatsPage         from './pages/ChatsPage';
+import ClientesPage      from './pages/ClientesPage';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
 
 // ── Loading spinner ────────────────────────────────────────
@@ -87,6 +88,7 @@ export default function App() {
         <Route path="/planes"      element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
         <Route path="/sugerencias" element={<ProtectedRoute><SugerenciasPage /></ProtectedRoute>} />
         <Route path="/chats"       element={<ProtectedRoute><ChatsPage /></ProtectedRoute>} />
+        <Route path="/clientes"    element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />

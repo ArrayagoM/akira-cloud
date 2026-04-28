@@ -55,6 +55,25 @@ async function ejecutarCiclo() {
   }
 }
 
+// Devuelve el intervalo en días que aplica para un cliente:
+//   1) override del cliente (BotCliente.intervaloRecordatorioDias)
+//   2) intervalo del último servicio que reservó (matched en serviciosList por nombre)
+//   3) default 30
+function intervaloAplicable(cliente, ultimoServicioNombre, serviciosList) {
+  if (cliente?.intervaloRecordatorioDias && cliente.intervaloRecordatorioDias > 0) {
+    return { dias: cliente.intervaloRecordatorioDias, fuente: 'cliente', servicio: null };
+  }
+  if (ultimoServicioNombre && Array.isArray(serviciosList)) {
+    const svc = serviciosList.find(s =>
+      String(s.nombre || '').trim().toLowerCase() === String(ultimoServicioNombre).trim().toLowerCase()
+    );
+    if (svc?.intervaloRecordatorioDias > 0) {
+      return { dias: svc.intervaloRecordatorioDias, fuente: 'servicio', servicio: svc };
+    }
+  }
+  return { dias: 30, fuente: 'default', servicio: null };
+}
+
 async function procesarNegocio(user) {
   const userId = user._id;
   const config = await Config.findOne({ userId }).lean();
@@ -62,17 +81,24 @@ async function procesarNegocio(user) {
   if (config.activarReengagement === false) return;
 
   const ahora    = Date.now();
-  const hace30   = new Date(ahora - 30  * 86400000);
-  const hace120  = new Date(ahora - 120 * 86400000);
+  const hace8    = new Date(ahora - 8   * 86400000);  // mínimo: ningún recordatorio antes de 8 días
+  const hace365  = new Date(ahora - 365 * 86400000);  // máximo: 1 año
 
-  // Clientes con turno confirmado pero el último fue hace más de 30 días
+  // Clientes con turno confirmado en ventana razonable (8d–365d)
   const turnos = await Turno.aggregate([
     { $match: { userId, estado: 'confirmado' } },
-    { $group: { _id: '$clienteTelefono', ultimoTurno: { $max: '$fechaFin' }, nombre: { $last: '$clienteNombre' } } },
-    { $match: { ultimoTurno: { $lt: hace30, $gt: hace120 } } },
+    { $sort: { fechaFin: -1 } },
+    { $group: {
+        _id: '$clienteTelefono',
+        ultimoTurno: { $first: '$fechaFin' },
+        ultimoServicio: { $first: '$resumen' },
+        nombre: { $first: '$clienteNombre' },
+    } },
+    { $match: { ultimoTurno: { $lt: hace8, $gt: hace365 } } },
   ]);
 
   const NOMBRE_NEGOCIO = config.miNombre || 'el negocio';
+  const serviciosList  = config.serviciosList || [];
   let enviados = 0;
 
   for (const t of turnos) {
@@ -83,20 +109,39 @@ async function procesarNegocio(user) {
     const cliente = await BotCliente.findOne({ userId, jid }).lean();
     if (!cliente) continue;
 
-    // No spamear: esperar 30 días entre mensajes de reengagement
+    const diasSinTurno = Math.floor((ahora - new Date(t.ultimoTurno).getTime()) / 86400000);
+    const { dias: umbralDias, fuente, servicio } = intervaloAplicable(
+      cliente,
+      cliente?.ultimoServicio || t.ultimoServicio,
+      serviciosList
+    );
+
+    // Solo recordar si ya pasó el intervalo configurado
+    if (diasSinTurno < umbralDias) continue;
+
+    // No spamear: respetar al menos el intervalo entre mensajes de reengagement (mínimo 14 días)
+    const intervaloEntreMsgs = Math.max(14, Math.floor(umbralDias / 2));
     if (cliente.ultimoMensajeReengagement) {
       const diasDesdeUltimo = (ahora - new Date(cliente.ultimoMensajeReengagement).getTime()) / 86400000;
-      if (diasDesdeUltimo < 30) continue;
+      if (diasDesdeUltimo < intervaloEntreMsgs) continue;
     }
 
-    const diasSinTurno = Math.floor((ahora - new Date(t.ultimoTurno).getTime()) / 86400000);
     let mensaje;
     const nombre = t.nombre || cliente.nombre || 'cliente';
+    const sustituir = (txt) => txt
+      .replace(/\{nombre\}/g, nombre)
+      .replace(/\{negocio\}/g, NOMBRE_NEGOCIO)
+      .replace(/\{dias\}/g, String(diasSinTurno))
+      .replace(/\{servicio\}/g, servicio?.nombre || cliente?.ultimoServicio || 'tu servicio');
 
-    if (diasSinTurno >= 60 && config.mensajeReengagement60?.trim()) {
-      mensaje = config.mensajeReengagement60.replace('{nombre}', nombre).replace('{negocio}', NOMBRE_NEGOCIO);
+    if (fuente === 'servicio' && servicio?.mensajeRecordatorio?.trim()) {
+      mensaje = sustituir(servicio.mensajeRecordatorio);
+    } else if (diasSinTurno >= 60 && config.mensajeReengagement60?.trim()) {
+      mensaje = sustituir(config.mensajeReengagement60);
     } else if (diasSinTurno >= 30 && config.mensajeReengagement30?.trim()) {
-      mensaje = config.mensajeReengagement30.replace('{nombre}', nombre).replace('{negocio}', NOMBRE_NEGOCIO);
+      mensaje = sustituir(config.mensajeReengagement30);
+    } else if (servicio?.nombre) {
+      mensaje = `¡Hola ${nombre}! 👋 Pasaron *${diasSinTurno} días* desde tu último *${servicio.nombre}* en *${NOMBRE_NEGOCIO}*.\n¿Reservamos un nuevo turno? 📅`;
     } else if (diasSinTurno >= 60) {
       mensaje = `¡Hola ${nombre}! 👋 Hace tiempo que no nos vemos en *${NOMBRE_NEGOCIO}*.\n¿Querés que te busquemos un turno esta semana? 😊`;
     } else {

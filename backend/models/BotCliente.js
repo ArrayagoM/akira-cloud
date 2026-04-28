@@ -44,6 +44,14 @@ const BotClienteSchema = new mongoose.Schema(
     },
     noShowCount:                  { type: Number, default: 0 },
     ultimoMensajeReengagement:    { type: Date, default: null },
+
+    // ─── CRM: notas privadas + etiquetas + recordatorios personalizados ─
+    notas:                        { type: String, default: '', maxlength: 1000 },
+    etiquetas:                    { type: [String], default: [] },          // ['VIP', 'Frecuente', 'Alergia']
+    ultimoServicio:               { type: String, default: '' },             // último servicio reservado (cache)
+    // Si está seteado, override del intervalo del servicio para este cliente puntual
+    intervaloRecordatorioDias:    { type: Number, default: null, min: 0 },
+    totalGastado:                 { type: Number, default: 0 },              // suma turnos confirmados (cache)
   },
   { timestamps: true, collection: 'bot_clientes' }
 );

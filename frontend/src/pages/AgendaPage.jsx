@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import {
   CalendarDays, Clock, DollarSign, Phone, User, RefreshCw,
   BedDouble, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Wrench, Trash2,
+  Hourglass, X, Bell,
 } from 'lucide-react';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
@@ -297,6 +298,131 @@ function EventCard({ r, tipoNegocio, onCancelar, cancelando }) {
 }
 
 // ─── Página principal ─────────────────────────────────────────────────────────
+// ─── Panel de Lista de Espera ─────────────────────────────────────────
+function WaitlistPanel() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const cargar = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get('/bot/waitlist');
+      setEntries(r.data.entries || []);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { cargar(); }, []);
+
+  const quitar = async (id, nombre) => {
+    if (!window.confirm(`¿Quitar a ${nombre || 'este cliente'} de la lista de espera?`)) return;
+    try {
+      await api.delete(`/bot/waitlist/${id}`);
+      setEntries(prev => prev.filter(e => e._id !== id));
+      toast.success('Quitado de la lista');
+    } catch { toast.error('Error al quitar'); }
+  };
+
+  if (loading) {
+    return (
+      <div className="card">
+        <div className="flex items-center justify-center py-6">
+          <span className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (entries.length === 0) return null; // si está vacío, no ocupar espacio
+
+  // Agrupar por fecha
+  const grupos = entries.reduce((acc, e) => {
+    (acc[e.fecha] = acc[e.fecha] || []).push(e);
+    return acc;
+  }, {});
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Hourglass size={14} className="text-amber-400" />
+          Lista de espera
+          <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
+            {entries.length} {entries.length === 1 ? 'cliente' : 'clientes'}
+          </span>
+        </h3>
+        <button onClick={cargar} className="text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-1">
+          <RefreshCw size={11} /> Actualizar
+        </button>
+      </div>
+
+      <p className="text-[11px] text-gray-500 mb-3">
+        Cuando se cancela un turno, el bot le ofrece automáticamente al primero de la lista. Tiene 15 min para confirmar.
+      </p>
+
+      <div className="space-y-2">
+        {Object.entries(grupos).sort(([a], [b]) => a.localeCompare(b)).map(([fecha, items]) => (
+          <div key={fecha}>
+            <p className="text-[10px] text-gray-600 uppercase tracking-wide mb-1.5 font-semibold">
+              {formatFechaCorta(fecha)}
+            </p>
+            <div className="space-y-1.5">
+              {items.map(e => {
+                const tel = (e.clienteTel || e.jid?.split('@')[0] || '').replace(/\D/g, '');
+                const isOferta = e.estado === 'contactado';
+                return (
+                  <div key={e._id}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                    style={{
+                      background: isOferta ? 'rgba(245,158,11,0.07)' : 'var(--surface2)',
+                      border: `1px solid ${isOferta ? 'rgba(245,158,11,0.25)' : 'var(--border)'}`,
+                    }}>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
+                      style={{
+                        background: isOferta ? 'rgba(245,158,11,0.15)' : 'rgba(99,102,241,0.12)',
+                        color: isOferta ? '#fbbf24' : '#a5b4fc',
+                        border: `1px solid ${isOferta ? 'rgba(245,158,11,0.25)' : 'rgba(99,102,241,0.22)'}`,
+                      }}>
+                      {(e.clienteNombre || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase()).join('') || '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-white truncate">
+                          {e.clienteNombre || 'Sin nombre'}
+                        </p>
+                        {e.hora && (
+                          <span className="text-[10px] text-gray-500 flex items-center gap-0.5">
+                            <Clock size={9} /> {e.hora}
+                          </span>
+                        )}
+                        {!e.hora && (
+                          <span className="text-[10px] text-gray-600">cualquier hora</span>
+                        )}
+                        {isOferta && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1"
+                            style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.25)' }}>
+                            <Bell size={9} /> oferta enviada
+                          </span>
+                        )}
+                      </div>
+                      {tel && <p className="text-[11px] text-gray-500">+{tel}</p>}
+                    </div>
+                    <button onClick={() => quitar(e._id, e.clienteNombre)}
+                      title="Quitar de la lista"
+                      className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0">
+                      <X size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AgendaPage() {
   const hoy = isoHoy();
   const ahora = new Date();
@@ -537,6 +663,9 @@ export default function AgendaPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Lista de espera ── */}
+            <WaitlistPanel />
 
             {/* ── Actividad reciente ── */}
             {logs.length > 0 && (
