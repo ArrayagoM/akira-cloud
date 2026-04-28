@@ -8,6 +8,7 @@ const WAAuth     = require('../models/WAAuth');
 const Config     = require('../models/Config');
 const BotCliente = require('../models/BotCliente');
 const Turno      = require('../models/Turno');
+const WaitlistEntry = require('../models/WaitlistEntry');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -245,6 +246,13 @@ router.get('/clientes', async (req, res) => {
     }
     if (filtro === 'silenciados') base.silenciado = true;
     if (filtro === 'con_turno')   base['turnosConfirmados.0'] = { $exists: true };
+    if (filtro === 'vip')         base.etiquetas = 'VIP';
+    if (filtro === 'frecuentes')  base['turnosConfirmados.4'] = { $exists: true }; // 5+ turnos
+    if (filtro === 'inactivos') {
+      // Sin turno hace +30 días (ó nunca)
+      const hace30 = new Date(Date.now() - 30 * 86400000);
+      base.updatedAt = { $lt: hace30 };
+    }
 
     // Chats ignorados (bloqueados) vienen de Config
     const cfg      = await Config.findOne({ userId: req.user._id }, 'chatsIgnorados').lean();
@@ -320,6 +328,113 @@ router.patch('/clientes/:jid', async (req, res) => {
     const igFinal  = new Set(cfgFinal?.chatsIgnorados || []);
 
     res.json({ ok: true, cliente: { ...cliente.toObject(), bloqueado: igFinal.has(num) } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PATCH /api/bot/clientes/:jid/notas — actualizar notas y etiquetas (CRM)
+// ─────────────────────────────────────────────────────────────
+router.patch('/clientes/:jid/notas', async (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    const { notas, etiquetas, intervaloRecordatorioDias, ultimoServicio } = req.body;
+    const upd = {};
+    if (notas !== undefined) upd.notas = String(notas).slice(0, 1000);
+    if (Array.isArray(etiquetas)) {
+      upd.etiquetas = etiquetas
+        .map(t => String(t).trim().slice(0, 32))
+        .filter(Boolean)
+        .slice(0, 12);
+    }
+    if (intervaloRecordatorioDias !== undefined) {
+      const n = parseInt(intervaloRecordatorioDias);
+      upd.intervaloRecordatorioDias = (isNaN(n) || n <= 0) ? null : n;
+    }
+    if (ultimoServicio !== undefined) upd.ultimoServicio = String(ultimoServicio).slice(0, 80);
+
+    const cliente = await BotCliente.findOneAndUpdate(
+      { userId: req.user._id, jid },
+      { $set: upd },
+      { new: true, select: '-historial' }
+    );
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+    res.json({ ok: true, cliente });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/bot/clientes/:jid/detalle — turnos, gasto, historial reciente
+// ─────────────────────────────────────────────────────────────
+router.get('/clientes/:jid/detalle', async (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    const cliente = await BotCliente.findOne({ userId: req.user._id, jid }).lean();
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    const tel = (cliente.numeroReal || cliente.telefono || extraerNum(jid)).replace(/\D/g, '');
+    const turnos = await Turno.find({
+      userId: req.user._id,
+      $or: [
+        { clienteTelefono: tel },
+        { clienteTelefono: { $regex: tel.slice(-8), $options: 'i' } },
+      ],
+    }).sort({ fechaInicio: -1 }).limit(50).lean();
+
+    const totalGastado = turnos
+      .filter(t => t.estado === 'confirmado')
+      .reduce((s, t) => s + (t.pago?.monto || 0), 0);
+
+    const ultimoTurno = turnos.find(t => t.estado === 'confirmado');
+    const ultimosMensajes = (cliente.historial || [])
+      .slice(-20)
+      .map(m => ({ role: m.role, content: (m.content || '').slice(0, 500) }));
+
+    res.json({
+      cliente: { ...cliente, historial: undefined },
+      turnos,
+      stats: {
+        totalTurnos: turnos.filter(t => t.estado === 'confirmado').length,
+        totalCancelados: turnos.filter(t => t.estado === 'cancelado').length,
+        totalGastado,
+        ultimoTurno: ultimoTurno?.fechaInicio || null,
+        diasDesdeUltimoTurno: ultimoTurno
+          ? Math.floor((Date.now() - new Date(ultimoTurno.fechaInicio).getTime()) / 86400000)
+          : null,
+      },
+      ultimosMensajes,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/bot/waitlist — lista de espera activa
+// ─────────────────────────────────────────────────────────────
+router.get('/waitlist', async (req, res) => {
+  try {
+    const entries = await WaitlistEntry.find({
+      userId: req.user._id,
+      estado: { $in: ['esperando', 'contactado'] },
+    }).sort({ fecha: 1, createdAt: 1 }).lean();
+    res.json({ entries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  DELETE /api/bot/waitlist/:id — quitar a alguien de la lista
+// ─────────────────────────────────────────────────────────────
+router.delete('/waitlist/:id', async (req, res) => {
+  try {
+    const r = await WaitlistEntry.deleteOne({ _id: req.params.id, userId: req.user._id });
+    if (r.deletedCount === 0) return res.status(404).json({ error: 'Entrada no encontrada' });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
