@@ -411,13 +411,21 @@ export default function ConfigPage() {
       }).catch(() => {});
     });
 
+    // Socket: cuenta no es WA Business o sync falló — detener spinner y avisar
+    const offNotBusiness = on('catalog:not_business', () => {
+      setSyncingCatalogo(false);
+      toast('ℹ️ Esta cuenta no es WhatsApp Business o el catálogo no está habilitado.\nPodés cargar productos manualmente desde esta sección.', {
+        duration: 7000, icon: 'ℹ️',
+      });
+    });
+
     // Socket: producto nuevo detectado desde un estado WA
     const offNew = on('catalog:new-product', (prod) => {
       toast.success(`📸 Nuevo producto detectado en estado: "${prod.nombre}"`);
       setCatalogo(c => [...c, { ...prod, disponible: true, fuente: 'status' }]);
     });
 
-    return () => { offSynced(); offNew(); };
+    return () => { offSynced(); offNotBusiness(); offNew(); };
   }, [on]);
 
   const handleForm = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));

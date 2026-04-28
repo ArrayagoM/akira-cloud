@@ -368,8 +368,9 @@ export default function Dashboard() {
     }
   };
 
-  const planVigente = user?.plan === 'trial' ? new Date(user.trialExpira) > new Date() : true;
-  const diasTrial   = user?.plan === 'trial' ? Math.max(0, Math.ceil((new Date(user.trialExpira) - new Date()) / 86400000)) : null;
+  const esAdmin     = user?.rol === 'admin' || user?.plan === 'admin';
+  const planVigente = esAdmin ? true : user?.plan === 'trial' ? new Date(user.trialExpira) > new Date() : true;
+  const diasTrial   = user?.plan === 'trial' && !esAdmin ? Math.max(0, Math.ceil((new Date(user.trialExpira) - new Date()) / 86400000)) : null;
 
   return (
     <Layout>

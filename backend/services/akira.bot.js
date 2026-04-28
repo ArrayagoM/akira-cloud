@@ -105,7 +105,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   })();
   const DIRECCION_PROPIEDAD = config.DIRECCION_PROPIEDAD || '';
   const LINK_UBICACION = config.LINK_UBICACION || '';
-  const CATALOGO = (() => {
+  let CATALOGO = (() => {
     try {
       return JSON.parse(config.CATALOGO || '[]');
     } catch {
@@ -894,7 +894,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
             usuario.numeroReal || extraerNumero(jid),
           );
 
-          if (!evento) {
+          if (evento?.slotOcupado) {
+            log(`⚠️ [Turno] Slot ya ocupado: ${args.fecha} ${args.hora}`);
+            push('SLOT_OCUPADO: Ese horario acaba de ser reservado por otro cliente. Pedile que elija otro horario y llamá a consultar_disponibilidad para mostrarle los slots actualizados.');
+          } else if (!evento) {
             // El evento no se creó en Calendar — no confirmar al cliente
             log(`❌ [Turno] crearEvento falló para ${usuario.nombre} ${args.fecha} ${args.hora}`);
             push(
@@ -1432,6 +1435,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
             usuario.email,
             usuario.numeroReal || extraerNumero(jid),
           );
+          if (evento?.slotOcupado) {
+            log(`⚠️ [Servicio] Slot ya ocupado: ${args.fecha} ${args.hora}`);
+            push('SLOT_OCUPADO: Ese horario acaba de ser reservado. Pedile al cliente que elija otro horario y llamá a consultar_disponibilidad para mostrarle los slots actualizados.');
+            return;
+          }
           if (!evento) {
             push(
               'ERROR_CALENDAR: El servicio NO fue guardado. Avisale al cliente que hubo un problema técnico.',
@@ -1984,85 +1992,93 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     try {
       if (!sock) return;
 
-      // Si ya detectamos que no es cuenta Business, no reintentar nunca más en esta sesión
+      // Si ya detectamos que no es cuenta Business, no reintentar en esta sesión
+      // (se resetea cuando el usuario fuerza sync manual desde el dashboard)
       if (esNegocioWA === false) return;
 
-      // Si hay catálogo manual configurado y no es Business, no molestar
+      // Frenar si hay demasiados fallos consecutivos (se resetea en sync manual)
       if (catalogFallos >= 3) return;
 
-      // Verificar que getCatalog exista (solo en cuentas Business)
+      // Verificar que getCatalog exista (solo en cuentas WA Business)
       if (typeof sock.getCatalog !== 'function') {
         if (esNegocioWA === null) {
           esNegocioWA = false;
-          log(
-            '[Catálogo] ℹ️ Esta cuenta no es WhatsApp Business — sync de catálogo WA desactivado. Podés cargar productos manualmente desde el dashboard.',
-          );
+          log('[Catálogo] ℹ️ Esta cuenta no es WhatsApp Business — sync WA desactivado. Podés cargar productos manualmente desde el dashboard.');
+          emitter.emit('catalog:not_business');
         }
         return;
       }
 
-      log(`[Catálogo] 🔄 Obteniendo catálogo WA Business...`);
+      log('[Catálogo] 🔄 Obteniendo catálogo WA Business...');
 
-      // Timeout de 12s — getCatalog puede colgar sin respuesta en cuentas no-Business
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('CATALOG_TIMEOUT')), 12_000),
-      );
-      const result = await Promise.race([sock.getCatalog({ limit: 100 }), timeoutPromise]);
+      // Recolectar todas las páginas (WA devuelve máx. 100 por página)
+      let todosLosProductos = [];
+      let cursor;
+      let pagina = 0;
+      const MAX_PAGINAS = 10;
 
-      const products = result?.products;
+      do {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('CATALOG_TIMEOUT')), 15_000),
+        );
+        const result = await Promise.race([
+          sock.getCatalog({ limit: 100, ...(cursor ? { cursor } : {}) }),
+          timeoutPromise,
+        ]);
+        const products = result?.products;
+        if (Array.isArray(products) && products.length > 0) {
+          todosLosProductos = todosLosProductos.concat(products);
+        }
+        cursor = result?.nextPageCursor;
+        pagina++;
+      } while (cursor && pagina < MAX_PAGINAS);
 
-      if (!products?.length) {
-        // Respuesta válida pero sin productos — es Business pero catálogo vacío
+      if (!todosLosProductos.length) {
         esNegocioWA = true;
         catalogFallos = 0;
-        log(
-          '[Catálogo] ℹ️ Catálogo WA Business vacío — publicá productos desde la app de WA Business.',
-        );
+        log('[Catálogo] ℹ️ Catálogo WA Business vacío — publicá productos desde la app de WA Business.');
         emitter.emit('catalog:update', []);
         return;
       }
 
-      const catalogo = products.map((p) => ({
-        waProductId: String(p.id || ''),
-        nombre: p.name || 'Sin nombre',
-        descripcion: p.description || '',
-        precio: parseFloat(p.price) || 0,
-        moneda: p.currency || 'ARS',
-        categoria: p.category || '',
-        stock: -1,
-        imagen: Object.values(p.imageUrls || {})[0] || '',
-        disponible: p.isHidden !== true,
-        fuente: 'wa_catalog',
-      }));
+      // Mapper con estructura real de Baileys v6:
+      // precio en centavos → dividir por 100; imageUrls.original primero
+      const catalogo = todosLosProductos.map((p) => ({
+        waProductId:  String(p.id || p.retailerId || ''),
+        nombre:       (p.name || 'Sin nombre').trim(),
+        descripcion:  (p.description || '').trim(),
+        precio:       p.price ? Math.round(p.price) / 100 : 0,
+        moneda:       p.currency || 'ARS',
+        categoria:    p.retailerId || '',
+        stock:        -1,
+        imagen:       p.imageUrls?.original || p.imageUrls?.requested || '',
+        disponible:   p.isHidden !== true,
+        fuente:       'wa_catalog',
+      })).filter((p) => p.nombre && p.nombre !== 'Sin nombre');
 
       esNegocioWA = true;
       catalogFallos = 0;
-      log(`[Catálogo] ✅ ${catalogo.length} producto(s) sincronizados desde WA Business`);
+      log(`[Catálogo] ✅ ${catalogo.length} producto(s) sincronizados desde WA Business (${pagina} página(s))`);
       emitter.emit('catalog:update', catalogo);
     } catch (e) {
       if (
         e.message === 'CATALOG_TIMEOUT' ||
         e.message?.toLowerCase().includes('timeout') ||
-        e.message?.toLowerCase().includes('timed')
+        e.message?.toLowerCase().includes('timed out')
       ) {
-        // Timeout = no es Business o la cuenta no tiene catálogo habilitado
-        // No reintentar, no mostrar error, solo info la primera vez
         if (esNegocioWA === null) {
           esNegocioWA = false;
-          log(
-            '[Catálogo] ℹ️ Cuenta WA personal (no Business) — sync de catálogo desactivado. El bot funciona normalmente.',
-          );
+          log('[Catálogo] ℹ️ Timeout al obtener catálogo — si usás WA Business, hacé click en "Sincronizar catálogo" para reintentar.');
+          emitter.emit('catalog:not_business');
         }
         return;
       }
-      // Otro error — contar fallo pero sin alarmar
       catalogFallos++;
       if (catalogFallos < 3) {
-        log(
-          `[Catálogo] ⚠️ Error obteniendo catálogo WA (intento ${catalogFallos}/3): ${e.message}`,
-        );
+        log(`[Catálogo] ⚠️ Error obteniendo catálogo WA (intento ${catalogFallos}/3): ${e.message}`);
       } else {
-        log('[Catálogo] ⏸ Sync de catálogo WA pausado. El bot sigue funcionando normalmente.');
+        log('[Catálogo] ⏸ Sync de catálogo WA pausado tras 3 errores. Hacé click en "Sincronizar" para reintentar.');
+        emitter.emit('catalog:not_business');
       }
     }
   }
@@ -2332,7 +2348,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         return;
       }
       u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
-      u.historial = recortarHistorial(u.historial, 20);
+      u.historial = recortarHistorial(u.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
 
       const respuesta = await procesarConIA(jid, u);
       u.historial.push({ role: 'assistant', content: respuesta });
@@ -2896,11 +2912,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           }
         })();
         CHATS_IGNORADOS = cfg.chatsIgnorados || [];
+        // Actualizar catálogo en RAM + groq service
+        CATALOGO = Array.isArray(cfg.catalogo) ? cfg.catalogo : [];
+        groqSvc.setCatalogo(CATALOGO);
         // Recrear el calendar service con los nuevos horarios/días bloqueados
         calendar = _crearCalendar();
         log('⚙️ Configuración recargada en caliente — sin reiniciar el bot');
       } catch (e) {
         log('⚠️ config:reload error: ' + e.message);
+      }
+    });
+
+    // Actualizar CATALOGO en RAM cuando llega sync desde WA Business
+    emitter.on('catalog:update', (nuevoCatalogo) => {
+      if (Array.isArray(nuevoCatalogo)) {
+        CATALOGO = nuevoCatalogo;
+        groqSvc.setCatalogo(CATALOGO);
+        log(`[Catálogo] 🔄 CATALOGO en RAM actualizado: ${CATALOGO.length} producto(s)`);
       }
     });
 
@@ -2943,8 +2971,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
   }
 
-  emitter.iniciar = iniciar;
-  emitter.detener = detener;
+  emitter.iniciar       = iniciar;
+  emitter.detener       = detener;
+  emitter.enviarMensaje = enviarMensaje;
   return emitter;
 }
 

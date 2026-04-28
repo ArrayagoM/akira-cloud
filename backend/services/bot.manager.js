@@ -351,6 +351,11 @@ async function startBot(userId, slot = 0) {
       }
     });
 
+    // ── Catálogo: cuenta no es WA Business o sync falló ────────
+    bot.on('catalog:not_business', () => {
+      emitirAlUsuario(uid, 'catalog:not_business', {});
+    });
+
     // ── Catálogo: producto detectado desde un estado (status) ──
     bot.on('catalog:candidate', async (producto) => {
       try {

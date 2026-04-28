@@ -68,7 +68,8 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
       e.isRateLimit = true;
       throw e;
     }
-    const opts = { model: modelo, messages: msgs, max_tokens: 512 };
+    // max_tokens 380: suficiente para WA, menos tokens = respuesta más rápida
+    const opts = { model: modelo, messages: msgs, max_tokens: 380 };
     if (conTools) { opts.tools = herramientas(); opts.tool_choice = 'auto'; }
 
     // Timeout de 25s — si Groq no responde, lanzamos error en vez de colgar
@@ -134,7 +135,14 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
     }
   }
 
-  return { llamarGroq, herramientas };
+  // Actualiza el catálogo en caliente (sin reiniciar el bot)
+  function setCatalogo(nuevoCatalogo) {
+    if (Array.isArray(nuevoCatalogo)) {
+      catalogo = nuevoCatalogo;
+    }
+  }
+
+  return { llamarGroq, herramientas, setCatalogo };
 }
 
 module.exports = crearGroqService;

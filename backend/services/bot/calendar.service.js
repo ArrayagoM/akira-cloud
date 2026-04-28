@@ -11,9 +11,18 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
   // Siempre conectado — no depende de OAuth
   function isConnected() { return true; }
 
-  // Crea un objeto Date a partir de componentes (UTC-3 Argentina)
+  // Offset de timezone en horas (Argentina UTC-3, sin DST)
+  const TZ_OFFSET_H = 3;
+
+  // Crea un objeto Date a partir de componentes en hora local del negocio (Argentina UTC-3)
   function crearFecha(y, m, d, h = 0, min = 0) {
-    return new Date(Date.UTC(y, m - 1, d, h + 3, min, 0, 0));
+    return new Date(Date.UTC(y, m - 1, d, h + TZ_OFFSET_H, min, 0, 0));
+  }
+
+  // Retorna el día de la semana (0-6) para fecha YYYY-MM-DD en hora local Argentina
+  // NUNCA usa new Date(y, m, d) que depende de la TZ del servidor (UTC en Railway/Render)
+  function getDiaLocal(y, m, d) {
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getDay();
   }
 
   // Obtiene turnos en un rango de fechas para un calendarId
@@ -50,8 +59,8 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
     }
 
     const [y, m, d] = fecha.split('-').map(Number);
-    const fechaObj  = new Date(y, m - 1, d);
-    const diaNombre = DIA_NOMBRE[fechaObj.getDay()];
+    // getDiaLocal usa UTC puro — no depende de la TZ del servidor
+    const diaNombre = DIA_NOMBRE[getDiaLocal(y, m, d)];
 
     // Helpers de conversión minutos ↔ "H:MM"
     const toMins = (hhmm) => {
@@ -117,14 +126,29 @@ function crearCalendarService({ userId, calendarId, horaInicio, horaFin, duracio
     return libres;
   }
 
-  // Crea un turno en MongoDB
+  // Crea un turno en MongoDB con verificación de conflictos
   async function crearEvento(calId, resumen, desc, ini, fin, email, tel) {
+    const calIdReal = calId || calendarId || 'principal';
     try {
+      // Verificación atómica de conflictos (reduce ventana de doble-reserva)
+      const conflicto = await Turno.findOne({
+        userId,
+        calendarId: calIdReal,
+        estado:     { $ne: 'cancelado' },
+        fechaInicio: { $lt: fin },
+        fechaFin:    { $gt: ini },
+      }).lean();
+
+      if (conflicto) {
+        log(`⚠️ Conflicto: slot ya ocupado por "${conflicto.resumen}"`);
+        return { slotOcupado: true };
+      }
+
       const clienteNombre = resumen.replace(/turno[:\s-]*/i, '').trim();
 
       const turno = await Turno.create({
         userId,
-        calendarId:      calId || calendarId || 'principal',
+        calendarId:      calIdReal,
         resumen,
         descripcion:     desc  || '',
         fechaInicio:     ini,
