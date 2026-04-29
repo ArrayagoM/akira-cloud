@@ -72,8 +72,9 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
     const opts = { model: modelo, messages: msgs, max_tokens: 380 };
     if (conTools) { opts.tools = herramientas(); opts.tool_choice = 'auto'; }
 
-    // Timeout de 25s — si Groq no responde, lanzamos error en vez de colgar
-    const TIMEOUT_MS = 25_000;
+    // Timeout de 15s — si Groq no responde en 15s, no va a responder bien.
+    // Es preferible fallar rápido y avisar al cliente, que dejarlo esperando.
+    const TIMEOUT_MS = 15_000;
     const timeout = new Promise((_, reject) =>
       setTimeout(() => {
         const e = new Error('GROQ_TIMEOUT');
