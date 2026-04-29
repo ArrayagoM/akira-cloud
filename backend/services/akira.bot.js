@@ -2142,9 +2142,28 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // ── Handler principal de mensajes ────────────────────────────
   async function handleBaileysMessage(msg) {
     if (!msg.message) return;
-    const jid = msg.key.remoteJid;
-    if (!jid) return;
-    if (isJidGroup(jid)) return;
+    const rawJid = msg.key.remoteJid;
+    if (!rawJid) return;
+    if (isJidGroup(rawJid)) return;
+
+    // ── FIX LID (Linked Identity) ───────────────────────────────
+    // WhatsApp empezó a entregar mensajes con `xxx@lid` en lugar de
+    // `xxx@s.whatsapp.net`. NO se puede responder a un @lid directamente.
+    // Baileys 6.7+ expone msg.key.senderPn con el JID real (s.whatsapp.net).
+    // Si no, intentamos extraer el número y armar un JID estándar como fallback.
+    let jid = rawJid;
+    if (rawJid.endsWith('@lid')) {
+      const senderPn = msg.key.senderPn || msg.key.participantPn;
+      if (senderPn && senderPn.endsWith('@s.whatsapp.net')) {
+        jid = senderPn;
+        log(`🔗 [LID] ${rawJid} → ${jid}`);
+      } else {
+        // Sin senderPn, no podemos responder con confianza. Logueamos
+        // y descartamos para no quedar en silencio sobre algo invisible.
+        log(`⚠️ [LID] Mensaje de ${rawJid} sin senderPn — no se puede responder. Es probable que tengas Baileys desactualizado o WhatsApp aún no envió el contacto.`);
+        return;
+      }
+    }
 
     // Chats ignorados — el dueño los bloqueó desde el dashboard
     if (CHATS_IGNORADOS.length > 0) {
