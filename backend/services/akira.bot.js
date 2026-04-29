@@ -334,14 +334,31 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Envío de mensajes ────────────────────────────────────────
   async function enviarMensaje(jid, texto) {
-    if (!sock) return false;
+    if (!sock) {
+      log(`⚠️ [${jid}] enviarMensaje sin socket disponible — mensaje perdido: "${String(texto).slice(0, 40)}..."`);
+      return false;
+    }
     try {
       await sock.sendMessage(jid, { text: String(texto) });
       log(`✅ Enviado a ${jid}: "${String(texto).slice(0, 50)}..."`);
       return true;
     } catch (e) {
-      log(`⚠️ Error enviando a ${jid}: ${e.message}`);
-      return false;
+      log(`⚠️ Error enviando a ${jid} (1er intento): ${e.message}`);
+      // Reintento automático tras 1.2s — la mayoría de errores transitorios
+      // (reconexión, timeout breve) se resuelven solos.
+      await new Promise((r) => setTimeout(r, 1200));
+      if (!sock) {
+        log(`❌ [${jid}] reintento abortado — sock se invalidó`);
+        return false;
+      }
+      try {
+        await sock.sendMessage(jid, { text: String(texto) });
+        log(`✅ Enviado a ${jid} (reintento OK): "${String(texto).slice(0, 50)}..."`);
+        return true;
+      } catch (e2) {
+        log(`❌ Error enviando a ${jid} (reintento falló): ${e2.message}`);
+        return false;
+      }
     }
   }
 
@@ -2350,12 +2367,27 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
       u.historial = recortarHistorial(u.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
 
-      const respuesta = await procesarConIA(jid, u);
+      // ── Anti-mudo: si pasan 4s sin respuesta del LLM, mandar un "dejame chequear..."
+      // El cliente NUNCA debe esperar más de 4s sin ver actividad clara del bot.
+      let respuestaInterimEnviada = false;
+      const interimTimer = setTimeout(() => {
+        respuestaInterimEnviada = true;
+        // Re-disparar "composing" por las dudas y mandar un texto breve
+        sock.sendPresenceUpdate('composing', jid).catch(() => {});
+        enviarMensaje(jid, 'Dame un segundo que chequeo… 🙌').catch(() => {});
+      }, 4000);
+
+      let respuesta;
+      try {
+        respuesta = await procesarConIA(jid, u);
+      } finally {
+        clearTimeout(interimTimer);
+      }
       u.historial.push({ role: 'assistant', content: respuesta });
       clientesSvc.guardarMemoria(jid, u);
 
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-      log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..."`);
+      log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..." (interim=${respuestaInterimEnviada})`);
 
       const debeAudio = fueAudio && audioSvc && audioSvc.debeResponderEnAudio(respuesta);
       if (debeAudio) {
@@ -2365,14 +2397,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         await enviarMensaje(jid, respuesta);
       }
     } catch (err) {
-      log('❌ handleMessage error: ' + err.message);
+      log('❌ handleMessage error: ' + err.message + ' — stack: ' + (err.stack || '').split('\n')[1]);
       let msgError = '¡Ups! Tuve un problema. ¿Me repetís la consulta? 🙏';
       if (err.isRateLimit)
         msgError = 'Estoy con mucha demanda en este momento. ¡Te respondo en unos segundos! 🙏';
       if (err.isTimeout) msgError = 'Tardé demasiado en pensar 😅 ¿Me repetís la pregunta?';
       if (err.isAuthError)
         msgError = 'Tengo un problema de configuración. El dueño del negocio ya fue notificado. 🙏';
-      await enviarMensaje(jid, msgError).catch(() => {});
+      // Reintentar el envío del mensaje de error 1 vez si falla — no dejar al cliente sin respuesta
+      const okEnvio = await enviarMensaje(jid, msgError).catch(() => false);
+      if (okEnvio === false) {
+        log(`⚠️ [${jid}] Mensaje de error no se pudo enviar — reintentando en 2s`);
+        setTimeout(() => {
+          enviarMensaje(jid, msgError).catch((e) => {
+            log(`❌ [${jid}] Reintento de mensaje de error también falló: ${e.message}`);
+          });
+        }, 2000);
+      }
       if (err.isAuthError)
         notificarDueno(
           `⚠️ *Error de configuración*: La API Key de Groq es inválida. Actualizala en el dashboard de Akira.`,
