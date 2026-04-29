@@ -257,6 +257,58 @@ function Eyebrow({ children, color = 'var(--accent)' }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// URGENCY BAR — countdown + cupos pre-lanzamiento (sticky top)
+// ─────────────────────────────────────────────────────────────
+function UrgencyBar() {
+  const cd = useCountdown(LAUNCH_DATE);
+  const [segs, setSegs] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => {
+      setSegs(Math.floor((Math.max(0, LAUNCH_DATE.getTime() - Date.now()) % 60000) / 1000));
+    }, 1000);
+    return () => clearInterval(i);
+  }, []);
+  if (cd.llegado) return null;
+
+  const fmt = (n) => String(n).padStart(2, '0');
+  const cuposLibres = CUPOS_TOTALES_LANDING - CUPOS_TOMADOS_LANDING;
+
+  return (
+    <div className="relative z-[200]"
+      style={{
+        background: 'linear-gradient(90deg, #020f08 0%, #041a0d 50%, #020f08 100%)',
+        borderBottom: '1px solid rgba(0,232,123,0.22)',
+        color: 'var(--text)',
+      }}>
+      <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-center flex-wrap gap-x-3 gap-y-1 text-[12px] md:text-[13px] font-semibold leading-tight">
+        <span style={{ color: '#f59e0b', fontWeight: 700 }}>🚀 Preventa Exclusiva</span>
+        <span style={{ color: 'var(--muted)' }}>·</span>
+        <span style={{ color: 'var(--text2)' }}>
+          Faltan{' '}
+          <span style={{
+            fontVariantNumeric: 'tabular-nums',
+            color: '#00e87b',
+            fontWeight: 800,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}>
+            {cd.d}d {fmt(cd.h)}h {fmt(cd.m)}m {fmt(segs)}s
+          </span>
+          {' '}para el lanzamiento
+        </span>
+        <span className="hidden sm:inline" style={{ color: 'var(--muted)' }}>·</span>
+        <span className="hidden sm:inline" style={{ color: '#f59e0b' }}>
+          Solo quedan <strong>{cuposLibres} cupos</strong> con 20% OFF
+        </span>
+        <span style={{ color: 'var(--muted)' }}>·</span>
+        <Link to="/register" style={{ color: '#00e87b', fontWeight: 800, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+          Reservar mi lugar →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // NAV
 // ─────────────────────────────────────────────────────────────
 function Nav() {
@@ -267,11 +319,11 @@ function Nav() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
   return (
-    <nav className="fixed top-0 inset-x-0 z-50 transition-all duration-300"
+    <nav className="sticky top-0 inset-x-0 z-50 transition-all duration-300"
       style={{
-        background: scrolled ? 'rgba(7,12,18,0.78)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(18px) saturate(140%)' : 'none',
-        WebkitBackdropFilter: scrolled ? 'blur(18px) saturate(140%)' : 'none',
+        background: scrolled ? 'rgba(7,12,18,0.85)' : 'rgba(7,12,18,0.55)',
+        backdropFilter: 'blur(18px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(140%)',
         borderBottom: scrolled ? '1px solid rgba(30,45,61,0.6)' : '1px solid transparent',
       }}>
       <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
@@ -660,44 +712,64 @@ function Features() {
 // ─────────────────────────────────────────────────────────────
 const PLANES = [
   {
-    nombre: 'Trial',
-    precio: '0',
-    sub: 'Para probar',
-    features: ['100 mensajes/mes', '1 cuenta de WhatsApp', 'IA conversacional', 'Horarios configurables'],
-    cta: 'Empezar gratis',
+    nombre: 'Básico',
+    mensual: 15000,
+    anual:   144000,
+    sub: 'Para negocios que empiezan',
+    features: [
+      '1 número de WhatsApp',
+      'Respuestas automáticas con IA',
+      '500 mensajes/mes',
+      'Horarios configurables',
+      'Modo pausa',
+    ],
+    cta: 'Empezar',
     highlight: false,
   },
   {
     nombre: 'Pro',
-    precio: '14.999',
-    sub: 'Para profesionales',
+    mensual: 35000,
+    anual:   336000,
+    sub: 'El más popular',
     features: [
+      '1 número de WhatsApp',
       'Mensajes ilimitados',
-      'Google Calendar + MercadoPago',
+      'Agenda inteligente + MercadoPago',
       'CRM de clientes + recordatorios',
       'Lista de espera automática',
-      'Audio (voz in/out)',
-      'Soporte prioritario',
+      'Entiende mensajes de voz',
+      'Notificaciones al dueño',
     ],
-    cta: 'Empezar 7 días gratis',
+    cta: 'Empezar',
     highlight: true,
     badge: 'Más elegido',
   },
   {
     nombre: 'Agencia',
-    precio: '34.999',
-    sub: 'Para multi-negocio',
-    features: ['Todo lo del Pro', '5 cuentas de WhatsApp', 'Multi-tenant', 'API de integración', 'Soporte 24/7'],
-    cta: 'Hablar con ventas',
+    mensual: 80000,
+    anual:   768000,
+    sub: 'Para agencias y revendedores',
+    features: [
+      'Hasta 5 WhatsApp',
+      'Todo el plan Pro',
+      'Panel multi-cliente',
+      'Soporte dedicado',
+      'Programa de referidos',
+    ],
+    cta: 'Empezar',
     highlight: false,
   },
 ];
 
+const CUPOS_TOMADOS_LANDING = 47;
+const CUPOS_TOTALES_LANDING = 100;
+
 function Pricing() {
+  const [anual, setAnual] = useState(false);
   return (
     <Section id="precios">
       <div className="max-w-6xl mx-auto">
-        <div className="text-center max-w-2xl mx-auto mb-14">
+        <div className="text-center max-w-2xl mx-auto mb-10">
           <Eyebrow>Precios</Eyebrow>
           <h2 className="mt-4 text-3xl md:text-4xl font-bold text-white tracking-tight">
             Simple. Sin sorpresas.
@@ -707,52 +779,84 @@ function Pricing() {
           </p>
         </div>
 
+        {/* Toggle mensual / anual */}
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <button onClick={() => setAnual(false)}
+            className="text-sm font-medium px-4 py-2 rounded-lg transition-all"
+            style={!anual
+              ? { background: 'rgba(0,232,123,0.12)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.25)' }
+              : { background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)' }}>
+            Mensual
+          </button>
+          <button onClick={() => setAnual(true)}
+            className="text-sm font-medium px-4 py-2 rounded-lg transition-all flex items-center gap-2"
+            style={anual
+              ? { background: 'rgba(0,232,123,0.12)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.25)' }
+              : { background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)' }}>
+            Anual
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+              style={{ background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b40' }}>
+              -20%
+            </span>
+          </button>
+        </div>
+
         <div className="grid md:grid-cols-3 gap-5">
-          {PLANES.map((p, i) => (
-            <div key={p.nombre}
-              className="relative rounded-2xl p-6 flex flex-col"
-              style={{
-                background: p.highlight
-                  ? 'linear-gradient(165deg, rgba(0,232,123,0.06) 0%, var(--surface) 60%)'
-                  : 'var(--surface)',
-                border: p.highlight ? '1px solid rgba(0,232,123,0.35)' : '1px solid var(--border)',
-                boxShadow: p.highlight
-                  ? '0 8px 40px -8px rgba(0,232,123,0.18), inset 0 1px 0 rgba(0,232,123,0.06)'
-                  : '0 2px 16px rgba(0,0,0,0.3)',
-                transform: p.highlight ? 'translateY(-6px)' : 'translateY(0)',
-                animation: `fadeUp 0.6s ease-out ${i * 80}ms both`,
-              }}>
-              {p.badge && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
-                  style={{ background: 'var(--accent)', color: '#020f08', boxShadow: '0 4px 16px rgba(0,232,123,0.4)' }}>
-                  {p.badge}
+          {PLANES.map((p, i) => {
+            const precio = anual ? Math.round(p.anual / 12) : p.mensual;
+            return (
+              <div key={p.nombre}
+                className="relative rounded-2xl p-6 flex flex-col"
+                style={{
+                  background: p.highlight
+                    ? 'linear-gradient(165deg, rgba(0,232,123,0.06) 0%, var(--surface) 60%)'
+                    : 'var(--surface)',
+                  border: p.highlight ? '1px solid rgba(0,232,123,0.35)' : '1px solid var(--border)',
+                  boxShadow: p.highlight
+                    ? '0 8px 40px -8px rgba(0,232,123,0.18), inset 0 1px 0 rgba(0,232,123,0.06)'
+                    : '0 2px 16px rgba(0,0,0,0.3)',
+                  transform: p.highlight ? 'translateY(-6px)' : 'translateY(0)',
+                  animation: `fadeUp 0.6s ease-out ${i * 80}ms both`,
+                }}>
+                {p.badge && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                    style={{ background: 'var(--accent)', color: '#020f08', boxShadow: '0 4px 16px rgba(0,232,123,0.4)' }}>
+                    {p.badge}
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: p.highlight ? 'var(--accent)' : 'var(--text2)' }}>
+                    {p.nombre}
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{p.sub}</p>
+                  <div className="mt-4 flex items-baseline gap-1">
+                    <span className="text-xs text-gray-500">$</span>
+                    <span className="text-4xl font-bold text-white">{precio.toLocaleString('es-AR')}</span>
+                    <span className="text-sm" style={{ color: 'var(--muted)' }}>
+                      /mes{anual && ' (anual)'}
+                    </span>
+                  </div>
+                  {anual && (
+                    <p className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
+                      Total: ${p.anual.toLocaleString('es-AR')}/año
+                    </p>
+                  )}
                 </div>
-              )}
-              <div>
-                <p className="text-sm font-semibold" style={{ color: p.highlight ? 'var(--accent)' : 'var(--text2)' }}>
-                  {p.nombre}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{p.sub}</p>
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-xs text-gray-500">$</span>
-                  <span className="text-4xl font-bold text-white">{p.precio}</span>
-                  <span className="text-sm" style={{ color: 'var(--muted)' }}>/mes</span>
-                </div>
+                <ul className="mt-6 space-y-2.5 flex-1">
+                  {p.features.map((f, j) => (
+                    <li key={j} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text)' }}>
+                      <Check size={15} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--accent)' }} />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Link to="/register" className={p.highlight ? 'btn-primary mt-6' : 'btn-secondary mt-6'}>
+                  {p.cta}
+                  <ArrowRight size={14} />
+                </Link>
               </div>
-              <ul className="mt-6 space-y-2.5 flex-1">
-                {p.features.map((f, j) => (
-                  <li key={j} className="flex items-start gap-2 text-sm" style={{ color: 'var(--text)' }}>
-                    <Check size={15} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--accent)' }} />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Link to="/register" className={p.highlight ? 'btn-primary mt-6' : 'btn-secondary mt-6'}>
-                {p.cta}
-                <ArrowRight size={14} />
-              </Link>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </Section>
@@ -977,6 +1081,7 @@ function Footer() {
 export default function Landing() {
   return (
     <div style={{ background: 'var(--bg)', color: 'var(--text)', minHeight: '100vh', overflow: 'hidden' }}>
+      <UrgencyBar />
       <Nav />
       <main>
         <Hero />

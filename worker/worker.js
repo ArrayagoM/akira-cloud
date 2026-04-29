@@ -164,7 +164,8 @@ async function esperarMongo(timeoutMs = 20000) {
   while (Date.now() < deadline) {
     try {
       if (mongoose.connection.readyState === 1) {
-        await User.estimatedDocumentCount().maxTimeMS(4000).exec();
+        // Timeout más generoso (10s en vez de 4s) para Atlas con latencia alta
+        await User.estimatedDocumentCount().maxTimeMS(10000).exec();
         return; // éxito: Mongoose responde
       } else {
         ultimoError = new Error(`readyState=${mongoose.connection.readyState}`);
@@ -192,22 +193,47 @@ async function esperarMongo(timeoutMs = 20000) {
 }
 
 // ── Keep-alive MongoDB ────────────────────────────────────────
-// Verifica la conexión cada 5 min. Solo fuerza reconexión después de 3 fallos
-// consecutivos para evitar loops innecesarios (especialmente con Mongo local).
+// Estrategia: usar admin.ping() (driver-level, ~1ms en vez de ~segundos)
+// para no falsear timeouts en Atlas free tier desde Argentina.
+// Solo forzamos reconexión después de 5 fallos consecutivos (~25 min) y
+// solo si la query real (estimatedDocumentCount) confirma el problema.
 const MONGO_KEEPALIVE_MS = 5 * 60 * 1000;
 let mongoKeepAliveFailCount = 0;
 setInterval(async () => {
   try {
-    if (mongoose.connection.readyState !== 1) return;
-    await User.estimatedDocumentCount().maxTimeMS(4000).exec();
-    mongoKeepAliveFailCount = 0; // Reset en éxito
+    if (mongoose.connection.readyState !== 1) {
+      // Si no está conectado, mongoose ya está intentando reconectar solo —
+      // no interferimos con su lógica.
+      return;
+    }
+    // 1) Ping ligero al admin (driver-level, microsegundos)
+    await mongoose.connection.db.admin().ping();
+    mongoKeepAliveFailCount = 0; // éxito → reset
   } catch (e) {
     mongoKeepAliveFailCount++;
-    const msg = String(e?.message || '').toLowerCase();
-    if ((msg.includes('buffering') || msg.includes('timed out')) && mongoKeepAliveFailCount >= 3) {
-      console.warn(`[Worker] ⚠️ Keep-alive: ${mongoKeepAliveFailCount} fallos consecutivos — forzando reconexión`);
-      mongoKeepAliveFailCount = 0;
-      forzarReconexionMongo().catch(() => {});
+    // Tras varios fallos consecutivos, confirmar con una query real antes de reconectar
+    if (mongoKeepAliveFailCount >= 5) {
+      console.warn(
+        `[Worker] ⚠️ Keep-alive: ${mongoKeepAliveFailCount} pings fallidos consecutivos — verificando con query real`,
+      );
+      try {
+        await User.estimatedDocumentCount().maxTimeMS(10000).exec();
+        // Query real funcionó → falsa alarma del ping
+        console.log('[Worker] ✅ Query real OK — falsa alarma, no reconecto');
+        mongoKeepAliveFailCount = 0;
+      } catch (qErr) {
+        const msg = String(qErr?.message || '').toLowerCase();
+        if (msg.includes('buffering') || msg.includes('timed out') || msg.includes('disconnect')) {
+          console.warn(
+            `[Worker] ⚠️ Query real también falla (${qErr.message}) — forzando reconexión`,
+          );
+          mongoKeepAliveFailCount = 0;
+          forzarReconexionMongo().catch(() => {});
+        } else {
+          // Otro tipo de error — log pero no reconectar
+          console.warn(`[Worker] ⚠️ Error inesperado en query real: ${qErr.message}`);
+        }
+      }
     }
   }
 }, MONGO_KEEPALIVE_MS);

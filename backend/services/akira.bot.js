@@ -2798,28 +2798,35 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   }
 
   // ── Watchdog: detecta conexión zombie y reconecta ────────────
+  // Política: SOLO reconectar si el ping al WebSocket falla.
+  // No reconectar por "silencio" — un negocio con poca actividad nocturna
+  // puede estar perfectamente conectado durante horas sin recibir mensajes.
+  // Las reconexiones innecesarias hacen perder mensajes que llegan durante
+  // la ventana de reconexión (3-15s).
   let watchdogPingFallos = 0; // contador de pings fallidos consecutivos
   function iniciarWatchdog() {
     if (watchdogTimer) clearInterval(watchdogTimer);
     watchdogPingFallos = 0;
-    // Cada 5 minutos verifica si el socket sigue vivo
+    // Cada 2 minutos verifica si el socket sigue vivo
     watchdogTimer = setInterval(
       () => {
         // Top-level try/catch — si el watchdog falla no debe matar el intervalo
         try {
           if (!sock || botDetenidoIntencional) return;
-          const ZOMBIE_MS = 15 * 60 * 1000; // 15 min sin mensajes — negocios tranquilos tienen períodos largos sin chats
-          const silencio = Date.now() - ultimoMensajeTs;
+          // Solo verificamos: ¿el WebSocket responde al ping?
           if (sock.ws && typeof sock.ws.ping === 'function') {
             try {
               sock.ws.ping();
+              if (watchdogPingFallos > 0) {
+                log(`✅ [Watchdog] Ping recuperado tras ${watchdogPingFallos} fallo(s)`);
+              }
               watchdogPingFallos = 0; // ping exitoso — reset contador
             } catch (pingErr) {
               watchdogPingFallos++;
               log(`⚠️ [Watchdog] Ping falló x${watchdogPingFallos} (${pingErr.message})`);
-              // 2 pings fallidos consecutivos → reconectar
-              if (watchdogPingFallos >= 2) {
-                log('⚠️ [Watchdog] 2 pings fallidos — forzando reconexión');
+              // 3 pings fallidos consecutivos (6 min) → reconectar
+              if (watchdogPingFallos >= 3) {
+                log('⚠️ [Watchdog] 3 pings fallidos consecutivos — forzando reconexión');
                 watchdogPingFallos = 0;
                 detenerWatchdog();
                 if (!reconectando) {
@@ -2828,18 +2835,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
                   } catch {}
                 }
               }
-              return;
             }
+            return;
           }
-          if (silencio > ZOMBIE_MS) {
+          // Si el socket no expone .ws.ping (raro), red de seguridad:
+          // solo reconectar si pasaron MÁS DE 8 HORAS sin actividad — protección
+          // anti-zombie absoluta sin afectar a negocios con baja actividad normal.
+          const silencio = Date.now() - ultimoMensajeTs;
+          const ZOMBIE_HARD_MS = 8 * 60 * 60 * 1000; // 8 horas
+          if (silencio > ZOMBIE_HARD_MS) {
             log(
-              `⚠️ [Watchdog] Sin actividad por ${Math.round(silencio / 60000)}min — reconectando`,
+              `⚠️ [Watchdog] Sin ping disponible y sin actividad por ${Math.round(silencio / 60000)}min — reconectando preventivamente`,
             );
             ultimoMensajeTs = Date.now();
             detenerWatchdog();
             if (!reconectando) {
               try {
-                sock.end(new Error('watchdog_zombie'));
+                sock.end(new Error('watchdog_no_ping_available'));
               } catch {}
             }
           }
@@ -2847,7 +2859,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
           log(`❌ [Watchdog] Error interno: ${e.message}`);
         }
       },
-      5 * 60 * 1000,
+      2 * 60 * 1000,
     );
   }
 
