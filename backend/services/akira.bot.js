@@ -5,6 +5,7 @@
 const { EventEmitter } = require('events');
 const {
   default: makeWASocket,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
@@ -183,6 +184,13 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const timeoutsWaitlist = {};
   const slotsEnProceso = new Set();
   const lidCache = new Map(); // LID → JID real (cache para mensajes sin senderPn)
+  // Cache para reintentos de mensajes con crypto error (Signal Protocol)
+  const msgRetryCounterCache = new Map();
+  msgRetryCounterCache.get = (k) => Map.prototype.get.call(msgRetryCounterCache, k);
+  msgRetryCounterCache.set = (k, v) => Map.prototype.set.call(msgRetryCounterCache, k, v);
+  msgRetryCounterCache.del = (k) => Map.prototype.delete.call(msgRetryCounterCache, k);
+  // Store de mensajes recientes para reintentos
+  const msgStore = new Map(); // msgId → message
   const timeoutsRecs = {};
   let sock = null;
   let expressServer = null;
@@ -2143,6 +2151,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // ── Handler principal de mensajes ────────────────────────────
   async function handleBaileysMessage(msg) {
     if (!msg.message) return;
+    // Guardar en store para posibles reintentos de descifrado
+    if (msg.key?.id) msgStore.set(msg.key.id, msg.message);
     const rawJid = msg.key.remoteJid;
     if (!rawJid) return;
     if (isJidGroup(rawJid)) return;
@@ -2578,6 +2588,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         fs.mkdirSync(sessionDir, { recursive: true });
       }
       const fsAuth = await useMultiFileAuthState(sessionDir);
+      // makeCacheableSignalKeyStore: cachea las claves Signal en RAM
+      // Previene MessageCounterError y Bad MAC por accesos concurrentes al store
+      fsAuth.state.keys = makeCacheableSignalKeyStore(fsAuth.state.keys, baileysLogger);
       state = fsAuth.state;
       saveCreds = fsAuth.saveCreds;
       // clearAuth: borra el contenido del sessionDir (equivalente al clearAuth de Mongo)
@@ -2668,6 +2681,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 30000,
+      // Habilita reintento automático cuando WhatsApp falla al descifrar
+      msgRetryCounterCache,
+      maxMsgRetryCount: 5,
+      // Permite que Baileys reenvíe mensajes al remitente para renegociar claves
+      getMessage: async (key) => {
+        const stored = msgStore.get(key.id);
+        return stored || { conversation: undefined };
+      },
     });
 
     sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
