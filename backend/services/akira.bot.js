@@ -2588,9 +2588,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         fs.mkdirSync(sessionDir, { recursive: true });
       }
       const fsAuth = await useMultiFileAuthState(sessionDir);
-      // makeCacheableSignalKeyStore: cachea las claves Signal en RAM
-      // Previene MessageCounterError y Bad MAC por accesos concurrentes al store
-      fsAuth.state.keys = makeCacheableSignalKeyStore(fsAuth.state.keys, baileysLogger);
       state = fsAuth.state;
       saveCreds = fsAuth.saveCreds;
       // clearAuth: borra el contenido del sessionDir (equivalente al clearAuth de Mongo)
@@ -2671,6 +2668,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         return this;
       },
     };
+
+    // Aplicar cache de claves Signal AHORA que baileysLogger ya está declarado
+    // Previene MessageCounterError y Bad MAC por accesos concurrentes al store
+    state.keys = makeCacheableSignalKeyStore(state.keys, baileysLogger);
 
     sock = makeWASocket({
       version,
