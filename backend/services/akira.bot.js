@@ -182,6 +182,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   const timeoutsResenas = {};
   const timeoutsWaitlist = {};
   const slotsEnProceso = new Set();
+  const lidCache = new Map(); // LID → JID real (cache para mensajes sin senderPn)
   const timeoutsRecs = {};
   let sock = null;
   let expressServer = null;
@@ -2156,10 +2157,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       const senderPn = msg.key.senderPn || msg.key.participantPn;
       if (senderPn && senderPn.endsWith('@s.whatsapp.net')) {
         jid = senderPn;
+        lidCache.set(rawJid, jid); // guardar para próximos mensajes sin senderPn
         log(`🔗 [LID] ${rawJid} → ${jid}`);
+      } else if (lidCache.has(rawJid)) {
+        jid = lidCache.get(rawJid);
+        log(`🔗 [LID cache] ${rawJid} → ${jid}`);
       } else {
-        // Sin senderPn, no podemos responder con confianza. Logueamos
-        // y descartamos para no quedar en silencio sobre algo invisible.
         log(`⚠️ [LID] Mensaje de ${rawJid} sin senderPn — no se puede responder. Es probable que tengas Baileys desactualizado o WhatsApp aún no envió el contacto.`);
         return;
       }
