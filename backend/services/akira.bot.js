@@ -3078,7 +3078,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     try {
       const cfgInicial = await Promise.race([
         Config.findOne({ userId: USER_ID }).lean(),
-        new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 4000)),
+        new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 8000)),
       ]);
       if (cfgInicial) {
         if (typeof cfgInicial.modoPausa === 'boolean') {
@@ -3089,10 +3089,31 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         if (cfgInicial.horariosAtencion)      HORARIOS_ATENCION = cfgInicial.horariosAtencion;
         if (cfgInicial.diasBloqueados)        DIAS_BLOQUEADOS = cfgInicial.diasBloqueados;
         log(`[Config] ✅ Config cargada desde MongoDB — MODO_PAUSA=${MODO_PAUSA}`);
+      } else {
+        // No existe Config — el bot está recién creado. Por seguridad, NO pausa.
+        MODO_PAUSA = false;
+        log(`[Config] ℹ️ Sin Config en MongoDB — asumiendo bot ACTIVO (no pausa)`);
       }
     } catch (e) {
-      log(`[Config] ⚠️ No se pudo cargar Config desde MongoDB al arrancar (${e.message}) — usando credentials cache`);
+      // ⚠️ FIX CRITICO: si MongoDB no respondio al arrancar, NO confiar en el
+      // credentials cache para MODO_PAUSA. Siempre asumir ACTIVO (no pausado).
+      // Es mas seguro que el bot atienda y el dueno lo pause manualmente, que
+      // que quede mudo creyendo erroneamente que esta en pausa.
+      MODO_PAUSA = false;
+      log(`[Config] ⚠️ MongoDB no respondio al arrancar (${e.message}) — bot asume ACTIVO por seguridad. Si querias pausa, activala desde el dashboard.`);
     }
+    // Reintento en background: si MongoDB se conecta despues, refrescar Config
+    setTimeout(async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID }).lean();
+        if (cfg) {
+          if (typeof cfg.modoPausa === 'boolean' && cfg.modoPausa !== MODO_PAUSA) {
+            MODO_PAUSA = cfg.modoPausa;
+            log(`[Config] 🔄 Reintento OK — MODO_PAUSA actualizado a ${MODO_PAUSA}`);
+          }
+        }
+      } catch {}
+    }, 30_000);
 
     // Patch de configuración directo — sin leer MongoDB (funciona con DB caída)
     // Usado por worker:set-pausa y otros eventos directos desde el backend

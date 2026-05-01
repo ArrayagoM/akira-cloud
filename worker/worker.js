@@ -84,27 +84,48 @@ let isRestoring = false; // Candado para evitar bucles de reconexión
 
 // ── MongoDB ───────────────────────────────────────────────────
 // Opciones compartidas entre el connect inicial y las reconexiones forzadas.
+// Timeouts AMPLIADOS para Atlas free tier desde Argentina:
+// - serverSelectionTimeoutMS 30s (era 5s): Atlas free tier puede tardar
+//   30+ segundos en cold start tras inactividad
+// - connectTimeoutMS 30s (era 10s): mismo motivo
+// - socketTimeoutMS 60s: queries grandes con latencia alta
 const MONGO_OPTS = {
   maxPoolSize: 20,
   minPoolSize: 2,
   bufferCommands: false,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS: 60000,
+  connectTimeoutMS: 30000,
   heartbeatFrequencyMS: 10000,
   family: 4,
+  retryWrites: true,
+  retryReads: true,
 };
 
-mongoose
-  .connect(MONGO_URI, MONGO_OPTS)
-  .then(() => {
-    console.log('[Worker] ✅ MongoDB conectado');
-  })
-  .catch((e) => {
-    console.error('[Worker] ⚠️ MongoDB no conectó al arranque:', e.message);
-    console.warn('[Worker] El worker continuará igual — usará cache local para los bots.');
-    // NO exit: queremos que el worker arranque los bots aunque Mongo esté caído
-  });
+// Reintento agresivo: si la primera conexión falla, intentamos cada 10s
+// hasta 6 veces (1 minuto total). Es comun que Atlas tarde mas en el primer arranque.
+async function conectarMongoConReintentos() {
+  for (let intento = 1; intento <= 6; intento++) {
+    try {
+      await mongoose.connect(MONGO_URI, MONGO_OPTS);
+      console.log(`[Worker] ✅ MongoDB conectado (intento ${intento}/6)`);
+      return;
+    } catch (e) {
+      console.warn(
+        `[Worker] ⚠️ MongoDB no conectó (intento ${intento}/6): ${e.message}`,
+      );
+      if (intento === 6) {
+        console.warn(
+          '[Worker] ❌ MongoDB no respondió tras 6 intentos. El bot va a usar cache local hasta que MongoDB se recupere.',
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 10000));
+    }
+  }
+}
+
+conectarMongoConReintentos();
 
 // Auto-restaurar bots desde filesystem INMEDIATAMENTE, sin esperar a Mongo.
 // Damos 2 segundos para que Mongo tenga chance de conectar (si va a conectar),
