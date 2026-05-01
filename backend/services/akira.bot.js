@@ -343,26 +343,25 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Envío de mensajes ────────────────────────────────────────
   async function enviarMensaje(jid, texto) {
-    log(`[DBG] enviarMensaje→ jid=${jid} sock=${!!sock} texto="${String(texto).slice(0,40)}"`); 
     if (!sock) {
-      log(`⚠️ [${jid}] enviarMensaje sin socket disponible — mensaje perdido: "${String(texto).slice(0, 40)}..."`);
+      log(`⚠️ [${jid}] enviarMensaje sin socket — mensaje perdido`);
       return false;
     }
     try {
-      await sock.sendMessage(jid, { text: String(texto) });
+      const sent = await sock.sendMessage(jid, { text: String(texto) });
+      // Guardar en msgStore INMEDIATAMENTE después de enviar.
+      // WhatsApp puede pedir retry en <100ms si no puede descifrar.
+      // Sin esto, getMessage no encuentra el mensaje en los primeros retries → delay de 2-3s.
+      if (sent?.key?.id && sent?.message) msgStore.set(sent.key.id, sent.message);
       log(`✅ Enviado a ${jid}: "${String(texto).slice(0, 50)}..."`);
       return true;
     } catch (e) {
       log(`⚠️ Error enviando a ${jid} (1er intento): ${e.message}`);
-      // Reintento automático tras 1.2s — la mayoría de errores transitorios
-      // (reconexión, timeout breve) se resuelven solos.
       await new Promise((r) => setTimeout(r, 1200));
-      if (!sock) {
-        log(`❌ [${jid}] reintento abortado — sock se invalidó`);
-        return false;
-      }
+      if (!sock) { log(`❌ [${jid}] reintento abortado — sock invalidado`); return false; }
       try {
-        await sock.sendMessage(jid, { text: String(texto) });
+        const sent2 = await sock.sendMessage(jid, { text: String(texto) });
+        if (sent2?.key?.id && sent2?.message) msgStore.set(sent2.key.id, sent2.message);
         log(`✅ Enviado a ${jid} (reintento OK): "${String(texto).slice(0, 50)}..."`);
         return true;
       } catch (e2) {
@@ -2280,15 +2279,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     // Intentar cache RAM primero (sync, O(1))
     const mongoose = require('mongoose');
-    log(`[DBG] handleMsg START jid=${jid} mongoState=${mongoose.connection.readyState} cacheHit=${!!clientesSvc.cargarMemoria(jid)}`);
     let usuario = clientesSvc.cargarMemoria(jid);
     if (!usuario) {
-      log(`[DBG] cache miss → llamando cargarMemoriaAsync (mongoState=${mongoose.connection.readyState})`);
-      const t0 = Date.now();
       usuario = await clientesSvc.cargarMemoriaAsync(jid);
-      log(`[DBG] cargarMemoriaAsync completó en ${Date.now()-t0}ms → usuario=${usuario ? (usuario.nombre||'sin_nombre') : 'NULL'}`);
     }
-    log(`[DBG] usuario=${usuario ? (usuario.nombre||'sin_nombre') : 'NULL'} sock=${!!sock} cacheTmp=${JSON.stringify(Object.keys(cacheTemporal[jid]||{}))}`);
     if (usuario?.silenciado && !bodyLower.includes('akira')) {
       log(
         `🔇 [${jid}] Mensaje ignorado — cliente silenciado (el dueño debe responder manualmente o esperá 30min para auto-reactivación)`,
@@ -2405,14 +2399,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
       let u = clientesSvc.cargarMemoria(jid);
-      log(`[DBG] pre-IA cacheHit2=${!!u} mongoState=${mongoose.connection.readyState}`);
-      // Seguridad: doble fallback por si la cache sigue vacía
-      if (!u) {
-        log(`[DBG] pre-IA cache miss → llamando cargarMemoriaAsync #2`);
-        const t1 = Date.now();
-        u = await clientesSvc.cargarMemoriaAsync(jid);
-        log(`[DBG] cargarMemoriaAsync #2 completó en ${Date.now()-t1}ms → u=${u ? (u.nombre||'sin_nombre') : 'NULL'}`);
-      }
+      if (!u) u = await clientesSvc.cargarMemoriaAsync(jid);
       if (!u) {
         // MongoDB inaccesible — distinguir usuario CONOCIDO de usuario NUEVO
         // Si cacheTemporal[jid] tiene datos, el usuario YA tuvo conversaciones previas
@@ -2731,14 +2718,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       // Permite que Baileys reenvíe mensajes al remitente para renegociar claves
       getMessage: async (key) => {
         const stored = msgStore.get(key.id);
-        if (stored) {
-          log(`[Retry] ✅ getMessage encontró mensaje ${key.id} en store`);
-          return stored;
-        }
-        log(`[Retry] ⚠️ getMessage no encontró ${key.id} — store tiene ${msgStore.size} entradas`);
-        // Si no está en store, devolver conversationMessage vacío.
-        // Baileys necesita un objeto con al menos una key de mensaje válida.
-        return { conversation: '' };
+        return stored || { conversation: '' };
       },
     });
 
