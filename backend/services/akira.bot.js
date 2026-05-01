@@ -205,6 +205,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
   let botDetenidoIntencional = false; // true solo cuando el manager llama a detener()
   let reconnectTimer = null; // 🔥 Timer de reconexión — se cancela para evitar timers cascading
+  const seenMsgIds = new Set(); // Dedup: IDs de mensajes ya procesados (evita duplicados de Baileys)
+  let conectandoLock = false; // Anti-paralelo: evita múltiples conectar() simultáneos
 
   // ── Helpers ─────────────────────────────────────────────────
   function quitarEmojis(t) {
@@ -2598,6 +2600,22 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Conexión Baileys ─────────────────────────────────────────
   async function conectar() {
+    // Lock anti-paralelo: si ya hay un conectar() en curso, no abrir otro.
+    // Sin esto, eventos cascading (disconnect → reconnect timer + watchdog +
+    // manager start) pueden disparar 10+ conectar() simultáneos que se pisan.
+    if (conectandoLock) {
+      log('⏸️ conectar() ya en curso — descarto duplicado');
+      return;
+    }
+    conectandoLock = true;
+    try {
+      await _conectarReal();
+    } finally {
+      conectandoLock = false;
+    }
+  }
+
+  async function _conectarReal() {
     // Cerrar socket anterior antes de crear uno nuevo.
     // Sin esto, el socket viejo queda vivo y WhatsApp envía código 440
     // (connectionReplaced) causando un loop infinito de reconexiones.
@@ -2909,6 +2927,22 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (type !== 'notify') return;
       ultimoMensajeTs = Date.now();
       for (const msg of messages) {
+        // ── DEDUP por msg.key.id: WhatsApp/Baileys re-entrega el MISMO mensaje
+        // tras reconexiones (vimos 6× "Hola" en 1 segundo). Descartamos antes
+        // de encolar para no procesarlo varias veces.
+        const msgId = msg.key?.id;
+        if (msgId) {
+          if (seenMsgIds.has(msgId)) {
+            log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
+            continue;
+          }
+          seenMsgIds.add(msgId);
+          // Limpiar IDs viejos para no llenar memoria infinitamente
+          if (seenMsgIds.size > 500) {
+            const arr = Array.from(seenMsgIds);
+            for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
+          }
+        }
         const rawJid = msg.key?.remoteJid || 'unknown';
         // Cola por JID: mensajes del mismo contacto se procesan uno a la vez.
         // Evita que un backlog de mensajes acumulados dispare N respuestas en paralelo.
