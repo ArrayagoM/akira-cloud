@@ -2731,7 +2731,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       // Permite que Baileys reenvíe mensajes al remitente para renegociar claves
       getMessage: async (key) => {
         const stored = msgStore.get(key.id);
-        return stored || { conversation: undefined };
+        if (stored) {
+          log(`[Retry] ✅ getMessage encontró mensaje ${key.id} en store`);
+          return stored;
+        }
+        log(`[Retry] ⚠️ getMessage no encontró ${key.id} — store tiene ${msgStore.size} entradas`);
+        // Si no está en store, devolver conversationMessage vacío.
+        // Baileys necesita un objeto con al menos una key de mensaje válida.
+        return { conversation: '' };
       },
     });
 
@@ -2906,6 +2913,18 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     // Mensajes en paralelo — cada uno con timeout propio para que uno colgado
     // no bloquee los siguientes
     sock.ev.on('messages.upsert', ({ messages, type }) => {
+      // Capturar mensajes ENVIADOS por el bot (type==='append') en msgStore.
+      // Cuando WhatsApp no puede descifrar un mensaje del bot, envía un retry
+      // request. Baileys llama getMessage(key) para re-cifrar y reenviar.
+      // Si getMessage devuelve undefined → reenvía vacío → "Esperando el mensaje" permanente.
+      if (type === 'append') {
+        for (const m of messages) {
+          if (m.key?.id && m.key?.fromMe && m.message) {
+            msgStore.set(m.key.id, m.message);
+          }
+        }
+        return;
+      }
       if (type !== 'notify') return;
       ultimoMensajeTs = Date.now();
       for (const msg of messages) {
