@@ -195,11 +195,22 @@ function crearMongoClientesService(userId, log) {
       turnosConfirmados: datos.turnosConfirmados || [],
     };
 
-    BotCliente.findOneAndUpdate(
-      { userId, jid },
-      payload,
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    ).catch(e => log(`[DB] ⚠️ guardarMemoria ${jid}: ${e.message}`));
+    // Solo intentar persistir si MongoDB está realmente conectado.
+    // Si readyState !== 1 (zombie TCP, Atlas frío, etc.) la operación
+    // bufferiza 10s antes de fallar — innecesario porque la cache RAM ya tiene los datos.
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState === 1) {
+      Promise.race([
+        BotCliente.findOneAndUpdate(
+          { userId, jid },
+          payload,
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('guardar-timeout-4s')), 4000)),
+      ]).catch(e => log(`[DB] ⚠️ guardarMemoria ${jid}: ${e.message}`));
+    } else {
+      log(`[DB] ⏭️ guardarMemoria ${jid} → skip (mongoState=${mongoose.connection.readyState})`);
+    }
   }
 
   // ── Listar todos los clientes del negocio ───────────────────
