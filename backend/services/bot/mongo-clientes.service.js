@@ -52,9 +52,13 @@ function crearMongoClientesService(userId, log) {
   }
 
   // ── Inicializar: cargar TODOS los clientes del negocio ───────
-  async function inicializar() {
+  // Retry automático: si MongoDB no responde al arrancar (Atlas cold start + latencia
+  // argentina puede demorar 5-10s), reintentamos hasta 5 veces con backoff.
+  async function inicializar(maxRetries = 5) {
+    for (let intento = 1; intento <= maxRetries; intento++) {
     try {
-      const clientes = await BotCliente.find({ userId }).lean();
+      // maxTimeMS(12s): Atlas free tier + latencia Argentina puede tardar varios segundos
+      const clientes = await BotCliente.find({ userId }).maxTimeMS(12000).lean();
       const silenciadosALimpiar = [];
 
       for (const c of clientes) {
@@ -87,15 +91,59 @@ function crearMongoClientesService(userId, log) {
         log(`[DB] 🔓 ${silenciadosALimpiar.length} cliente(s) des-silenciado(s) al arrancar`);
       }
 
-      log(`[DB] ${cache.size} clientes cargados desde MongoDB`);
+      log(`[DB] ✅ ${cache.size} clientes cargados desde MongoDB`);
+      return; // éxito — salir del loop
     } catch (e) {
-      log(`[DB] ⚠️ Error cargando clientes: ${e.message}`);
+      log(`[DB] ⚠️ Error cargando clientes (intento ${intento}/${maxRetries}): ${e.message}`);
+      if (intento < maxRetries) {
+        const waitMs = 4000 * intento; // 4s, 8s, 12s, 16s
+        log(`[DB] 🔄 Reintentando en ${waitMs / 1000}s...`);
+        await new Promise(r => setTimeout(r, waitMs));
+      } else {
+        log(`[DB] ❌ No se pudieron cargar clientes después de ${maxRetries} intentos. Los clientes existentes van a parecer nuevos hasta que MongoDB responda — cargarMemoriaAsync recupera usuarios individualmente.`);
+      }
     }
+    } // fin for
   }
 
   // ── Leer desde caché (SYNC) ─────────────────────────────────
   function cargarMemoria(jid) {
     return cache.get(jid) || null;
+  }
+
+  // ── Fallback async: busca en MongoDB si no está en cache ─────
+  // Usado cuando inicializar() falló (MongoDB tardó) y llegó un mensaje
+  // de un usuario que ya tiene historial pero la cache RAM está vacía.
+  async function cargarMemoriaAsync(jid) {
+    if (cache.has(jid)) return cache.get(jid);
+    // Verificar que mongoose esté realmente conectado antes de hacer la query.
+    // Sin esto, Mongoose bufferiza la query y tarda 10s en fallar aunque no haya conexión.
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      // No conectado — retornar null sin buffering, no bloquear el handler
+      return null;
+    }
+    try {
+      const doc = await BotCliente.findOne({ userId, jid }).maxTimeMS(5000).lean();
+      if (doc) {
+        const datos = {
+          jid:              doc.jid,
+          nombre:           doc.nombre       || '',
+          telefono:         doc.telefono     || '',
+          numeroReal:       doc.numeroReal   || '',
+          email:            doc.email        || null,
+          silenciado:       false,
+          historial:        normalizarHistorial(doc.historial || []),
+          turnosConfirmados:doc.turnosConfirmados || [],
+        };
+        cache.set(jid, datos); // Cargar al cache para futuras consultas
+        log(`[DB] 🔄 Usuario ${doc.nombre||jid} recuperado por cargarMemoriaAsync (cache miss)`);
+        return datos;
+      }
+    } catch (e) {
+      log(`[DB] ⚠️ cargarMemoriaAsync ${jid}: ${e.message}`);
+    }
+    return null;
   }
 
   // ── Escribir en caché + persistir en MongoDB (SYNC para el bot) ──
@@ -178,7 +226,7 @@ function crearMongoClientesService(userId, log) {
     }
   }
 
-  return { inicializar, cargarMemoria, guardarMemoria, listarClientes, registrarNuevo };
+  return { inicializar, cargarMemoria, cargarMemoriaAsync, guardarMemoria, listarClientes, registrarNuevo };
 }
 
 // ── useMongoClientesState: API async pura usando ClienteMemoria ──────────

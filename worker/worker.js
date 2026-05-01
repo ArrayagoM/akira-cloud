@@ -13,8 +13,9 @@ const https = require('https');
 
 // 🔥 LA SOLUCIÓN AL CONGELAMIENTO 24/7 (Desactiva la cola de espera de Mongoose globalmente)
 mongoose.set('bufferCommands', false);
-// Si Mongoose buffers de todas formas (e.g. connection stale), fallar en 3s en vez de 10s
-mongoose.set('bufferTimeoutMS', 3000);
+// 15s: más generoso para Atlas free tier desde Argentina (latencia ~200-400ms + cold start)
+// Con 3s fallaba la inicialización y dejaba la cache RAM vacía → bot silencioso
+mongoose.set('bufferTimeoutMS', 15000);
 
 // ── Config ────────────────────────────────────────────────────
 // BACKEND_URL: en Railway es http://localhost:5000 (mismo contenedor)
@@ -346,12 +347,15 @@ async function iniciarBotLocal(uid, credencialesRemotas = null) {
     instancias.set(uid, bot);
 
     // ── Eventos del bot → servidor ────────────────────────────
-    bot.on('log', (msg) =>
+    bot.on('log', (msg) => {
+      // También loguear localmente → visible en `pm2 logs worker`
+      console.log(`[Bot:${uid.slice(-6)}] ${msg}`);
       socket.emit('worker:bot-log', {
         userId: uid,
         msg,
         ts: new Date().toLocaleTimeString('es-AR'),
-      }),
+      });
+    },
     );
     bot.on('qr', (qr) => socket.emit('worker:bot-qr', { userId: uid, qr }));
     bot.on('ready', () => socket.emit('worker:bot-ready', { userId: uid }));

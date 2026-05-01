@@ -343,6 +343,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Envío de mensajes ────────────────────────────────────────
   async function enviarMensaje(jid, texto) {
+    log(`[DBG] enviarMensaje→ jid=${jid} sock=${!!sock} texto="${String(texto).slice(0,40)}"`); 
     if (!sock) {
       log(`⚠️ [${jid}] enviarMensaje sin socket disponible — mensaje perdido: "${String(texto).slice(0, 40)}..."`);
       return false;
@@ -545,6 +546,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
   // ── Procesamiento IA ─────────────────────────────────────────
   async function procesarConIA(jid, usuario) {
+    log(`[DBG] procesarConIA START jid=${jid} groqKey=${GROQ_API_KEY ? GROQ_API_KEY.slice(0,8)+'...' : 'EMPTY'} historial=${usuario.historial?.length||0}`);
     limpiarExpiradas();
     const pend = pendienteActual(jid);
     const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: ZONA_HORARIA }));
@@ -719,7 +721,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
 
     const sys = { role: 'system', content: sysContent };
 
+    log(`[DBG] Groq CALL → ${usuario.historial.length} msgs en historial`);
     let resp = await groqSvc.llamarGroq([sys, ...usuario.historial]);
+    log(`[DBG] Groq OK → choices=${resp?.choices?.length}`);
     let msg = resp.choices[0].message;
 
     if (msg.tool_calls?.length > 0) {
@@ -2274,7 +2278,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     const bodyLower = texto.toLowerCase().trim();
     log(`${fueAudio ? '🎤' : '📩'} [${jid}]: ${texto.slice(0, 80)}`);
 
+    // Intentar cache RAM primero (sync, O(1))
+    // Si la cache está vacía (MongoDB tardó en arrancar), buscar directo en DB
     let usuario = clientesSvc.cargarMemoria(jid);
+    if (!usuario) {
+      // Cache miss → intentar recuperar desde MongoDB antes de tratar como usuario nuevo
+      usuario = await clientesSvc.cargarMemoriaAsync(jid);
+      if (usuario) log(`[DB] 🔄 Usuario ${usuario.nombre||jid} recuperado en cache miss — MongoDB tardó en cargar al arranque`);
+    }
+    log(`[DBG] usuario=${usuario ? (usuario.nombre||'sin_nombre') : 'NULL'} sock=${!!sock} cacheTmp=${JSON.stringify(Object.keys(cacheTemporal[jid]||{}))}`);
     if (usuario?.silenciado && !bodyLower.includes('akira')) {
       log(
         `🔇 [${jid}] Mensaje ignorado — cliente silenciado (el dueño debe responder manualmente o esperá 30min para auto-reactivación)`,
@@ -2390,11 +2402,34 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       // Indicador de escritura
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
-      const u = clientesSvc.cargarMemoria(jid);
-      // Seguridad: si por algún motivo el usuario no está registrado aún, lo registramos ahora
+      let u = clientesSvc.cargarMemoria(jid);
+      // Seguridad: doble fallback por si la cache sigue vacía
+      if (!u) u = await clientesSvc.cargarMemoriaAsync(jid);
       if (!u) {
-        await registrarNombre(jid, texto, tel, pushName);
-        return;
+        // MongoDB inaccesible — distinguir usuario CONOCIDO de usuario NUEVO
+        // Si cacheTemporal[jid] tiene datos, el usuario YA tuvo conversaciones previas
+        // (turnos, consultas, etc.) → crear usuario temporal para poder responder.
+        // Si cacheTemporal está vacío → primer mensaje ever → registrar nombre.
+        const tmpKeys = Object.keys(cacheTemporal[jid] || {});
+        if (tmpKeys.length > 0) {
+          const nombreTmp = pushName ? capitalizar(quitarEmojis(pushName.trim())) : '';
+          u = {
+            jid,
+            nombre:           nombreTmp,
+            telefono:         jid,
+            numeroReal:       tel,
+            email:            null,
+            silenciado:       false,
+            historial:        [],
+            turnosConfirmados:[],
+          };
+          clientesSvc.guardarMemoria(jid, u); // cache RAM inmediato; MongoDB en background
+          log(`[DB] ⚠️ MongoDB inaccesible — usuario temporal "${nombreTmp || tel}" creado. El bot responde igual.`);
+        } else {
+          // Usuario genuinamente nuevo (primer mensaje EVER) — registrar nombre
+          await registrarNombre(jid, texto, tel, pushName);
+          return;
+        }
       }
       u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
       u.historial = recortarHistorial(u.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
