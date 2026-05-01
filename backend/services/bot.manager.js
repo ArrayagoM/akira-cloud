@@ -13,6 +13,7 @@ const WAAuth  = require('../models/WAAuth');
 const logger  = require('../config/logger');
 const crearAkiraBot  = require('./akira.bot');
 const workerHandler  = require('./worker.handler');
+const { crearBaileysProxy } = require('./baileys.proxy');
 
 // ── Mapa de instancias activas ───────────────────────────────
 // clave: "${userId}:${slot}" — slot 0 es la cuenta principal
@@ -159,32 +160,15 @@ async function startBot(userId, slot = 0) {
       credenciales._GOOGLE_CREDENTIALS_JSON = credGoogleEncriptado;
     }
 
-    // ── Modo híbrido: delegar al worker si está conectado ──
-    // Ahora enviamos el objeto `credenciales` COMPLETO al worker.
-    // El worker NO necesita tocar MongoDB: todo viene pre-cargado por Render.
-    if (workerHandler.isWorkerAvailable()) {
-      logger.info(`[BotMgr] Delegando bot ${key} al worker local (con credenciales embebidas)`);
-      workerHandler.sendToWorker('worker:start-bot', {
-        userId: uid,
-        slot,
-        credenciales,
-      });
-      arranqueEnProceso.delete(key);
-      return { ok: true, msg: 'Bot iniciando en worker local — esperá el QR' };
-    }
-
-    // Directorio de sesión — slot 0 usa path legacy para backward compat
+    // ── Directorios de DATOS para el bot (Render filesystem efímero pero
+    // el bot solo guarda data ligera de runtime acá: cache, recordatorios JSON)
     const sessionDirName = slot === 0 ? uid : `${uid}_slot${slot}`;
     const sessionDir = path.resolve(SESSIONS_PATH, sessionDirName);
     if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-
-    // Directorio de memoria del bot
     const dataDir = path.resolve(SESSIONS_PATH, sessionDirName, 'data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
     // Credenciales de Google Calendar (service account — fallback)
-    // Google OAuth tokens ya están en `credenciales` (asignados arriba).
-    // Acá sólo escribimos el credentials.json al disco para el modo local.
     if (credenciales._GOOGLE_CREDENTIALS_JSON) {
       try {
         JSON.parse(credenciales._GOOGLE_CREDENTIALS_JSON);
@@ -195,8 +179,45 @@ async function startBot(userId, slot = 0) {
       }
     }
 
-    // Crear instancia del bot
-    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
+    // ── ARQUITECTURA: el bot CORRE EN ESTE BACKEND (Render).
+    // El worker en la PC del usuario es solo el "transport WhatsApp" via Baileys.
+    // Si hay worker disponible, le enchufamos un baileysProxy. Si no, modo cloud-direct.
+    let bot;
+    let proxy = null;
+    if (workerHandler.isWorkerAvailable()) {
+      const workerSocket = workerHandler.getWorkerSocket();
+      proxy = crearBaileysProxy({
+        userId: uid,
+        workerSocket,
+        log: (m) => logger.info(`[BotMgr:Proxy:${uid.slice(-6)}] ${m}`),
+      });
+      // Registrar el proxy ANTES de pedirle al worker que arranque, para no
+      // perder eventos tempranos (worker:msg-incoming, etc.).
+      workerHandler.registrarProxy(uid, proxy);
+      logger.info(`[BotMgr] Modo PROXY: bot ${key} corre en backend, Baileys via worker`);
+
+      bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid, {
+        externalSock: proxy.sock,
+        descargarMediaViaProxy: async (msg) => {
+          return await new Promise((resolve) => {
+            try {
+              if (!workerSocket?.connected) return resolve({ ok: false, error: 'worker_disconnected' });
+              const t = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 30000);
+              workerSocket.emit('worker:exec-download-media', { userId: uid, msg }, (ack) => {
+                clearTimeout(t);
+                resolve(ack || { ok: false, error: 'no_ack' });
+              });
+            } catch (e) {
+              resolve({ ok: false, error: e.message });
+            }
+          });
+        },
+      });
+    } else {
+      // Modo cloud-direct (legacy): el bot crea su propio socket Baileys
+      logger.info(`[BotMgr] Modo CLOUD-DIRECT: bot ${key} crea socket Baileys local`);
+      bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
+    }
     instancias.set(key, bot);
 
     // ── Eventos del bot → Socket.io + DB ────────────────────
@@ -372,6 +393,18 @@ async function startBot(userId, slot = 0) {
 
     // ── Iniciar ──────────────────────────────────────────────
     await bot.iniciar();
+
+    // En modo PROXY: pedirle al worker que abra la sesión Baileys.
+    // El worker va a hacer useMultiFileAuthState, makeWASocket, etc., y
+    // empezará a emitir eventos via Socket.io que el proxy ya tiene enchufados.
+    if (proxy) {
+      try {
+        workerHandler.sendToWorker('worker:start-bot', { userId: uid, slot });
+      } catch (e) {
+        logger.warn(`[BotMgr] No se pudo notificar al worker: ${e.message}`);
+      }
+    }
+
     await updateBotStatus(uid, slot, true, false); // activo pero aún no conectado
     await Log.registrar({ userId: uid, tipo: 'bot_start', mensaje: `Slot ${slot}: Bot iniciado` });
 
@@ -397,18 +430,23 @@ async function stopBot(userId, slot = 0) {
   const uid = String(userId);
   const key = botKey(uid, slot);
 
-  // ── Modo híbrido: delegar al worker ───────────────────────
+  // ── Pedirle al worker que detenga Baileys (si está disponible) ──
+  // (En modo proxy esto cierra el socket Baileys del worker; el bot.engine
+  // local se detiene en el bloque siguiente.)
   if (workerHandler.isWorkerAvailable()) {
     try {
       workerHandler.sendToWorker('worker:stop-bot', { userId: uid, slot });
-      return { ok: true, msg: 'Señal de parada enviada al worker' };
     } catch (err) {
       logger.warn(`[BotMgr] No se pudo enviar stop al worker: ${err.message}`);
     }
   }
 
   const bot = instancias.get(key);
-  if (!bot) return { ok: false, msg: 'El bot no está activo' };
+  if (!bot) {
+    // Limpieza igual del proxy si quedó registrado
+    if (workerHandler.tieneProxy(uid)) workerHandler.desregistrarProxy(uid);
+    return { ok: false, msg: 'El bot no está activo' };
+  }
 
   try {
     // Cancelar auto-restart pendiente si lo hay
@@ -419,6 +457,7 @@ async function stopBot(userId, slot = 0) {
     await bot.detener();
     instancias.delete(key);
     liberarPuerto(key);
+    workerHandler.desregistrarProxy(uid);
     await updateBotStatus(uid, slot, false, false);
     await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: `Slot ${slot}: Bot detenido` });
     logger.info(`[BotMgr] Bot detenido para user ${uid} slot ${slot}`);
@@ -428,6 +467,7 @@ async function stopBot(userId, slot = 0) {
     logger.error(`[BotMgr] Error deteniendo bot ${uid} slot ${slot}: ${err.message}`);
     instancias.delete(key);
     liberarPuerto(key);
+    workerHandler.desregistrarProxy(uid);
     return { ok: false, msg: err.message };
   }
 }

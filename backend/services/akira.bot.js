@@ -32,8 +32,15 @@ const crearAudioService = require('./bot/audio.service');
 const crearGroqService = require('./bot/groq.service');
 const crearWaitlistService = require('./bot/waitlist.service');
 
-function crearAkiraBot(config, dataDir, sessionDir, userId) {
+function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   const emitter = new EventEmitter();
+
+  // ── MODO PROXY: el "sock" Baileys vive en el worker (PC del usuario)
+  // y este bot lo accede via Socket.io. En este modo NO creamos socket
+  // propio, NO tocamos filesystem para sesión y NO ejecutamos watchdog
+  // (todo eso lo maneja el worker). Solo nos enchufamos a los eventos.
+  const externalSock = options.externalSock || null;
+  const usandoProxy  = !!externalSock;
 
   // ── Config ─────────────────────────────────────────────────
   const GROQ_API_KEY = config.GROQ_API_KEY || '';
@@ -2266,7 +2273,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         );
         return;
       }
-      const buffer = await downloadMediaMessage(msg, 'buffer', {});
+      // En modo PROXY pedimos al worker que descargue el media (él tiene el sock real)
+      let buffer;
+      if (usandoProxy && typeof options.descargarMediaViaProxy === 'function') {
+        const r = await options.descargarMediaViaProxy(msg);
+        if (!r?.ok || !r.base64) {
+          log(`⚠️ [Proxy] descargarMedia falló: ${r?.error || 'unknown'}`);
+          await enviarMensaje(jid, '¡Ups! No pude descargar tu audio. ¿Me lo escribís? 🙏');
+          return;
+        }
+        buffer = Buffer.from(r.base64, 'base64');
+      } else {
+        buffer = await downloadMediaMessage(msg, 'buffer', {});
+      }
       const mimetype = msg.message.audioMessage?.mimetype || 'audio/ogg; codecs=opus';
       const tr = await audioSvc.transcribirAudioBuffer(buffer, mimetype);
       if (!tr) {
@@ -2616,6 +2635,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   }
 
   async function _conectarReal() {
+    // ─── MODO PROXY ─────────────────────────────────────────────
+    // El sock real vive en el worker. Acá solo nos enchufamos a sus eventos.
+    if (usandoProxy) {
+      sock = externalSock;
+      // Suscribir handlers al proxy. El worker.handler.js inyecta los eventos
+      // crudos de Baileys (connection.update, messages.upsert, etc.) en sock.ev
+      _setupHandlersProxy();
+      log('🔌 [Bot] Modo PROXY: usando worker como Baileys backend');
+      // No emitimos 'ready' acá — esperamos que el worker emita connection.update open
+      return;
+    }
+
+    // ── Modo CLOUD-DIRECT (legacy): el bot crea su propio socket ────
     // Cerrar socket anterior antes de crear uno nuevo.
     // Sin esto, el socket viejo queda vivo y WhatsApp envía código 440
     // (connectionReplaced) causando un loop infinito de reconexiones.
@@ -2965,6 +2997,112 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     });
   }
 
+  // ── Setup handlers para modo PROXY ───────────────────────────
+  // Cuando el sock viene del worker (vía baileysProxy), no tenemos lifecycle
+  // interno de Baileys. Solo registramos los handlers de mensajes/contactos/chats.
+  // El worker maneja conexión, sesión, watchdog y reconexión por su cuenta.
+  function _setupHandlersProxy() {
+    const contactosWA = new Map();
+
+    // connection.update simplificado: solo escuchamos open/close del worker
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+      if (connection === 'open') {
+        tsUltimaConexion = Date.now();
+        log('✅ WhatsApp conectado y listo (vía worker)');
+        emitter.emit('ready');
+        reprogramarRecs();
+        ultimoMensajeTs = Date.now();
+        // No iniciamos watchdog — el worker tiene su propio watchdog Baileys
+        // No sincronizamos catálogo automáticamente porque el worker ya emite
+        // los eventos relevantes. Si querés forzar sync: emitter.emit('catalog:sync')
+      }
+      if (connection === 'close') {
+        log(`⚠️ Desconectado (worker reportó cierre)`);
+        emitter.emit('disconnected', lastDisconnect?.error?.message || 'connection_close');
+      }
+    });
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const c of contacts) {
+        if (!c.id) continue;
+        const nombre = c.notify || c.name || '';
+        if (nombre) {
+          contactosWA.set(c.id, nombre);
+          const existing = clientesSvc.cargarMemoria(c.id);
+          if (existing && !existing.nombre) existing.nombre = nombre;
+        }
+      }
+    });
+
+    sock.ev.on('chats.set', ({ chats: lista }) => {
+      const nuevos = (lista || []).filter(
+        (c) => c.id && c.id.endsWith('@s.whatsapp.net') && !clientesSvc.cargarMemoria(c.id),
+      );
+      if (nuevos.length === 0) return;
+      log(`[Chats] ${nuevos.length} chats nuevos detectados — registrando en background`);
+      let i = 0;
+      const procesarLote = () => {
+        const lote = nuevos.slice(i, i + 10);
+        if (lote.length === 0) return;
+        i += 10;
+        for (const chat of lote) {
+          const num = chat.id.split('@')[0].replace(/\D/g, '');
+          const nombre = contactosWA.get(chat.id) || chat.name || '';
+          clientesSvc.registrarNuevo(chat.id, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+        }
+        setTimeout(procesarLote, 500);
+      };
+      setTimeout(procesarLote, 5000);
+    });
+
+    sock.ev.on('chats.upsert', (chats) => {
+      for (const chat of chats || []) {
+        const jid = chat.id;
+        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+        if (clientesSvc.cargarMemoria(jid)) continue;
+        const num = jid.split('@')[0].replace(/\D/g, '');
+        const nombre = contactosWA.get(jid) || chat.name || '';
+        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+      }
+    });
+
+    // messages.upsert con dedup + cola por JID (igual al modo cloud-direct)
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
+      if (type !== 'notify') return;
+      ultimoMensajeTs = Date.now();
+      for (const msg of messages) {
+        const msgId = msg.key?.id;
+        if (msgId) {
+          if (seenMsgIds.has(msgId)) {
+            log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
+            continue;
+          }
+          seenMsgIds.add(msgId);
+          if (seenMsgIds.size > 500) {
+            const arr = Array.from(seenMsgIds);
+            for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
+          }
+        }
+        const rawJid = msg.key?.remoteJid || 'unknown';
+        const prev = jidQueues.get(rawJid) || Promise.resolve();
+        const next = prev.then(async () => {
+          const limit = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000),
+          );
+          try {
+            await Promise.race([handleBaileysMessage(msg), limit]);
+          } catch (e) {
+            log(`❌ Error handleMessage [${rawJid}]: ${e.message}`);
+          }
+        });
+        jidQueues.set(rawJid, next);
+        next.finally(() => {
+          if (jidQueues.get(rawJid) === next) jidQueues.delete(rawJid);
+        });
+      }
+    });
+  }
+
   // ── Watchdog: detecta conexión zombie y reconecta ────────────
   // Política: SOLO reconectar si el ping al WebSocket falla.
   // No reconectar por "silencio" — un negocio con poca actividad nocturna
@@ -2973,6 +3111,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   // la ventana de reconexión (3-15s).
   let watchdogPingFallos = 0; // contador de pings fallidos consecutivos
   function iniciarWatchdog() {
+    if (usandoProxy) {
+      // En modo PROXY el watchdog Baileys lo maneja el worker localmente.
+      // El backend solo verifica conectividad del worker via Socket.io
+      // (ya gestionada por worker.handler).
+      return;
+    }
     if (watchdogTimer) clearInterval(watchdogTimer);
     watchdogPingFallos = 0;
     // Cada 2 minutos verifica si el socket sigue vivo

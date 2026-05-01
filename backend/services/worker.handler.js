@@ -1,7 +1,13 @@
 // services/worker.handler.js
 // Maneja la conexión del Worker Local (PC del usuario) via Socket.io.
-// El worker corre los bots pesados localmente; este handler los coordina
-// desde el servidor en Render y retransmite los eventos al frontend.
+//
+// Refactor 2026-04-29: el worker ahora es un proxy Baileys puro. Toda la
+// lógica de negocio corre en este backend. El worker nos manda mensajes
+// crudos de WhatsApp y nosotros le devolvemos comandos de Baileys.
+//
+// Flujo:
+//   Cliente WA → Worker (Baileys) → 'worker:msg-incoming' → este handler →
+//   bot.engine.procesa(msg) → 'worker:exec-send-text' → Worker → Cliente WA
 'use strict';
 
 const User   = require('../models/User');
@@ -14,6 +20,16 @@ const WORKER_SECRET = process.env.WORKER_SECRET;
 let workerSocket   = null; // único worker por ahora (1 PC)
 let workerInfo     = {};
 
+// proxies[userId] = { sock, inyectarEvento, cerrar } del baileys.proxy.js
+const proxies = new Map();
+
+// Listeners externos: bot.manager se suscribe acá para reaccionar
+// cuando el worker (re)conecta y para arrancar/detener bots.
+const externalListeners = {
+  onWorkerConnected: null,   // () => void
+  onWorkerDisconnected: null, // () => void
+};
+
 // ────────────────────────────────────────────────────────────
 //  Inicializar namespace de Socket.io para el worker
 // ────────────────────────────────────────────────────────────
@@ -25,7 +41,6 @@ function inicializarWorkerHandler(io) {
 
   const workerNS = io.of('/worker');
 
-  // ── Autenticación del worker ─────────────────────────────
   workerNS.use((socket, next) => {
     const { secret, role } = socket.handshake.auth || {};
     if (secret !== WORKER_SECRET || role !== 'worker') {
@@ -39,14 +54,15 @@ function inicializarWorkerHandler(io) {
     logger.info(`[WorkerHandler] ✅ Worker conectado (id: ${socket.id})`);
     workerSocket = socket;
 
-    // ── worker:ready ───────────────────────────────────────
     socket.on('worker:ready', (info) => {
       workerInfo = { ...info, connectedAt: new Date().toISOString() };
-      logger.info(`[WorkerHandler] Worker listo — bots activos: ${info.bots || 0}`);
+      logger.info(
+        `[WorkerHandler] Worker listo — modo=${info.mode || 'legacy'} bots=${info.bots || 0}`
+      );
+      externalListeners.onWorkerConnected?.(info);
     });
 
-    // ── Eventos de bot → reenviar al frontend ──────────────
-
+    // ── Eventos info → reenviar al frontend (compatible con UI actual) ──
     socket.on('worker:bot-log', ({ userId, msg, ts }) => {
       _emitirAlUsuario(io, userId, 'bot:log', { msg, ts });
     });
@@ -62,45 +78,86 @@ function inicializarWorkerHandler(io) {
       await User.findByIdAndUpdate(userId, { botActivo: true, botConectado: true }).catch(() => {});
       _emitirAlUsuario(io, userId, 'bot:ready', {});
       Log.registrar({ userId, tipo: 'bot_connected', mensaje: 'WhatsApp conectado y listo (worker)' }).catch(() => {});
+      // Inyectar evento al proxy si existe
+      const p = proxies.get(String(userId));
+      if (p) p.inyectarEvento('connection.update', { connection: 'open' });
     });
 
     socket.on('worker:bot-started', async ({ userId }) => {
-      logger.info(`[WorkerHandler] Bot iniciado para user ${userId}`);
       await User.findByIdAndUpdate(userId, { botActivo: true }).catch(() => {});
     });
 
-    socket.on('worker:bot-disconnected', async ({ userId, reason }) => {
-      logger.warn(`[WorkerHandler] Bot desconectado user ${userId}: ${reason}`);
+    socket.on('worker:bot-disconnected', async ({ userId, reason, sessionCleared }) => {
+      logger.warn(`[WorkerHandler] Bot ${userId} desconectado: ${reason}`);
       await User.findByIdAndUpdate(userId, { botConectado: false }).catch(() => {});
       _emitirAlUsuario(io, userId, 'bot:disconnected', { reason });
       Log.registrar({ userId, tipo: 'bot_disconnected', nivel: 'warn', mensaje: `Desconectado: ${reason}` }).catch(() => {});
+      const p = proxies.get(String(userId));
+      if (p) {
+        p.inyectarEvento('connection.update', {
+          connection: 'close',
+          lastDisconnect: { error: { output: { statusCode: sessionCleared ? 401 : null } } },
+        });
+        if (sessionCleared) {
+          p.cerrar();
+          proxies.delete(String(userId));
+        }
+      }
     });
 
     socket.on('worker:bot-stopped', async ({ userId, sessionCleared }) => {
-      logger.info(`[WorkerHandler] Bot detenido user ${userId}${sessionCleared ? ' — sesión limpiada' : ''}`);
+      logger.info(`[WorkerHandler] Bot ${userId} detenido${sessionCleared ? ' — sesión limpiada' : ''}`);
       await User.findByIdAndUpdate(userId, { botActivo: false, botConectado: false }).catch(() => {});
       _emitirAlUsuario(io, userId, 'bot:stopped', { sessionCleared: !!sessionCleared });
       const msg = sessionCleared
         ? 'Sesión de WhatsApp expirada — iniciá el bot de nuevo para escanear el QR'
         : 'Bot detenido (worker)';
       Log.registrar({ userId, tipo: 'bot_stop', mensaje: msg }).catch(() => {});
+      const p = proxies.get(String(userId));
+      if (p) {
+        p.cerrar();
+        proxies.delete(String(userId));
+      }
     });
 
     socket.on('worker:bot-error', async ({ userId, msg }) => {
-      logger.error(`[WorkerHandler] Error en bot user ${userId}: ${msg}`);
+      logger.error(`[WorkerHandler] Error en bot ${userId}: ${msg}`);
       await User.findByIdAndUpdate(userId, { botActivo: false, botConectado: false }).catch(() => {});
       _emitirAlUsuario(io, userId, 'bot:error', { msg });
       Log.registrar({ userId, tipo: 'error', nivel: 'error', mensaje: msg }).catch(() => {});
     });
 
-    // ── Catálogo: resultado de sincronización WA Business ──
+    // ── NUEVOS EVENTOS — flujo de mensajes via worker proxy ─────
+    socket.on('worker:msg-incoming', ({ userId, msg }) => {
+      const p = proxies.get(String(userId));
+      if (!p) {
+        logger.warn(`[WorkerHandler] msg-incoming para ${userId} sin proxy registrado`);
+        return;
+      }
+      p.inyectarEvento('messages.upsert', { messages: [msg], type: 'notify' });
+    });
+
+    socket.on('worker:contacts-upsert', ({ userId, contacts }) => {
+      const p = proxies.get(String(userId));
+      if (p) p.inyectarEvento('contacts.upsert', contacts);
+    });
+
+    socket.on('worker:chats-set', ({ userId, chats }) => {
+      const p = proxies.get(String(userId));
+      if (p) p.inyectarEvento('chats.set', { chats });
+    });
+
+    socket.on('worker:chats-upsert', ({ userId, chats }) => {
+      const p = proxies.get(String(userId));
+      if (p) p.inyectarEvento('chats.upsert', chats);
+    });
+
+    // ── Catálogo (push) ──
     socket.on('worker:catalog-synced', ({ userId, count, total }) => {
-      logger.info(`[WorkerHandler] Catálogo sincronizado user ${userId}: ${count} prod(s)`);
       _emitirAlUsuario(io, userId, 'catalog:synced', { count, total });
     });
 
     socket.on('worker:catalog-new-product', ({ userId, product }) => {
-      logger.info(`[WorkerHandler] Nuevo producto detectado user ${userId}: ${product?.nombre}`);
       _emitirAlUsuario(io, userId, 'catalog:new-product', product);
     });
 
@@ -108,29 +165,34 @@ function inicializarWorkerHandler(io) {
     socket.on('disconnect', async (reason) => {
       logger.warn(`[WorkerHandler] ⚠️ Worker desconectado: ${reason}`);
       if (workerSocket?.id === socket.id) {
-        const botIds = workerInfo.botIds || [];
+        const botIds = Array.from(proxies.keys());
         workerSocket = null;
         workerInfo   = {};
 
-        // Notificar a todos los usuarios cuyos bots estaban corriendo en el worker
-        // que su bot se cayó y marcar como desconectado en la DB.
-        // Esto evita que queden en estado "activo" fantasma en el panel.
-        if (botIds.length > 0) {
-          logger.warn(`[WorkerHandler] Worker tenía ${botIds.length} bot(s) activos — marcándolos como caídos`);
-          for (const uid of botIds) {
-            try {
-              await User.findByIdAndUpdate(uid, { botConectado: false });
-              _emitirAlUsuario(io, uid, 'bot:disconnected', { reason: 'Worker desconectado — tu PC se desconectó del servidor' });
-              _emitirAlUsuario(io, uid, 'bot:log', {
-                msg: '⚠️ Tu PC perdió conexión con el servidor. El bot se reconectará automáticamente cuando tu PC vuelva a estar online.',
-                ts: new Date().toLocaleTimeString('es-AR'),
+        // Cerrar todos los proxies y notificar a los bot.engines
+        for (const uid of botIds) {
+          try {
+            const p = proxies.get(uid);
+            if (p) {
+              p.inyectarEvento('connection.update', {
+                connection: 'close',
+                lastDisconnect: { error: new Error('worker_disconnected') },
               });
-              Log.registrar({ userId: uid, tipo: 'worker_disconnected', nivel: 'warn', mensaje: `Worker desconectado: ${reason}` }).catch(() => {});
-            } catch (e) {
-              logger.error(`[WorkerHandler] Error actualizando estado de ${uid}: ${e.message}`);
             }
+            await User.findByIdAndUpdate(uid, { botConectado: false });
+            _emitirAlUsuario(io, uid, 'bot:disconnected', { reason: 'Worker desconectado — tu PC se desconectó del servidor' });
+            _emitirAlUsuario(io, uid, 'bot:log', {
+              msg: '⚠️ Tu PC perdió conexión con el servidor. El bot se reconectará automáticamente cuando tu PC vuelva a estar online.',
+              ts: new Date().toLocaleTimeString('es-AR'),
+            });
+            Log.registrar({ userId: uid, tipo: 'worker_disconnected', nivel: 'warn', mensaje: `Worker desconectado: ${reason}` }).catch(() => {});
+          } catch (e) {
+            logger.error(`[WorkerHandler] Error al cerrar bot ${uid}: ${e.message}`);
           }
         }
+        // No los borramos del map — cuando el worker reconecta, los bot.engines
+        // van a re-registrar sus proxies o el manager los va a recrear.
+        externalListeners.onWorkerDisconnected?.();
       }
     });
   });
@@ -142,12 +204,33 @@ function inicializarWorkerHandler(io) {
 //  API para bot.manager.js
 // ────────────────────────────────────────────────────────────
 
-/** ¿Hay un worker conectado y listo? */
 function isWorkerAvailable() {
   return workerSocket !== null && workerSocket.connected;
 }
 
-/** Enviar un comando al worker (ej. start-bot, stop-bot, panic-stop). */
+/** Devuelve el socket del worker (para crear baileysProxy). */
+function getWorkerSocket() {
+  return isWorkerAvailable() ? workerSocket : null;
+}
+
+/** Registrar/desregistrar un proxy de bot (usado por bot.manager). */
+function registrarProxy(userId, proxy) {
+  proxies.set(String(userId), proxy);
+}
+
+function desregistrarProxy(userId) {
+  const p = proxies.get(String(userId));
+  if (p) {
+    try { p.cerrar(); } catch {}
+  }
+  proxies.delete(String(userId));
+}
+
+function tieneProxy(userId) {
+  return proxies.has(String(userId));
+}
+
+/** Enviar comando al worker (start/stop/panic). */
 function sendToWorker(evento, datos) {
   if (!isWorkerAvailable()) {
     throw new Error('Worker no disponible — asegurate de que la PC esté encendida y conectada');
@@ -155,15 +238,16 @@ function sendToWorker(evento, datos) {
   workerSocket.emit(evento, datos);
 }
 
-/** Info del worker (para panel de admin). */
 function getWorkerInfo() {
   return isWorkerAvailable()
     ? { conectado: true, ...workerInfo }
     : { conectado: false };
 }
 
-// ────────────────────────────────────────────────────────────
-//  Helper interno
+/** Suscribir listeners externos para reaccionar a cambios del worker. */
+function onWorkerConnected(cb) { externalListeners.onWorkerConnected = cb; }
+function onWorkerDisconnected(cb) { externalListeners.onWorkerDisconnected = cb; }
+
 // ────────────────────────────────────────────────────────────
 function _emitirAlUsuario(io, userId, evento, datos) {
   io.to(`user:${userId}`).emit(evento, datos);
@@ -172,6 +256,12 @@ function _emitirAlUsuario(io, userId, evento, datos) {
 module.exports = {
   inicializarWorkerHandler,
   isWorkerAvailable,
+  getWorkerSocket,
   sendToWorker,
   getWorkerInfo,
+  registrarProxy,
+  desregistrarProxy,
+  tieneProxy,
+  onWorkerConnected,
+  onWorkerDisconnected,
 };
