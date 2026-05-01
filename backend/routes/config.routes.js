@@ -295,6 +295,14 @@ router.put('/pausa', async (req, res) => {
     );
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Modo pausa ${modoPausa ? 'activado' : 'desactivado'}` });
     _notificarRecargarConfig(req.user._id);
+    // Enviar valor directamente al worker — funciona aunque MongoDB esté caído
+    try {
+      const workerHandler = require('../services/worker.handler');
+      workerHandler.sendToWorker('worker:set-pausa', {
+        userId: String(req.user._id),
+        modoPausa: !!modoPausa,
+      });
+    } catch (_) {}
     res.json({ modoPausa: config.modoPausa });
   } catch (err) {
     res.status(500).json({ error: err.message });

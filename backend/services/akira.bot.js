@@ -3060,6 +3060,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       log(`[Config] ⚠️ No se pudo cargar Config desde MongoDB al arrancar (${e.message}) — usando credentials cache`);
     }
 
+    // Patch de configuración directo — sin leer MongoDB (funciona con DB caída)
+    // Usado por worker:set-pausa y otros eventos directos desde el backend
+    emitter.on('config:patch', (patch) => {
+      if (!patch) return;
+      if (typeof patch.modoPausa === 'boolean') MODO_PAUSA = patch.modoPausa;
+      if (patch.celularNotificaciones !== undefined) CELULAR_NOTIFICACIONES = patch.celularNotificaciones;
+      if (patch.promptPersonalizado   !== undefined) PROMPT_EXTRA = patch.promptPersonalizado;
+      log(`[Config] 🔧 Patch directo aplicado: ${JSON.stringify(patch)}`);
+    });
+
     // Recargar configuración en caliente — se dispara cuando el usuario
     // guarda cambios desde el dashboard sin necesidad de reiniciar el bot
     emitter.on('config:reload', async () => {

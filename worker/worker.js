@@ -567,6 +567,20 @@ socket.on('worker:catalog-sync', ({ userId }) => {
   if (bot) bot.emit('catalog:sync');
 });
 
+socket.on('worker:config-reload', ({ userId }) => {
+  const bot = instancias.get(String(userId));
+  if (bot) bot.emit('config:reload');
+});
+
+socket.on('worker:set-pausa', ({ userId, modoPausa }) => {
+  const uid = String(userId);
+  const bot = instancias.get(uid);
+  if (bot) {
+    bot.emit('config:patch', { modoPausa: !!modoPausa });
+    console.log(`[Worker:${uid.slice(-6)}] modoPausa → ${!!modoPausa}`);
+  }
+});
+
 socket.on('worker:calendar-reload', ({ userId }) => {
   const bot = instancias.get(String(userId));
   if (bot) bot.emit('calendar:reload');
