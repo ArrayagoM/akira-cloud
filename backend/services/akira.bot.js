@@ -190,7 +190,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
   msgRetryCounterCache.set = (k, v) => Map.prototype.set.call(msgRetryCounterCache, k, v);
   msgRetryCounterCache.del = (k) => Map.prototype.delete.call(msgRetryCounterCache, k);
   // Store de mensajes recientes para reintentos
-  const msgStore = new Map(); // msgId → message
+  const msgStore = new Map();   // msgId → message (para retry de Signal)
+  const jidQueues = new Map(); // jid → Promise (cola secuencial por contacto)
   const timeoutsRecs = {};
   let sock = null;
   let expressServer = null;
@@ -2908,18 +2909,24 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       if (type !== 'notify') return;
       ultimoMensajeTs = Date.now();
       for (const msg of messages) {
-        const limit = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000),
-        );
-        // Envuelto en función async auto-invocada con catch garantizado
-        // para que un error en un mensaje nunca corte el handler del siguiente
-        (async () => {
+        const rawJid = msg.key?.remoteJid || 'unknown';
+        // Cola por JID: mensajes del mismo contacto se procesan uno a la vez.
+        // Evita que un backlog de mensajes acumulados dispare N respuestas en paralelo.
+        const prev = jidQueues.get(rawJid) || Promise.resolve();
+        const next = prev.then(async () => {
+          const limit = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000),
+          );
           try {
             await Promise.race([handleBaileysMessage(msg), limit]);
           } catch (e) {
-            log(`❌ Error handleMessage: ${e.message}`);
+            log(`❌ Error handleMessage [${rawJid}]: ${e.message}`);
           }
-        })();
+        });
+        jidQueues.set(rawJid, next);
+        next.finally(() => {
+          if (jidQueues.get(rawJid) === next) jidQueues.delete(rawJid);
+        });
       }
     });
   }
@@ -3031,6 +3038,27 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
         log('⚠️ calendar:reload error: ' + e.message);
       }
     });
+
+    // Cargar configuración real desde MongoDB al arrancar
+    // (el credentials cache puede estar desactualizado respecto al dashboard)
+    try {
+      const cfgInicial = await Promise.race([
+        Config.findOne({ userId: USER_ID }).lean(),
+        new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 4000)),
+      ]);
+      if (cfgInicial) {
+        if (typeof cfgInicial.modoPausa === 'boolean') {
+          MODO_PAUSA = cfgInicial.modoPausa;
+        }
+        if (cfgInicial.celularNotificaciones) CELULAR_NOTIFICACIONES = cfgInicial.celularNotificaciones;
+        if (cfgInicial.promptPersonalizado)   PROMPT_EXTRA = cfgInicial.promptPersonalizado;
+        if (cfgInicial.horariosAtencion)      HORARIOS_ATENCION = cfgInicial.horariosAtencion;
+        if (cfgInicial.diasBloqueados)        DIAS_BLOQUEADOS = cfgInicial.diasBloqueados;
+        log(`[Config] ✅ Config cargada desde MongoDB — MODO_PAUSA=${MODO_PAUSA}`);
+      }
+    } catch (e) {
+      log(`[Config] ⚠️ No se pudo cargar Config desde MongoDB al arrancar (${e.message}) — usando credentials cache`);
+    }
 
     // Recargar configuración en caliente — se dispara cuando el usuario
     // guarda cambios desde el dashboard sin necesidad de reiniciar el bot
