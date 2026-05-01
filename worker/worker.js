@@ -202,9 +202,18 @@ const MONGO_KEEPALIVE_MS = 5 * 60 * 1000;
 let mongoKeepAliveFailCount = 0;
 setInterval(async () => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      // Si no está conectado, mongoose ya está intentando reconectar solo —
-      // no interferimos con su lógica.
+    const rs = mongoose.connection.readyState;
+    if (rs === 0) {
+      // readyState=0 = completamente desconectado.
+      // Mongoose 6+ NO reconecta solo después de un fallo inicial — hay que forzarlo.
+      if (!reconexionEnCurso) {
+        console.warn('[Worker] 🔄 MongoDB readyState=0 — forzando reconexión...');
+        forzarReconexionMongo().catch(() => {});
+      }
+      return;
+    }
+    if (rs !== 1) {
+      // readyState=2 (connecting) o 3 (disconnecting) — esperar
       return;
     }
     // 1) Ping ligero al admin (driver-level, microsegundos)
