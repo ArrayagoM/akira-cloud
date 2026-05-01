@@ -2279,12 +2279,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
     log(`${fueAudio ? '🎤' : '📩'} [${jid}]: ${texto.slice(0, 80)}`);
 
     // Intentar cache RAM primero (sync, O(1))
-    // Si la cache está vacía (MongoDB tardó en arrancar), buscar directo en DB
+    const mongoose = require('mongoose');
+    log(`[DBG] handleMsg START jid=${jid} mongoState=${mongoose.connection.readyState} cacheHit=${!!clientesSvc.cargarMemoria(jid)}`);
     let usuario = clientesSvc.cargarMemoria(jid);
     if (!usuario) {
-      // Cache miss → intentar recuperar desde MongoDB antes de tratar como usuario nuevo
+      log(`[DBG] cache miss → llamando cargarMemoriaAsync (mongoState=${mongoose.connection.readyState})`);
+      const t0 = Date.now();
       usuario = await clientesSvc.cargarMemoriaAsync(jid);
-      if (usuario) log(`[DB] 🔄 Usuario ${usuario.nombre||jid} recuperado en cache miss — MongoDB tardó en cargar al arranque`);
+      log(`[DBG] cargarMemoriaAsync completó en ${Date.now()-t0}ms → usuario=${usuario ? (usuario.nombre||'sin_nombre') : 'NULL'}`);
     }
     log(`[DBG] usuario=${usuario ? (usuario.nombre||'sin_nombre') : 'NULL'} sock=${!!sock} cacheTmp=${JSON.stringify(Object.keys(cacheTemporal[jid]||{}))}`);
     if (usuario?.silenciado && !bodyLower.includes('akira')) {
@@ -2403,8 +2405,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId) {
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
       let u = clientesSvc.cargarMemoria(jid);
+      log(`[DBG] pre-IA cacheHit2=${!!u} mongoState=${mongoose.connection.readyState}`);
       // Seguridad: doble fallback por si la cache sigue vacía
-      if (!u) u = await clientesSvc.cargarMemoriaAsync(jid);
+      if (!u) {
+        log(`[DBG] pre-IA cache miss → llamando cargarMemoriaAsync #2`);
+        const t1 = Date.now();
+        u = await clientesSvc.cargarMemoriaAsync(jid);
+        log(`[DBG] cargarMemoriaAsync #2 completó en ${Date.now()-t1}ms → u=${u ? (u.nombre||'sin_nombre') : 'NULL'}`);
+      }
       if (!u) {
         // MongoDB inaccesible — distinguir usuario CONOCIDO de usuario NUEVO
         // Si cacheTemporal[jid] tiene datos, el usuario YA tuvo conversaciones previas

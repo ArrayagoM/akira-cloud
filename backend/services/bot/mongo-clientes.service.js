@@ -116,15 +116,30 @@ function crearMongoClientesService(userId, log) {
   // de un usuario que ya tiene historial pero la cache RAM está vacía.
   async function cargarMemoriaAsync(jid) {
     if (cache.has(jid)) return cache.get(jid);
-    // Verificar que mongoose esté realmente conectado antes de hacer la query.
-    // Sin esto, Mongoose bufferiza la query y tarda 10s en fallar aunque no haya conexión.
+
     const mongoose = require('mongoose');
-    if (mongoose.connection.readyState !== 1) {
-      // No conectado — retornar null sin buffering, no bloquear el handler
+    const state = mongoose.connection.readyState;
+    // readyState: 0=disconnected 1=connected 2=connecting 3=disconnecting
+    log(`[DB] cargarMemoriaAsync jid=${jid} readyState=${state} cacheSize=${cache.size}`);
+
+    if (state !== 1) {
+      log(`[DB] ⚠️ cargarMemoriaAsync → skip (readyState=${state} — no conectado, retorno inmediato)`);
       return null;
     }
+
+    // readyState===1 pero Atlas puede tener conexión TCP zombie (no responde queries).
+    // Promise.race garantiza que nunca bloqueamos más de 3.5s independientemente de Mongoose.
+    const TIMEOUT_MS = 3500;
+    const tsInicio = Date.now();
     try {
-      const doc = await BotCliente.findOne({ userId, jid }).maxTimeMS(5000).lean();
+      log(`[DB] cargarMemoriaAsync → lanzando query con timeout ${TIMEOUT_MS}ms...`);
+      const doc = await Promise.race([
+        BotCliente.findOne({ userId, jid }).maxTimeMS(3000).lean(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`local-timeout-${TIMEOUT_MS}ms`)), TIMEOUT_MS)
+        ),
+      ]);
+      const elapsed = Date.now() - tsInicio;
       if (doc) {
         const datos = {
           jid:              doc.jid,
@@ -136,12 +151,14 @@ function crearMongoClientesService(userId, log) {
           historial:        normalizarHistorial(doc.historial || []),
           turnosConfirmados:doc.turnosConfirmados || [],
         };
-        cache.set(jid, datos); // Cargar al cache para futuras consultas
-        log(`[DB] 🔄 Usuario ${doc.nombre||jid} recuperado por cargarMemoriaAsync (cache miss)`);
+        cache.set(jid, datos);
+        log(`[DB] ✅ cargarMemoriaAsync → usuario ${doc.nombre||jid} recuperado en ${elapsed}ms`);
         return datos;
       }
+      log(`[DB] cargarMemoriaAsync → usuario no encontrado en DB (${elapsed}ms)`);
     } catch (e) {
-      log(`[DB] ⚠️ cargarMemoriaAsync ${jid}: ${e.message}`);
+      const elapsed = Date.now() - tsInicio;
+      log(`[DB] ⚠️ cargarMemoriaAsync ${jid} (${elapsed}ms): ${e.message}`);
     }
     return null;
   }
