@@ -7,7 +7,6 @@
 
 const path = require('path');
 const fs = require('fs');
-const NodeCache = require('node-cache');
 const {
   default: makeWASocket,
   DisconnectReason,
@@ -16,6 +15,37 @@ const {
   makeCacheableSignalKeyStore,
   downloadMediaMessage,
 } = require('@whiskeysockets/baileys');
+
+// ── Mini cache con TTL (sustituye node-cache para evitar dep extra) ──
+// Solo provee la API que Baileys necesita: get(key), set(key, value).
+function crearTTLCache(defaultTtlSec = 60) {
+  const store = new Map(); // key → { value, expiresAt }
+  return {
+    get(key) {
+      const entry = store.get(key);
+      if (!entry) return undefined;
+      if (Date.now() > entry.expiresAt) {
+        store.delete(key);
+        return undefined;
+      }
+      return entry.value;
+    },
+    set(key, value, ttlSec) {
+      const ttl = (typeof ttlSec === 'number' ? ttlSec : defaultTtlSec) * 1000;
+      store.set(key, { value, expiresAt: Date.now() + ttl });
+      // Limpieza simple: si crece mucho, purgar expirados
+      if (store.size > 5000) {
+        const now = Date.now();
+        for (const [k, e] of store.entries()) {
+          if (now > e.expiresAt) store.delete(k);
+        }
+      }
+      return true;
+    },
+    del(key) { return store.delete(key); },
+    flushAll() { store.clear(); },
+  };
+}
 
 /**
  * Crea un runner Baileys.
@@ -45,7 +75,7 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
   let saveCredsRef = null;
   let clearAuthRef = null;
 
-  const msgRetryCounterCache = new NodeCache({ stdTTL: 60, useClones: false });
+  const msgRetryCounterCache = crearTTLCache(60);
   // msgStore: cache de mensajes enviados para retry de Signal keys
   const msgStore = new Map();
 
