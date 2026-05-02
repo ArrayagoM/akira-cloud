@@ -39,69 +39,13 @@ console.log(`[Worker] Sesiones: ${SESSIONS_PATH}`);
 const runners = new Map(); // userId → baileys-runner
 const arranqueEnCurso = new Set();
 
-// ── DETECCIÓN GLOBAL DE BAD MAC / SESIÓN CORRUPTA ────────────
-// libsignal escribe sus errores DIRECTO a stderr/stdout (no pasa por el
-// logger de Baileys). Interceptamos console.error para detectarlos.
-// Si vemos N "Bad MAC" en M segundos → la sesión está muerta y hay que
-// limpiarla + pedir QR nuevo.
-const badMacWindow = []; // timestamps de Bad MAC recientes
-const BAD_MAC_THRESHOLD = 5;       // 5 errores
-const BAD_MAC_WINDOW_MS = 10_000;  // en 10 segundos
-let badMacResetEnCurso = false;
-
-const _origConsoleError = console.error.bind(console);
-console.error = function (...args) {
-  _origConsoleError(...args);
-  try {
-    const text = args.map(a =>
-      typeof a === 'string' ? a : (a?.message || '')
-    ).join(' ').toLowerCase();
-    if (text.includes('bad mac')) {
-      badMacWindow.push(Date.now());
-      // Limpiar viejos (> ventana)
-      const cutoff = Date.now() - BAD_MAC_WINDOW_MS;
-      while (badMacWindow.length && badMacWindow[0] < cutoff) badMacWindow.shift();
-      if (badMacWindow.length >= BAD_MAC_THRESHOLD && !badMacResetEnCurso) {
-        badMacResetEnCurso = true;
-        badMacWindow.length = 0;
-        const uids = Array.from(runners.keys());
-        _origConsoleError(`[Worker] 🚨 Bad MAC ×${BAD_MAC_THRESHOLD} en ${BAD_MAC_WINDOW_MS / 1000}s — sesión corrupta detectada. Limpiando ${uids.length} bot(s) y pidiendo QR nuevo...`);
-        Promise.all(uids.map(async (uid) => {
-          try {
-            const runner = runners.get(uid);
-            if (!runner) return;
-            // Borrar carpeta de sesión + detener runner
-            const dir = path.join(SESSIONS_PATH, uid);
-            try {
-              if (fs.existsSync(dir)) {
-                for (const f of fs.readdirSync(dir)) {
-                  try { fs.unlinkSync(path.join(dir, f)); } catch {}
-                }
-              }
-            } catch {}
-            await runner.detener().catch(() => {});
-            runners.delete(uid);
-            socket.emit('worker:bot-disconnected', {
-              userId: uid,
-              reason: 'sesión corrupta (Bad MAC) — escaneá un QR nuevo',
-              sessionCleared: true,
-            });
-            socket.emit('worker:bot-log', {
-              userId: uid,
-              msg: '🚨 Sesión corrupta detectada (Bad MAC). Limpiada automáticamente. Iniciá el bot de nuevo desde el panel para escanear un QR nuevo.',
-              ts: new Date().toLocaleTimeString('es-AR'),
-            });
-          } catch (e) {
-            _origConsoleError(`[Worker] Error limpiando ${uid}: ${e.message}`);
-          }
-        })).finally(() => {
-          // Cooldown 30s antes de permitir otra detección
-          setTimeout(() => { badMacResetEnCurso = false; }, 30_000);
-        });
-      }
-    }
-  } catch {}
-};
+// Nota: NO interceptamos console.error para Bad MAC. Esos errores son
+// frecuentes y NORMALES en Signal Protocol (cada vez que un contacto
+// nuevo manda mensaje, la primera tentativa de descifrado puede fallar y
+// después Baileys renegocia las claves). Solo si la sesión está realmente
+// muerta los reintentos se acumulan, y eso lo maneja el handler interno
+// de Baileys (loggedOut/badSession en connection.update).
+// Si querés limpiar manualmente: pm2 stop worker && rm -rf sessions/<uid>/ && pm2 start worker
 
 // ── Keep-alive Backend ────────────────────────────────────────
 const PING_INTERVAL_MS = 5 * 60 * 1000;

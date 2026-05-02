@@ -54,12 +54,51 @@ function inicializarWorkerHandler(io) {
     logger.info(`[WorkerHandler] ✅ Worker conectado (id: ${socket.id})`);
     workerSocket = socket;
 
-    socket.on('worker:ready', (info) => {
+    socket.on('worker:ready', async (info) => {
       workerInfo = { ...info, connectedAt: new Date().toISOString() };
       logger.info(
         `[WorkerHandler] Worker listo — modo=${info.mode || 'legacy'} bots=${info.bots || 0}`
       );
       externalListeners.onWorkerConnected?.(info);
+
+      // Sincronizar estado: si el backend tiene usuarios marcados como
+      // botActivo:true / botConectado:true pero el worker dice que NO
+      // tiene esa sesión, el panel queda mostrando "Conectado" cuando en
+      // realidad está caído. Marcamos como inactivos los que no estén.
+      try {
+        const botIdsActivos = new Set((info.botIds || []).map(String));
+        const stale = await User.find({
+          $or: [{ botActivo: true }, { botConectado: true }],
+        }).select('_id botActivo botConectado').lean();
+
+        let marcados = 0;
+        for (const u of stale) {
+          const uid = String(u._id);
+          if (botIdsActivos.has(uid)) continue;
+          await User.findByIdAndUpdate(uid, {
+            botActivo: false,
+            botConectado: false,
+          }).catch(() => {});
+          // Notificar al panel del usuario para que actualice la UI
+          _emitirAlUsuario(io, uid, 'bot:disconnected', {
+            reason: 'Sin sesión activa en el worker — escaneá un QR nuevo',
+          });
+          // Limpiar proxy si quedó stale
+          if (proxies.has(uid)) {
+            const p = proxies.get(uid);
+            try { p.cerrar(); } catch {}
+            proxies.delete(uid);
+          }
+          marcados++;
+        }
+        if (marcados > 0) {
+          logger.info(
+            `[WorkerHandler] Sincronización: ${marcados} bot(s) marcados inactivos (worker no los tiene)`
+          );
+        }
+      } catch (e) {
+        logger.warn(`[WorkerHandler] Error sincronizando estado al ready: ${e.message}`);
+      }
     });
 
     // ── Eventos info → reenviar al frontend (compatible con UI actual) ──
