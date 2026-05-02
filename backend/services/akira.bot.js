@@ -207,6 +207,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   let watchdogTimer = null;
   let ultimoMensajeTs = Date.now();
   let catalogFallos = 0;
+  // Cooldown para fallback de "no entendí tu mensaje" (anti-spam por JID)
+  const fallbackCooldown = new Map(); // jid → timestamp último fallback enviado
   let esNegocioWA = null; // null=desconocido, false=no es Business, true=es Business
   let reconectarIntentos = 0; // contador de reconexiones sin éxito
   let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
@@ -2248,7 +2250,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       // Si es un tipo de mensaje sin texto (sticker, reacción, ubicación, etc.) — responder amablemente
       if (esTipoSinTexto(msg)) {
         log(`📎 [${jid}] Mensaje tipo "${msgType}" sin texto — respondiendo con fallback`);
-        // Solo responder si el cliente ya está registrado o tenemos su nombre
         const uc = clientesSvc.cargarMemoria(jid);
         if (uc && !uc.silenciado) {
           await enviarMensaje(
@@ -2256,9 +2257,33 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             `¡Hola${uc.nombre ? ', ' + uc.nombre : ''}! 😊 Solo puedo responder mensajes de texto o audio. ¿En qué te puedo ayudar?`,
           );
         }
-      } else {
-        log(`⏭️ [${jid}] Mensaje tipo "${msgType}" descartado — sin texto extraíble`);
+        return;
       }
+      // ⚠️ Mensaje SIN texto extraíble Y sin tipo conocido → muy probablemente
+      // un mensaje que falló al descifrar (Bad MAC, sesión Signal desincronizada).
+      // Antes lo descartábamos en silencio → cliente sin respuesta.
+      // Ahora respondemos con fallback (con cooldown 30s para no spammear si
+      // llegan varios fallidos seguidos).
+      const ultimoFallback = fallbackCooldown.get(jid) || 0;
+      const ahora = Date.now();
+      if (ahora - ultimoFallback < 30_000) {
+        log(`⏭️ [${jid}] Mensaje sin descifrar — fallback en cooldown, sin responder`);
+        return;
+      }
+      fallbackCooldown.set(jid, ahora);
+      // Limpiar cooldowns viejos para no llenar memoria
+      if (fallbackCooldown.size > 200) {
+        for (const [k, t] of fallbackCooldown.entries()) {
+          if (ahora - t > 5 * 60_000) fallbackCooldown.delete(k);
+        }
+      }
+      log(`🚨 [${jid}] Mensaje sin descifrar (probable Bad MAC) — enviando fallback al cliente`);
+      const uc2 = clientesSvc.cargarMemoria(jid);
+      const nombre = uc2?.nombre ? `, ${uc2.nombre}` : '';
+      await enviarMensaje(
+        jid,
+        `¡Disculpá${nombre}! 🙏 Tu último mensaje no me llegó completo. ¿Me lo podés repetir?`,
+      ).catch(() => {});
       return;
     }
 
