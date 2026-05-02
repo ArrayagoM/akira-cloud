@@ -265,15 +265,18 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
     sock.ev.on('chats.upsert', (chats) => emit('onChatsUpsert', chats));
 
     sock.ev.on('messages.upsert', ({ messages, type }) => {
-      // Capturar mensajes propios para retry de Signal keys
+      // Cachear TODOS los mensajes con contenido (entrantes y salientes).
+      // Baileys los pide via getMessage() para reintento de Signal Protocol
+      // cuando hay Bad MAC. Antes solo guardábamos los fromMe — guardar también
+      // los entrantes ayuda a recuperar mensajes corruptos.
       if (type === 'append' || type === 'notify') {
         for (const m of messages) {
-          if (m.key?.id && m.key?.fromMe && m.message) {
+          if (m.key?.id && m.message) {
             msgStore.set(m.key.id, m.message);
-            // Limpiar cache si crece mucho
-            if (msgStore.size > 500) {
+            // Limpiar cache si crece mucho (FIFO simple)
+            if (msgStore.size > 1000) {
               const keys = Array.from(msgStore.keys());
-              for (let i = 0; i < 200; i++) msgStore.delete(keys[i]);
+              for (let i = 0; i < 400; i++) msgStore.delete(keys[i]);
             }
           }
         }
