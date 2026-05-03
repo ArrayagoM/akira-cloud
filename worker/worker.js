@@ -47,8 +47,10 @@ const arranqueEnCurso = new Set();
 // de Baileys (loggedOut/badSession en connection.update).
 // Si querés limpiar manualmente: pm2 stop worker && rm -rf sessions/<uid>/ && pm2 start worker
 
-// ── Keep-alive Backend ────────────────────────────────────────
-const PING_INTERVAL_MS = 5 * 60 * 1000;
+// ── Keep-alive Backend (ping cada 4min para que Render no duerma) ──
+// Render free-tier duerme tras 15min sin tráfico. Con 4min tenemos margen.
+const PING_INTERVAL_MS = 4 * 60 * 1000;
+let _backendOkConsecutivos = 0;
 
 function pingBackend() {
   try {
@@ -59,17 +61,24 @@ function pingBackend() {
       path: '/api/health',
       method: 'GET',
       headers: { 'User-Agent': 'AkiraWorker/keepalive', Connection: 'close' },
-      timeout: 8000,
+      timeout: 12000,
     };
     const req = mod.request(options, (res) => {
       res.on('data', () => {});
       res.on('end', () => {
-        if (res.statusCode !== 200)
+        if (res.statusCode === 200) {
+          _backendOkConsecutivos++;
+          // Solo loguear cada 10 pings exitosos (cada ~40min) para no llenar logs
+          if (_backendOkConsecutivos % 10 === 0)
+            console.log(`[Worker] 💓 Backend OK (×${_backendOkConsecutivos})`);
+        } else {
+          _backendOkConsecutivos = 0;
           console.warn(`[Worker] ⚠️ Backend health: ${res.statusCode}`);
+        }
       });
     });
-    req.on('error', () => {});
-    req.setTimeout(8000, () => req.destroy());
+    req.on('error', () => { _backendOkConsecutivos = 0; });
+    req.setTimeout(12000, () => req.destroy());
     req.end();
   } catch {}
 }
@@ -78,32 +87,53 @@ pingBackend();
 setInterval(pingBackend, PING_INTERVAL_MS);
 
 // ── Socket.io → Backend ───────────────────────────────────────
+// reconnectionDelayMax: 45000 — Render puede tardar hasta 30-40s en despertar
+// del sleep. Con 45s de espera máxima nos aseguramos de no desconectarnos
+// permanentemente cuando el backend reinicia.
 const socketUrl = RENDER_URL.replace(/\/$/, '');
 const socket = io(`${socketUrl}/worker`, {
   path: '/socket.io',
   auth: { secret: WORKER_SECRET, role: 'worker' },
   reconnection: true,
   reconnectionDelay: 3000,
-  reconnectionDelayMax: 10000,
+  reconnectionDelayMax: 45000,   // era 10s — Render puede tardar 30-40s en despertar
+  reconnectionAttempts: Infinity, // nunca dejar de intentar
   transports: ['websocket'],
 });
 
+// Estado para detectar reconexión real (no primer connect)
+let _conectadoAlgezVez = false;
+
 socket.on('connect', () => {
-  console.log(`[Worker] ✅ Conectado a backend (id: ${socket.id})`);
+  const esReconexion = _conectadoAlgezVez;
+  _conectadoAlgezVez = true;
+  console.log(`[Worker] ✅ ${esReconexion ? 'Re' : 'C'}onectado a backend (id: ${socket.id})`);
   socket.emit('worker:ready', {
     workerId: 'local-pc',
     bots: runners.size,
     botIds: Array.from(runners.keys()),
     platform: process.platform,
     nodeVersion: process.version,
-    mode: 'proxy', // Indicar al backend que es el nuevo modo
+    mode: 'proxy',
   });
-  // Auto-restaurar bots con sesión guardada en disco
-  setTimeout(() => autoRestaurar(), 1500);
+  // En reconexión: si ya tenemos bots corriendo, no re-arrancar (siguen activos).
+  // Si no hay bots activos (p.ej. el worker también se reinició), auto-restaurar.
+  const delay = esReconexion ? 3000 : 1500;
+  setTimeout(() => {
+    if (runners.size === 0) autoRestaurar();
+    else console.log(`[Worker] 🔄 Reconectado con ${runners.size} bot(s) ya activos — no hace falta restaurar`);
+  }, delay);
 });
 
 socket.on('connect_error', (e) => console.error('[Worker] ❌ connect_error:', e.message));
-socket.on('disconnect', (reason) => console.warn('[Worker] ⚠️ Desconectado:', reason));
+socket.on('disconnect', (reason) => {
+  console.warn(`[Worker] ⚠️ Desconectado: ${reason}`);
+  // Los bots WA siguen corriendo aunque perdamos conexión con el backend.
+  // Los mensajes entrantes se acumularán brevemente en Baileys y se reenviarán
+  // cuando se reestablezca el socket.
+  if (runners.size > 0)
+    console.log(`[Worker] ℹ️ ${runners.size} bot(s) WA siguen activos mientras se reconecta`);
+});
 
 // ────────────────────────────────────────────────────────────
 //  ARRANCAR / DETENER bots
@@ -111,7 +141,12 @@ socket.on('disconnect', (reason) => console.warn('[Worker] ⚠️ Desconectado:'
 async function iniciarBot(uid) {
   if (runners.has(uid)) {
     console.log(`[Worker] Bot ${uid.slice(-6)} ya está activo`);
+    // Emitir bot-started Y bot-ready: el backend puede estar reconectando y necesita
+    // ambos eventos para que el proxy registre el estado "conectado" y empiece a
+    // procesar mensajes. Sin bot-ready, connection.update:open nunca llega al motor
+    // del bot y los mensajes entrantes se ignoran silenciosamente.
     socket.emit('worker:bot-started', { userId: uid });
+    socket.emit('worker:bot-ready', { userId: uid });
     return;
   }
   if (arranqueEnCurso.has(uid)) {
