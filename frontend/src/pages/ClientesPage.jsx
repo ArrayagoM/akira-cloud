@@ -149,7 +149,7 @@ function ClienteCard({ cliente, onClick }) {
 // ─────────────────────────────────────────────────────────────
 // PANEL: detalle del cliente seleccionado (drawer)
 // ─────────────────────────────────────────────────────────────
-function ClienteDetalle({ cliente, onClose, onSave }) {
+function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
   const [detalle, setDetalle]   = useState(null);
   const [loading, setLoading]   = useState(true);
   const [notas, setNotas]       = useState(cliente.notas || '');
@@ -157,6 +157,7 @@ function ClienteDetalle({ cliente, onClose, onSave }) {
   const [intervalo, setIntervalo] = useState(cliente.intervaloRecordatorioDias || '');
   const [nuevaTag, setNuevaTag]   = useState('');
   const [saving, setSaving]       = useState(false);
+  const [deleting, setDeleting]   = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -177,6 +178,21 @@ function ClienteDetalle({ cliente, onClose, onSave }) {
   };
 
   const quitarTag = (t) => setEtiquetas(etiquetas.filter(x => x !== t));
+
+  const eliminar = async () => {
+    if (!confirm(`¿Eliminar a ${cliente.nombre || 'este cliente'} del sistema? Esto borra su historial y no se puede deshacer.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/bot/clientes/${encodeURIComponent(cliente.jid)}`);
+      toast.success('Cliente eliminado');
+      onDelete?.(cliente._id);
+      onClose();
+    } catch {
+      toast.error('Error al eliminar');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const guardar = async () => {
     setSaving(true);
@@ -401,14 +417,19 @@ function ClienteDetalle({ cliente, onClose, onSave }) {
           )}
         </div>
 
-        {/* Footer fijo: guardar */}
-        <div className="sticky bottom-0 px-5 py-3"
+        {/* Footer fijo: guardar + eliminar */}
+        <div className="sticky bottom-0 px-5 py-3 space-y-2"
           style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
           <button onClick={guardar} disabled={saving}
             className="btn-primary w-full text-sm">
             {saving
               ? <><span className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />Guardando...</>
               : <><Save size={14} /> Guardar cambios</>}
+          </button>
+          <button onClick={eliminar} disabled={deleting}
+            className="w-full text-xs py-1.5 rounded-lg transition-colors disabled:opacity-40"
+            style={{ color: '#f43f5e', background: 'transparent', border: '1px solid rgba(244,63,94,0.2)' }}>
+            {deleting ? 'Eliminando...' : '🗑 Eliminar este cliente'}
           </button>
         </div>
 
@@ -470,6 +491,12 @@ export default function ClientesPage() {
   const handleSave = (updated) => {
     setClientes(prev => prev.map(c => c._id === updated._id ? { ...c, ...updated } : c));
     setSeleccionado(s => s ? { ...s, ...updated } : null);
+  };
+
+  const handleDelete = (clienteId) => {
+    setClientes(prev => prev.filter(c => c._id !== clienteId));
+    setTotal(t => Math.max(0, t - 1));
+    setSeleccionado(null);
   };
 
   return (
@@ -581,6 +608,7 @@ export default function ClientesPage() {
           cliente={seleccionado}
           onClose={() => setSeleccionado(null)}
           onSave={handleSave}
+          onDelete={handleDelete}
         />
       )}
     </Layout>

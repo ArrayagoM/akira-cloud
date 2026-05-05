@@ -440,4 +440,18 @@ router.delete('/waitlist/:id', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+//  DELETE /api/bot/clientes/:jid — eliminar un cliente (limpieza de prueba)
+// ─────────────────────────────────────────────────────────────
+router.delete('/clientes/:jid', async (req, res) => {
+  try {
+    const jid = decodeURIComponent(req.params.jid);
+    const r = await BotCliente.deleteOne({ userId: req.user._id, jid });
+    if (r.deletedCount === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

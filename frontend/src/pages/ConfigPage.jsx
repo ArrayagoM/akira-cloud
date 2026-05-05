@@ -941,8 +941,16 @@ export default function ConfigPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">URL del Webhook</label>
                   <div className="flex gap-2">
-                    <input name="mpWebhookUrl" value={form.mpWebhookUrl} onChange={handleForm} className="input-base" placeholder="https://tu-dominio.com/webhook" />
+                    <input name="mpWebhookUrl" value={form.mpWebhookUrl} onChange={handleForm} className="input-base" placeholder="https://tu-app.onrender.com/api/subscriptions/webhook" />
                     <button onClick={saveNegocio} className="btn-secondary px-4 py-2 text-xs whitespace-nowrap"><Save size={13} /></button>
+                  </div>
+                  <div className="mt-2 p-3 rounded-lg space-y-1.5" style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)' }}>
+                    <p className="text-[11px] text-indigo-300 font-semibold">⚠️ URL correcta para el webhook</p>
+                    <p className="text-[11px] text-gray-400">Usá siempre la URL de <strong className="text-white">Render</strong> (donde está el backend), <strong className="text-red-400">no</strong> la de <code className="text-xs">akiracloud.lat</code> — ese dominio apunta al frontend en Vercel y no puede recibir webhooks.</p>
+                    <div className="font-mono text-[11px] text-green-300 bg-black/30 rounded px-2 py-1 break-all">
+                      https://tu-app.onrender.com/api/subscriptions/webhook
+                    </div>
+                    <p className="text-[11px] text-gray-500">Reemplazá <code className="text-xs">tu-app</code> por el nombre de tu servicio en Render. Lo encontrás en <strong className="text-gray-300">render.com → tu servicio → Settings → Custom Domains</strong>.</p>
                   </div>
                 </div>
               </div>
@@ -1275,7 +1283,11 @@ export default function ConfigPage() {
 
         {/* Ngrok */}
         <SeccionCollapsible titulo="🌐 Ngrok (webhook local)" delay={420}>
-          <p className="text-xs text-gray-500 mb-4">Solo necesario si tu servidor es local y no tenés dominio propio.</p>
+          <p className="text-xs text-gray-500 mb-3">Solo necesario si tu servidor es local y no tenés dominio propio. Si ya tenés el backend en <strong className="text-gray-300">Render</strong>, no necesitás ngrok — dejá este campo vacío.</p>
+          <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(0,232,123,0.05)', border: '1px solid rgba(0,232,123,0.15)' }}>
+            <p className="text-[11px] text-green-400 font-semibold mb-1">✅ Ya tenés Render — ngrok no es necesario</p>
+            <p className="text-[11px] text-gray-400">Tu backend en Render ya es público. Para cualquier webhook (MercadoPago, etc.) usá directamente la URL de Render. Si tenés el token de ngrok cargado, podés eliminarlo.</p>
+          </div>
           <div className="space-y-4">
             <KeyField campo="keyNgrok" label="Ngrok Auth Token" placeholder="de dashboard.ngrok.com" keys={keys} onSave={saveKey} onDelete={deleteKey} />
             <div>
