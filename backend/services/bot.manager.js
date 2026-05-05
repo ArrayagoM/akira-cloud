@@ -515,6 +515,81 @@ async function panicStop(userId, motivo = 'Bloqueado por administrador') {
 }
 
 // ────────────────────────────────────────────────────────────
+//  RECONECTAR PROXIES CUANDO EL WORKER (RE)CONECTA
+// ────────────────────────────────────────────────────────────
+// Este es el FIX del bug crítico: sin esto, los mensajes que llegan via
+// worker:msg-incoming se descartan con "sin proxy registrado" porque el
+// backend nunca creó los proxies en modo híbrido.
+//
+// Se llama desde server.js cada vez que el worker envía 'worker:ready':
+//   workerHandler.onWorkerConnected(info => botManager.reconectarProxiesBots(info.botIds))
+//
+// Qué hace:
+//  1. Para cada userId que el worker reporta como activo:
+//     a. Si ya hay una instancia en memoria con proxy stale (socket viejo),
+//        limpia la instancia para forzar re-creación con el socket nuevo.
+//     b. Llama startBot() que crea un proxy fresco con el socket actual del
+//        worker y lo registra en workerHandler.proxies.
+//     c. startBot() manda 'worker:start-bot' al worker → worker detecta que
+//        el bot ya corre y responde 'worker:bot-started' inmediatamente.
+//  2. El proxy queda registrado → los mensajes entrantes fluyen correctamente.
+async function reconectarProxiesBots(botIds = []) {
+  if (!botIds.length) {
+    logger.info('[BotMgr] reconectarProxiesBots: el worker no reporta bots activos.');
+    return;
+  }
+
+  logger.info(`[BotMgr] reconectarProxiesBots: worker reportó ${botIds.length} bot(s) activo(s) — registrando proxies...`);
+
+  for (const userId of botIds) {
+    const uid = String(userId);
+    const key = botKey(uid, 0);
+
+    try {
+      // Si hay instancia en RAM con proxy stale, limpiarla para que startBot()
+      // cree un proxy nuevo con el socket actual del worker.
+      if (instancias.has(key)) {
+        logger.info(`[BotMgr] reconectarProxiesBots: limpiando instancia stale de ${uid.slice(-6)} para recrear proxy`);
+        const botViejo = instancias.get(key);
+        instancias.delete(key);
+        liberarPuerto(key);
+        // Cancelar auto-restart pendiente para este bot
+        if (autoRestartTimers.has(key)) {
+          clearTimeout(autoRestartTimers.get(key));
+          autoRestartTimers.delete(key);
+        }
+        // Apagar la instancia vieja sin propagar eventos de desconexión
+        // (ya la consideramos stale — el worker tiene la conexión real)
+        try { botViejo.detener?.(); } catch {}
+      }
+
+      // Desregistrar proxy viejo si quedó huérfano
+      if (workerHandler.tieneProxy(uid)) {
+        workerHandler.desregistrarProxy(uid);
+      }
+
+      // Crear instancia + proxy nuevo con el socket actual del worker
+      logger.info(`[BotMgr] reconectarProxiesBots: iniciando bot ${uid.slice(-6)}...`);
+      const result = await startBot(uid, 0);
+      if (result.ok) {
+        logger.info(`[BotMgr] reconectarProxiesBots: bot ${uid.slice(-6)} listo ✅`);
+      } else {
+        logger.warn(`[BotMgr] reconectarProxiesBots: startBot ${uid.slice(-6)} → ${result.msg}`);
+      }
+    } catch (e) {
+      logger.error(`[BotMgr] reconectarProxiesBots: error para ${uid.slice(-6)}: ${e.message}`);
+    }
+
+    // Pequeño stagger para no saturar MongoDB
+    if (botIds.indexOf(userId) < botIds.length - 1) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+
+  logger.info('[BotMgr] reconectarProxiesBots: completado.');
+}
+
+// ────────────────────────────────────────────────────────────
 //  RESTAURAR BOTS AL REINICIAR SERVIDOR
 // ────────────────────────────────────────────────────────────
 async function restoreActiveBots() {
@@ -823,6 +898,7 @@ module.exports = {
   stopBot,
   panicStop,
   restoreActiveBots,
+  reconectarProxiesBots,
   stopAllBots,
   shutdownGracioso,
   getBotStatus,

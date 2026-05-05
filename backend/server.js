@@ -88,6 +88,34 @@ global.io = io;
 // ── Namespace /worker para el proceso local del usuario ─────
 workerHandler.inicializarWorkerHandler(io);
 
+// ── FIX CRÍTICO: registrar proxies cuando el worker (re)conecta ──────────
+// Sin esto, los mensajes entrantes (worker:msg-incoming) se descartan con
+// "sin proxy registrado" y el bot nunca responde.
+// Cada vez que el worker envía 'worker:ready' (primer connect + reconexiones),
+// llamamos reconectarProxiesBots() para crear/refrescar los proxies con el
+// socket actual del worker.
+workerHandler.onWorkerConnected((info) => {
+  const botIds = info.botIds || [];
+  logger.info(`[Server] Worker conectado — ${botIds.length} bot(s) activo(s): [${botIds.map(id => String(id).slice(-6)).join(', ')}]`);
+  if (botIds.length > 0) {
+    // Pequeño delay para que el worker termine de inicializar sus runners
+    setTimeout(() => {
+      botManager.reconectarProxiesBots(botIds).catch((e) =>
+        logger.error('[Server] reconectarProxiesBots error:', e.message)
+      );
+    }, 2000);
+  }
+});
+
+// Race condition: el worker puede auto-restaurar bots DESPUÉS de enviar worker:ready
+// (cuando botIds aún estaba vacío). Cuando llega bot-ready sin proxy, creamos el proxy ahora.
+workerHandler.onBotReadyWithoutProxy((userId) => {
+  logger.info(`[Server] onBotReadyWithoutProxy — creando proxy para ${String(userId).slice(-6)}`);
+  botManager.startBot(userId, 0).catch((e) =>
+    logger.warn(`[Server] onBotReadyWithoutProxy startBot error: ${e.message}`)
+  );
+});
+
 // ── Socket.io: autenticación por JWT ────────────────────────
 const jwt = require('jsonwebtoken');
 

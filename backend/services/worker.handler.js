@@ -26,8 +26,9 @@ const proxies = new Map();
 // Listeners externos: bot.manager se suscribe acá para reaccionar
 // cuando el worker (re)conecta y para arrancar/detener bots.
 const externalListeners = {
-  onWorkerConnected: null,   // () => void
-  onWorkerDisconnected: null, // () => void
+  onWorkerConnected: null,       // (info) => void
+  onWorkerDisconnected: null,    // () => void
+  onBotReadyWithoutProxy: null,  // (userId) => void — bot-ready llegó pero no hay proxy aún
 };
 
 // ────────────────────────────────────────────────────────────
@@ -119,7 +120,15 @@ function inicializarWorkerHandler(io) {
       Log.registrar({ userId, tipo: 'bot_connected', mensaje: 'WhatsApp conectado y listo (worker)' }).catch(() => {});
       // Inyectar evento al proxy si existe
       const p = proxies.get(String(userId));
-      if (p) p.inyectarEvento('connection.update', { connection: 'open' });
+      if (p) {
+        p.inyectarEvento('connection.update', { connection: 'open' });
+      } else {
+        // Race condition: el worker auto-restauró un bot DESPUÉS de enviar worker:ready
+        // (cuando botIds estaba vacío). El proxy aún no existe — delegar a bot.manager
+        // para que cree el proxy ahora con el socket actual del worker.
+        logger.warn(`[WorkerHandler] bot-ready para ${String(userId).slice(-6)} sin proxy — delegando arranque a bot.manager`);
+        externalListeners.onBotReadyWithoutProxy?.(String(userId));
+      }
     });
 
     socket.on('worker:bot-started', async ({ userId }) => {
@@ -286,6 +295,8 @@ function getWorkerInfo() {
 /** Suscribir listeners externos para reaccionar a cambios del worker. */
 function onWorkerConnected(cb) { externalListeners.onWorkerConnected = cb; }
 function onWorkerDisconnected(cb) { externalListeners.onWorkerDisconnected = cb; }
+/** Llamado cuando bot-ready llega pero no hay proxy (race condition de auto-restore). */
+function onBotReadyWithoutProxy(cb) { externalListeners.onBotReadyWithoutProxy = cb; }
 
 // ────────────────────────────────────────────────────────────
 function _emitirAlUsuario(io, userId, evento, datos) {
@@ -303,4 +314,5 @@ module.exports = {
   tieneProxy,
   onWorkerConnected,
   onWorkerDisconnected,
+  onBotReadyWithoutProxy,
 };

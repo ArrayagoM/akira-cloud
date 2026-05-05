@@ -2987,8 +2987,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         // ── DEDUP por msg.key.id: WhatsApp/Baileys re-entrega el MISMO mensaje
         // tras reconexiones (vimos 6× "Hola" en 1 segundo). Descartamos antes
         // de encolar para no procesarlo varias veces.
+        //
+        // IMPORTANTE: solo registrar en dedup si el mensaje tiene contenido real.
+        // Cuando Bad MAC ocurre, Baileys emite el mensaje con msg.message = null.
+        // Si lo registramos en ese estado, bloqueamos los reintentos de WhatsApp
+        // que traen el mismo msgId pero ya correctamente descifrado.
         const msgId = msg.key?.id;
-        if (msgId) {
+        const tieneContenido = msg.message && Object.keys(msg.message).length > 0;
+        if (msgId && tieneContenido) {
           if (seenMsgIds.has(msgId)) {
             log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
             continue;
@@ -2999,6 +3005,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             const arr = Array.from(seenMsgIds);
             for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
           }
+        } else if (msgId && !tieneContenido) {
+          // Mensaje sin contenido (Bad MAC / descifrado fallido) — ignorar sin registrar
+          // en dedup para que el reintento de WhatsApp pueda pasar.
+          log(`⚠️ [Dedup] Mensaje sin contenido (Bad MAC?) — no registrado: ${msgId.slice(0, 12)}...`);
+          continue;
         }
         const rawJid = msg.key?.remoteJid || 'unknown';
         // Cola por JID: mensajes del mismo contacto se procesan uno a la vez.
@@ -3096,8 +3107,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       if (type !== 'notify') return;
       ultimoMensajeTs = Date.now();
       for (const msg of messages) {
+        // Solo registrar en dedup si hay contenido real (evita bloquear reintentos
+        // de mensajes que llegaron con Bad MAC / msg.message = null).
         const msgId = msg.key?.id;
-        if (msgId) {
+        const tieneContenido = msg.message && Object.keys(msg.message).length > 0;
+        if (msgId && tieneContenido) {
           if (seenMsgIds.has(msgId)) {
             log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
             continue;
@@ -3107,6 +3121,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             const arr = Array.from(seenMsgIds);
             for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
           }
+        } else if (msgId && !tieneContenido) {
+          log(`⚠️ [Dedup] Mensaje sin contenido (Bad MAC?) — no registrado: ${msgId.slice(0, 12)}...`);
+          continue;
         }
         const rawJid = msg.key?.remoteJid || 'unknown';
         const prev = jidQueues.get(rawJid) || Promise.resolve();
