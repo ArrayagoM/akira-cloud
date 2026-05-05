@@ -207,20 +207,14 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
         }
 
         reconectarIntentos++;
-        const tiempoDesdeConexion = Date.now() - tsUltimaConexion;
-        const esCicloRapido = tiempoDesdeConexion < 120_000;
 
-        if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
-          log?.(`🗑️ Sesión inválida (${reconectarIntentos} desconexiones rápidas) — limpiando`);
-          await clearAuthRef?.().catch(() => {});
-          reconectarIntentos = 0;
-          emit('onDisconnect', 'sesión inválida — QR requerido', true);
-          await detener('session-cleared');
-          return;
-        }
-
-        if (reconectarIntentos >= 10) {
-          log?.('❌ 10 intentos de reconexión fallidos — limpiando sesión');
+        // NOTA: NO limpiamos sesión por desconexiones rápidas con code=undefined.
+        // Cuando cae internet, Baileys cierra repetidamente con code=undefined (no
+        // es un error de WA, es network). Borrar la sesión en esos casos causa que
+        // el bot pida QR nuevo cada vez que hay un corte de luz/internet. El guard
+        // de >= 15 intentos es suficiente para ciclos infinitos genuinamente malos.
+        if (reconectarIntentos >= 15) {
+          log?.('❌ 15 intentos de reconexión fallidos — limpiando sesión');
           await clearAuthRef?.().catch(() => {});
           reconectarIntentos = 0;
           emit('onDisconnect', 'demasiados intentos — QR requerido', true);
