@@ -23,6 +23,13 @@ let workerInfo     = {};
 // proxies[userId] = { sock, inyectarEvento, cerrar } del baileys.proxy.js
 const proxies = new Map();
 
+// Buffer para eventos chats.set / contacts.upsert que llegan ANTES de que
+// el proxy esté registrado (race condition: Baileys dispara chats.set al
+// conectar, pero el backend crea el proxy 2 segundos después).
+// Se vacía automáticamente cuando registrarProxy() es llamado.
+const pendingChatsSet     = new Map(); // userId -> chats[]
+const pendingContactsUpsert = new Map(); // userId -> contacts[]
+
 // Listeners externos: bot.manager se suscribe acá para reaccionar
 // cuando el worker (re)conecta y para arrancar/detener bots.
 const externalListeners = {
@@ -186,13 +193,27 @@ function inicializarWorkerHandler(io) {
     });
 
     socket.on('worker:contacts-upsert', ({ userId, contacts }) => {
-      const p = proxies.get(String(userId));
-      if (p) p.inyectarEvento('contacts.upsert', contacts);
+      const uid = String(userId);
+      const p = proxies.get(uid);
+      if (p) {
+        p.inyectarEvento('contacts.upsert', contacts);
+      } else {
+        // Bufferear: el proxy aún no existe, llegará cuando el bot termine de inicializar
+        const existing = pendingContactsUpsert.get(uid) || [];
+        pendingContactsUpsert.set(uid, [...existing, ...contacts]);
+      }
     });
 
     socket.on('worker:chats-set', ({ userId, chats }) => {
-      const p = proxies.get(String(userId));
-      if (p) p.inyectarEvento('chats.set', { chats });
+      const uid = String(userId);
+      const p = proxies.get(uid);
+      if (p) {
+        p.inyectarEvento('chats.set', { chats });
+      } else {
+        // Bufferear: chats.set llega al conectar Baileys, antes de que el proxy exista
+        logger.info(`[WorkerHandler] chats-set buffereado para ${uid.slice(-6)} (${chats?.length || 0} chats) — proxy no listo aún`);
+        pendingChatsSet.set(uid, chats);
+      }
     });
 
     socket.on('worker:chats-upsert', ({ userId, chats }) => {
@@ -240,6 +261,9 @@ function inicializarWorkerHandler(io) {
         }
         // No los borramos del map — cuando el worker reconecta, los bot.engines
         // van a re-registrar sus proxies o el manager los va a recrear.
+        // Limpiar buffers pendientes — datos del worker desconectado ya no sirven
+        pendingChatsSet.clear();
+        pendingContactsUpsert.clear();
         externalListeners.onWorkerDisconnected?.();
       }
     });
@@ -263,7 +287,28 @@ function getWorkerSocket() {
 
 /** Registrar/desregistrar un proxy de bot (usado por bot.manager). */
 function registrarProxy(userId, proxy) {
-  proxies.set(String(userId), proxy);
+  const uid = String(userId);
+  proxies.set(uid, proxy);
+
+  // Vaciar eventos buffereados que llegaron antes de que el proxy existiera.
+  // Usamos un pequeño delay para que el bot-engine termine de inicializarse
+  // y sus handlers de 'chats.set' / 'contacts.upsert' estén activos.
+  const chats    = pendingChatsSet.get(uid);
+  const contacts = pendingContactsUpsert.get(uid);
+  if (chats || contacts) {
+    setTimeout(() => {
+      if (contacts?.length) {
+        logger.info(`[WorkerHandler] Flushing contacts buffer para ${uid.slice(-6)}: ${contacts.length} contacto(s)`);
+        proxy.inyectarEvento('contacts.upsert', contacts);
+        pendingContactsUpsert.delete(uid);
+      }
+      if (chats?.length) {
+        logger.info(`[WorkerHandler] Flushing chats-set buffer para ${uid.slice(-6)}: ${chats.length} chat(s)`);
+        proxy.inyectarEvento('chats.set', { chats });
+        pendingChatsSet.delete(uid);
+      }
+    }, 1500); // 1.5s — suficiente para que el bot-engine arranque sus handlers
+  }
 }
 
 function desregistrarProxy(userId) {
