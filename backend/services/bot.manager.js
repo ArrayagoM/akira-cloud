@@ -78,8 +78,17 @@ async function startBot(userId, slot = 0) {
   const key  = botKey(uid, slot);
 
   if (instancias.has(key)) {
-    logger.warn(`[BotMgr] Bot ${key} ya está corriendo`);
-    return { ok: false, msg: 'El bot ya está activo' };
+    // Si la instancia existe pero el bot no está conectado a WA (sesión rota,
+    // QR loop, o worker desconectado), hacer force-restart en lugar de bloquear.
+    const userCheck = await User.findById(uid).select('botConectado').lean();
+    if (userCheck?.botConectado) {
+      logger.warn(`[BotMgr] Bot ${key} ya está corriendo y conectado`);
+      return { ok: false, msg: 'El bot ya está activo' };
+    }
+    logger.info(`[BotMgr] Bot ${key} en instancias pero no conectado — forzando restart`);
+    await stopBot(uid, slot).catch(() => {});
+    // Dar tiempo al stopBot para limpiar antes de continuar
+    await new Promise(r => setTimeout(r, 1500));
   }
 
   if (arranqueEnProceso.has(key)) {
