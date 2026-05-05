@@ -209,7 +209,13 @@ export default function Dashboard() {
   // Estado del bot actual (del slot activo)
   const [botStatus, setBotStatus] = useState({ activo: user?.botActivo, conectado: user?.botConectado });
   const [qrData,    setQrData]    = useState(null);
-  const [logs,      setLogs]      = useState([]);
+  // Persistir logs en sessionStorage para que sobrevivan la navegación entre secciones
+  const [logs, setLogs] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('akira_bot_logs');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [stats,     setStats]     = useState({ mensajes: 0, reservas: 0, pagos: 0 });
   const [loading,   setLoading]   = useState({ start: false, stop: false });
   const [modoPausa, setModoPausa] = useState(false);
@@ -229,7 +235,16 @@ export default function Dashboard() {
   useEffect(() => {
     api.get(`/bot/status?slot=${activeSlot}`).then(r => setBotStatus(r.data)).catch(() => {});
     api.get('/bot/stats').then(r => setStats(r.data)).catch(() => {});
-    api.get('/bot/logs?limit=30').then(r => setLogs(r.data.logs.reverse())).catch(() => {});
+    api.get('/bot/logs?limit=30').then(r => {
+      const fromDB = r.data.logs.reverse();
+      setLogs(prev => {
+        // Mergear logs de DB con los que ya hay en memoria, evitar duplicados por _id/mensaje+ts
+        const dbIds = new Set(fromDB.map(l => l._id));
+        const merged = [...fromDB, ...prev.filter(l => !dbIds.has(l._id))].slice(-100);
+        try { sessionStorage.setItem('akira_bot_logs', JSON.stringify(merged)); } catch {}
+        return merged;
+      });
+    }).catch(() => {});
     api.get('/config').then(r => setModoPausa(!!r.data.config?.modoPausa)).catch(() => {});
     if (isAgencia) loadAccounts();
   }, [activeSlot, isAgencia, loadAccounts]);
@@ -270,8 +285,9 @@ export default function Dashboard() {
     });
     const removeLog   = on('bot:log',   ({ msg, ts }) => {
       setLogs(prev => {
-        const next = [...prev, { mensaje: msg, ts, _id: Date.now() }];
-        return next.slice(-100);
+        const next = [...prev, { mensaje: msg, ts, _id: Date.now() }].slice(-100);
+        try { sessionStorage.setItem('akira_bot_logs', JSON.stringify(next)); } catch {}
+        return next;
       });
     });
     return () => { removeQR(); removeReady(); removeDis(); removeStop(); removeErr(); removeBlock(); removeSub(); removeLog(); };
@@ -559,7 +575,7 @@ export default function Dashboard() {
                 </div>
                 Actividad en vivo
               </span>
-              <button onClick={() => setLogs([])}
+              <button onClick={() => { setLogs([]); try { sessionStorage.removeItem('akira_bot_logs'); } catch {} }}
                 className="text-xs transition-colors px-2 py-1 rounded-md"
                 style={{ color: 'var(--muted)' }}
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--text2)'; e.currentTarget.style.background = 'var(--surface3)'; }}

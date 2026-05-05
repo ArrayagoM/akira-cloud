@@ -1704,7 +1704,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         calendar.crearFecha(ya, ma, da, hfa),
       );
       const ev = evs.find((e) => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
-      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      // FIX: crear el nuevo turno ANTES de eliminar el viejo.
+      // Si la creación falla, el turno original queda intacto.
       const nuevo = await calendar.crearEvento(
         CALENDAR_ID,
         `Turno — ${usuario.nombre}`,
@@ -1718,6 +1719,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         push('Error creando nuevo evento.');
         return;
       }
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
       usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map((tc) =>
         tc.fecha === args.fecha_actual && tc.hora === args.hora_actual
           ? { ...tc, fecha: args.fecha_nueva, hora: args.hora_nueva, horaFin: hfnStr }
