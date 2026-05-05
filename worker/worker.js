@@ -39,6 +39,11 @@ console.log(`[Worker] Sesiones: ${SESSIONS_PATH}`);
 const runners = new Map(); // userId → baileys-runner
 const arranqueEnCurso = new Set();
 
+// Cache de último chats.set y contacts.upsert por userId.
+// Permite re-enviar al backend cuando reconecta sin que Baileys vuelva a disparar el evento.
+const lastChatsSet      = new Map(); // userId → chats[]
+const lastContactsUpsert = new Map(); // userId → contacts[]
+
 // Nota: NO interceptamos console.error para Bad MAC. Esos errores son
 // frecuentes y NORMALES en Signal Protocol (cada vez que un contacto
 // nuevo manda mensaje, la primera tentativa de descifrado puede fallar y
@@ -147,6 +152,24 @@ async function iniciarBot(uid) {
     // del bot y los mensajes entrantes se ignoran silenciosamente.
     socket.emit('worker:bot-started', { userId: uid });
     socket.emit('worker:bot-ready', { userId: uid });
+
+    // Re-enviar chats y contacts cacheados: el backend puede haberse reiniciado
+    // y perdió el chats.set original (Baileys solo lo dispara una vez al conectar).
+    // Sin esto, el panel de Chats queda vacío hasta la próxima reconexión de WhatsApp.
+    const cachedChats    = lastChatsSet.get(uid);
+    const cachedContacts = lastContactsUpsert.get(uid);
+    if (cachedContacts?.length || cachedChats?.length) {
+      setTimeout(() => {
+        if (cachedContacts?.length) {
+          console.log(`[Worker] Bot ${uid.slice(-6)} — re-enviando ${cachedContacts.length} contactos al backend (reconexión)`);
+          socket.emit('worker:contacts-upsert', { userId: uid, contacts: cachedContacts });
+        }
+        if (cachedChats?.length) {
+          console.log(`[Worker] Bot ${uid.slice(-6)} — re-enviando ${cachedChats.length} chats al backend (reconexión)`);
+          socket.emit('worker:chats-set', { userId: uid, chats: cachedChats });
+        }
+      }, 3000); // 3s delay — dar tiempo al backend para crear y registrar el proxy
+    }
     return;
   }
   if (arranqueEnCurso.has(uid)) {
@@ -188,9 +211,13 @@ async function iniciarBot(uid) {
           socket.emit('worker:msg-incoming', { userId: uid, msg });
         },
         onContactsUpsert: (contacts) => {
+          // Guardar en cache para re-enviar si el backend reconecta
+          if (contacts?.length) lastContactsUpsert.set(uid, contacts);
           socket.emit('worker:contacts-upsert', { userId: uid, contacts });
         },
         onChatsSet: (chats) => {
+          // Guardar en cache para re-enviar si el backend reconecta
+          if (chats?.length) lastChatsSet.set(uid, chats);
           socket.emit('worker:chats-set', { userId: uid, chats });
         },
         onChatsUpsert: (chats) => {

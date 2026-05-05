@@ -317,7 +317,30 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
 });
 
 // ─────────────────────────────────────────────────────────────
-//  POST /api/subscriptions/webhook — notificaciones de MP
+//  POST /api/subscriptions/webhook/:userId — webhook por usuario
+//  MercadoPago llama a esta URL cuando el cliente del negocio paga
+//  con el bot como intermediario. El userId identifica qué bot procesa.
+// ─────────────────────────────────────────────────────────────
+router.post('/webhook/:userId', async(req,res)=>{
+  // Reutilizar la misma lógica que el webhook genérico — el userId está en params
+  // pero en las notificaciones de bot-client el external_reference ya incluye el userId.
+  // Respondemos 200 inmediatamente (requisito de MP) y procesamos en background.
+  res.sendStatus(200);
+  const payload = req.body;
+  const ownerId = req.params.userId; // userId del negocio dueño del bot
+  logger.info(`[SUB Webhook/:userId] ownerId=${ownerId} type:${payload.type} | data:${JSON.stringify(payload.data)}`);
+  // Por ahora, forward al flujo estándar — el bot-engine de ese usuario
+  // puede suscribirse en el futuro para procesar pagos de sus clientes.
+  if (global.io && payload.type === 'payment' && payload.data?.id) {
+    global.io.to(`user:${ownerId}`).emit('mp:payment-notification', {
+      paymentId: payload.data.id,
+      type: payload.type,
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/webhook — notificaciones de MP (plataforma Akira)
 // ─────────────────────────────────────────────────────────────
 router.post('/webhook', async(req,res)=>{
   // Verificar firma

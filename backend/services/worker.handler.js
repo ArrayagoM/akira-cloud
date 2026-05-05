@@ -307,7 +307,7 @@ function registrarProxy(userId, proxy) {
         proxy.inyectarEvento('chats.set', { chats });
         pendingChatsSet.delete(uid);
       }
-    }, 1500); // 1.5s — suficiente para que el bot-engine arranque sus handlers
+    }, 8000); // 8s — tiempo suficiente para que bot.iniciar() complete (MongoDB + config load)
   }
 }
 

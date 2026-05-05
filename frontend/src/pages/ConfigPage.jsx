@@ -21,6 +21,54 @@ function CopiarTexto({ texto }) {
   );
 }
 
+// URL de webhook auto-generada por usuario — solo lectura, con botón copiar
+function WebhookUrlField() {
+  const { user } = useAuth();
+  const [copiado, setCopiado] = useState(false);
+
+  const backendBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/api$/, '');
+  const webhookUrl = user?._id
+    ? `${backendBase}/api/subscriptions/webhook/${user._id}`
+    : '';
+
+  const copiar = () => {
+    if (!webhookUrl) return;
+    navigator.clipboard.writeText(webhookUrl);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2500);
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+        URL del Webhook
+      </label>
+      <div
+        className="flex items-center gap-2 rounded-lg px-3 py-2"
+        style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}
+      >
+        <span className="flex-1 font-mono text-xs text-green-300 break-all select-all">
+          {webhookUrl || 'Cargando...'}
+        </span>
+        <button
+          onClick={copiar}
+          className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all"
+          style={copiado
+            ? { background: 'rgba(0,232,123,0.15)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.3)' }
+            : { background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+        >
+          <Copy size={11} />
+          {copiado ? '¡Copiado!' : 'Copiar'}
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 mt-1.5">
+        Esta URL es única para tu cuenta. Pegala en MercadoPago en <strong className="text-gray-400">Tu negocio → Configuraciones → Notificaciones</strong>.
+        Cada vez que un cliente pague, MP avisa a tu bot automáticamente.
+      </p>
+    </div>
+  );
+}
+
 function PasoGuia({ numero, titulo, children }) {
   return (
     <div className="flex gap-3">
@@ -938,21 +986,7 @@ export default function ConfigPage() {
               <p className="text-xs text-gray-500 mb-3">El bot genera links de pago automáticos. Si configurás esto, tiene prioridad sobre la transferencia.</p>
               <div className="space-y-3">
                 <KeyField campo="keyMP" label="Access Token" placeholder="APP_USR-..." keys={keys} onSave={saveKey} onDelete={deleteKey} />
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">URL del Webhook</label>
-                  <div className="flex gap-2">
-                    <input name="mpWebhookUrl" value={form.mpWebhookUrl} onChange={handleForm} className="input-base" placeholder="https://tu-app.onrender.com/api/subscriptions/webhook" />
-                    <button onClick={saveNegocio} className="btn-secondary px-4 py-2 text-xs whitespace-nowrap"><Save size={13} /></button>
-                  </div>
-                  <div className="mt-2 p-3 rounded-lg space-y-1.5" style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)' }}>
-                    <p className="text-[11px] text-indigo-300 font-semibold">⚠️ URL correcta para el webhook</p>
-                    <p className="text-[11px] text-gray-400">Usá siempre la URL de <strong className="text-white">Render</strong> (donde está el backend), <strong className="text-red-400">no</strong> la de <code className="text-xs">akiracloud.lat</code> — ese dominio apunta al frontend en Vercel y no puede recibir webhooks.</p>
-                    <div className="font-mono text-[11px] text-green-300 bg-black/30 rounded px-2 py-1 break-all">
-                      https://tu-app.onrender.com/api/subscriptions/webhook
-                    </div>
-                    <p className="text-[11px] text-gray-500">Reemplazá <code className="text-xs">tu-app</code> por el nombre de tu servicio en Render. Lo encontrás en <strong className="text-gray-300">render.com → tu servicio → Settings → Custom Domains</strong>.</p>
-                  </div>
-                </div>
+                <WebhookUrlField />
               </div>
             </div>
 
