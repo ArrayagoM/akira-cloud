@@ -319,6 +319,29 @@ function desregistrarProxy(userId) {
   proxies.delete(String(userId));
 }
 
+/**
+ * Desregistrar un proxy SIN pedirle al worker que detenga Baileys.
+ * Usar cuando estamos reciclando el proxy en el backend (reconexión de
+ * worker, shutdown del backend en Render) y queremos mantener viva la
+ * sesión WhatsApp activa en el worker.
+ */
+function desregistrarProxyLocal(userId) {
+  const uid = String(userId);
+  const p = proxies.get(uid);
+  if (p) {
+    try {
+      if (typeof p.cerrarLocal === 'function') p.cerrarLocal();
+      // Fallback silencioso si por alguna razón no expone cerrarLocal:
+      // simplemente borramos la referencia sin propagar al worker.
+    } catch {}
+  }
+  proxies.delete(uid);
+  // Limpiar también buffers pendientes del usuario para evitar que se
+  // re-inyecten al proxy que vamos a recrear (los reenviará el worker).
+  pendingChatsSet.delete(uid);
+  pendingContactsUpsert.delete(uid);
+}
+
 function tieneProxy(userId) {
   return proxies.has(String(userId));
 }
@@ -356,6 +379,7 @@ module.exports = {
   getWorkerInfo,
   registrarProxy,
   desregistrarProxy,
+  desregistrarProxyLocal,
   tieneProxy,
   onWorkerConnected,
   onWorkerDisconnected,

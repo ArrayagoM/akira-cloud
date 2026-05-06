@@ -567,14 +567,16 @@ async function reconectarProxiesBots(botIds = []) {
           clearTimeout(autoRestartTimers.get(key));
           autoRestartTimers.delete(key);
         }
-        // Apagar la instancia vieja sin propagar eventos de desconexión
-        // (ya la consideramos stale — el worker tiene la conexión real)
-        try { botViejo.detener?.(); } catch {}
+        // CRÍTICO: cerrar localmente sin propagar al worker. Si llamamos
+        // detener() sin flag, el sock.end() del proxy emite worker:stop-bot
+        // y el worker mata la sesión WhatsApp activa — lo que invalida la
+        // sesión y fuerza un QR nuevo. Acá solo queremos reciclar el proxy.
+        try { await botViejo.detener?.(null, { silencioso: true }); } catch {}
       }
 
-      // Desregistrar proxy viejo si quedó huérfano
+      // Desregistrar proxy viejo si quedó huérfano (sin propagar al worker)
       if (workerHandler.tieneProxy(uid)) {
-        workerHandler.desregistrarProxy(uid);
+        workerHandler.desregistrarProxyLocal(uid);
       }
 
       // Crear instancia + proxy nuevo con el socket actual del worker
@@ -693,14 +695,21 @@ async function stopAllBots() {
 // ── Shutdown gracioso del servidor — NO toca botActivo en DB ─
 // Se llama al cerrar el proceso (SIGTERM/SIGINT) para que en el
 // próximo arranque restoreActiveBots() pueda restaurar todos los bots.
+//
+// CRÍTICO: en modo PROXY (worker conectado), cerramos las instancias del
+// backend de forma SILENCIOSA — no le pedimos al worker que detenga Baileys.
+// Si lo hiciéramos, cada deploy/restart de Render mataría todas las sesiones
+// WA del worker y los usuarios tendrían que escanear el QR otra vez. La
+// sesión viva del worker es justamente lo que mantiene al bot respondiendo
+// mientras el backend reinicia.
 async function shutdownGracioso() {
   const keys = Array.from(instancias.keys());
-  logger.info(`[BotMgr] Shutdown gracioso — cerrando ${keys.length} bot(s) (DB sin cambios)`);
+  logger.info(`[BotMgr] Shutdown gracioso — cerrando ${keys.length} bot(s) localmente (worker sigue activo)`);
   await Promise.allSettled(
     keys.map(async (key) => {
       const bot = instancias.get(key);
       if (!bot) return;
-      try { await bot.detener(); } catch {}
+      try { await bot.detener(null, { silencioso: true }); } catch {}
       instancias.delete(key);
       liberarPuerto(key);
     })

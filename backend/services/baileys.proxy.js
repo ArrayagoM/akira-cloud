@@ -96,6 +96,12 @@ function crearBaileysProxy({ userId, workerSocket, log }) {
     end: (reason) => {
       cerrado = true;
       ev.removeAllListeners();
+      // Cierre LOCAL: cuando reciclamos el proxy (reconexión de worker, restart
+      // del backend) NO debemos pedirle al worker que detenga Baileys — eso
+      // mataría la sesión WA activa y forzaría un QR nuevo. Pasar
+      // { silencioso: true } evita propagar el stop al worker.
+      const silencioso = reason && typeof reason === 'object' && reason.silencioso === true;
+      if (silencioso) return;
       try {
         if (workerSocket?.connected) {
           workerSocket.emit('worker:stop-bot', { userId });
@@ -127,7 +133,15 @@ function crearBaileysProxy({ userId, workerSocket, log }) {
     ev.emit(nombre, payload);
   }
 
-  return { sock, inyectarEvento, cerrar: () => sock.end() };
+  return {
+    sock,
+    inyectarEvento,
+    cerrar: () => sock.end(),
+    // cerrarLocal: cierra el proxy en el backend SIN pedirle al worker que
+    // detenga Baileys. Usar al reciclar proxies (reconexión de worker o
+    // shutdown del backend) para mantener viva la sesión WA del worker.
+    cerrarLocal: () => sock.end({ silencioso: true }),
+  };
 }
 
 module.exports = { crearBaileysProxy };

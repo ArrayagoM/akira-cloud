@@ -3366,7 +3366,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     await conectar();
   }
 
-  async function detener(motivo = null) {
+  async function detener(motivo = null, opts = null) {
     botDetenidoIntencional = true; // marcar antes de nulificar sock para cortar todos los timers
     const sockRef = sock;
     sock = null; // null primero para cortar reconexión automática
@@ -3376,7 +3376,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
     if (sockRef) {
       try {
-        sockRef.end();
+        // En modo PROXY, opts.silencioso=true evita que el cierre se propague
+        // al worker (worker:stop-bot). Sin esto, reciclar la instancia en el
+        // backend (reconexión, shutdown) mata la sesión WA del worker y fuerza
+        // un QR nuevo. En modo cloud-direct el flag se ignora silenciosamente.
+        if (opts?.silencioso) {
+          sockRef.end({ silencioso: true });
+        } else {
+          sockRef.end();
+        }
       } catch (e) {
         log('sock.end: ' + e.message);
       }
@@ -3387,7 +3395,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       } catch {}
       expressServer = null;
     }
-    log('🛑 Bot detenido.');
+    log(opts?.silencioso ? '🛑 Bot detenido localmente (worker sigue activo).' : '🛑 Bot detenido.');
     emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
   }
 
