@@ -14,7 +14,117 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   downloadMediaMessage,
+  initAuthCreds,
+  BufferJSON,
+  proto,
 } = require('@whiskeysockets/baileys');
+
+// ── Escritura ATÓMICA de archivos de sesión ────────────────────────
+// El useMultiFileAuthState() oficial hace fs.writeFile() directo sobre
+// creds.json y los key files. Si un corte de luz interrumpe la escritura,
+// el archivo queda truncado/corrupto y al reabrir el bot WhatsApp pide
+// un QR nuevo (y por lo tanto la sesión se pierde).
+//
+// Esta versión:
+//   1. Escribe a <archivo>.tmp y luego rename atómico → <archivo>.
+//      (rename es atómico en NTFS y POSIX cuando origen/destino están en
+//       el mismo filesystem; nunca queda un archivo a medias.)
+//   2. Antes del rename, copia la versión anterior a <archivo>.bak.
+//   3. Al leer, si el archivo principal está corrupto (JSON.parse falla)
+//      o ausente, fallback al .bak y lo restaura como principal.
+//
+// Drop-in replacement de useMultiFileAuthState() de Baileys.
+async function useAtomicMultiFileAuthState(folder) {
+  const fsp = fs.promises;
+  const fixFileName = (file) => file?.replace(/\//g, '__')?.replace(/:/g, '-');
+
+  if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+
+  const writeData = async (data, file) => {
+    const filePath = path.join(folder, fixFileName(file));
+    const tmpPath  = filePath + '.tmp';
+    const bakPath  = filePath + '.bak';
+    const json     = JSON.stringify(data, BufferJSON.replacer);
+
+    // 1) escribir a .tmp (puede fallar/cortarse — no toca el archivo bueno)
+    await fsp.writeFile(tmpPath, json, 'utf-8');
+
+    // 2) rotar backup: copiar el archivo actual (si existe) a .bak ANTES de pisarlo.
+    //    Si esto falla (no existe aún) lo ignoramos.
+    try {
+      await fsp.copyFile(filePath, bakPath);
+    } catch {}
+
+    // 3) rename atómico — el .tmp pasa a ser el archivo bueno.
+    await fsp.rename(tmpPath, filePath);
+  };
+
+  const readData = async (file) => {
+    const filePath = path.join(folder, fixFileName(file));
+    const bakPath  = filePath + '.bak';
+
+    // Intento 1: archivo principal
+    try {
+      const data = await fsp.readFile(filePath, { encoding: 'utf-8' });
+      return JSON.parse(data, BufferJSON.reviver);
+    } catch (e) {
+      // archivo ausente o corrupto → probar backup
+    }
+
+    // Intento 2: backup
+    try {
+      const data = await fsp.readFile(bakPath, { encoding: 'utf-8' });
+      const parsed = JSON.parse(data, BufferJSON.reviver);
+      // Restaurar el .bak como archivo principal para futuras lecturas
+      try { await fsp.copyFile(bakPath, filePath); } catch {}
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const removeData = async (file) => {
+    const filePath = path.join(folder, fixFileName(file));
+    try { await fsp.unlink(filePath); } catch {}
+    try { await fsp.unlink(filePath + '.bak'); } catch {}
+    try { await fsp.unlink(filePath + '.tmp'); } catch {}
+  };
+
+  const creds = (await readData('creds.json')) || initAuthCreds();
+
+  return {
+    state: {
+      creds,
+      keys: {
+        get: async (type, ids) => {
+          const data = {};
+          await Promise.all(
+            ids.map(async (id) => {
+              let value = await readData(`${type}-${id}.json`);
+              if (type === 'app-state-sync-key' && value) {
+                value = proto.Message.AppStateSyncKeyData.fromObject(value);
+              }
+              data[id] = value;
+            }),
+          );
+          return data;
+        },
+        set: async (data) => {
+          const tasks = [];
+          for (const category in data) {
+            for (const id in data[category]) {
+              const value = data[category][id];
+              const file  = `${category}-${id}.json`;
+              tasks.push(value ? writeData(value, file) : removeData(file));
+            }
+          }
+          await Promise.all(tasks);
+        },
+      },
+    },
+    saveCreds: async () => writeData(creds, 'creds.json'),
+  };
+}
 
 // ── Mini cache con TTL (sustituye node-cache para evitar dep extra) ──
 // Solo provee la API que Baileys necesita: get(key), set(key, value).
@@ -109,9 +219,10 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
       try { prev.end(); } catch {}
     }
 
-    // Auth state filesystem
+    // Auth state filesystem (escritura ATÓMICA + backup .bak para sobrevivir
+    // cortes de luz/reset abruptos sin invalidar la sesión WhatsApp).
     if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
-    const fsAuth = await useMultiFileAuthState(sessionDir);
+    const fsAuth = await useAtomicMultiFileAuthState(sessionDir);
     const state = fsAuth.state;
     saveCredsRef = fsAuth.saveCreds;
     clearAuthRef = async () => {
