@@ -200,9 +200,11 @@ async function startBot(userId, slot = 0) {
         workerSocket,
         log: (m) => logger.info(`[BotMgr:Proxy:${uid.slice(-6)}] ${m}`),
       });
-      // Registrar el proxy ANTES de pedirle al worker que arranque, para no
-      // perder eventos tempranos (worker:msg-incoming, etc.).
-      workerHandler.registrarProxy(uid, proxy);
+      // El registro del proxy se hace DESPUÉS de bot.iniciar() (ver más abajo),
+      // así los handlers (messages.upsert, connection.update, ...) ya están
+      // enchufados a sock.ev cuando entren eventos. Mientras tanto, si llegan
+      // mensajes vía 'worker:msg-incoming' los bufferea worker.handler.js y
+      // se reproducen al registrar el proxy — no se pierde nada.
       logger.info(`[BotMgr] Modo PROXY: bot ${key} corre en backend, Baileys via worker`);
 
       bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid, {
@@ -401,7 +403,19 @@ async function startBot(userId, slot = 0) {
     });
 
     // ── Iniciar ──────────────────────────────────────────────
+    // bot.iniciar() carga clientes de MongoDB, lee config, e internamente llama
+    // _setupHandlersProxy() que enchufa los listeners ('messages.upsert',
+    // 'connection.update', ...) al sock.ev del proxy. Hasta que esto termina,
+    // cualquier evento inyectado al proxy se descartaría sin handler.
     await bot.iniciar();
+
+    // Recién acá registramos el proxy: los handlers están listos. Si llegaron
+    // worker:msg-incoming antes (durante bot.iniciar() o en una reconexión
+    // del worker), worker.handler los buffereó y los inyecta ahora con un
+    // delay corto, garantizando que el bot los procese.
+    if (proxy) {
+      workerHandler.registrarProxy(uid, proxy);
+    }
 
     // En modo PROXY: pedirle al worker que abra la sesión Baileys.
     // El worker va a hacer useMultiFileAuthState, makeWASocket, etc., y

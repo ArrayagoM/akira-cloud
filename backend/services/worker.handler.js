@@ -30,6 +30,17 @@ const proxies = new Map();
 const pendingChatsSet     = new Map(); // userId -> chats[]
 const pendingContactsUpsert = new Map(); // userId -> contacts[]
 
+// Buffer de mensajes entrantes que llegan ANTES de que el proxy esté listo:
+//  - durante el arranque del bot (bot.iniciar() tarda unos segundos en cargar
+//    clientes/config y enchufar handlers a sock.ev),
+//  - al reconectar el worker tras un restart del backend (Render redeploy),
+//    donde los msg-incoming buffereados por socket.io pueden llegar antes que
+//    reconectarProxiesBots() recree el proxy.
+// Sin este buffer, esos mensajes se descartan y el cliente se queda sin
+// respuesta. Limitado a MAX_PENDING_MSGS por usuario para no quedarse sin RAM.
+const pendingMsgIncoming = new Map(); // userId -> msg[]
+const MAX_PENDING_MSGS = 200;
+
 // Listeners externos: bot.manager se suscribe acá para reaccionar
 // cuando el worker (re)conecta y para arrancar/detener bots.
 const externalListeners = {
@@ -184,12 +195,23 @@ function inicializarWorkerHandler(io) {
 
     // ── NUEVOS EVENTOS — flujo de mensajes via worker proxy ─────
     socket.on('worker:msg-incoming', ({ userId, msg }) => {
-      const p = proxies.get(String(userId));
-      if (!p) {
-        logger.warn(`[WorkerHandler] msg-incoming para ${userId} sin proxy registrado`);
+      const uid = String(userId);
+      const p = proxies.get(uid);
+      if (p) {
+        p.inyectarEvento('messages.upsert', { messages: [msg], type: 'notify' });
         return;
       }
-      p.inyectarEvento('messages.upsert', { messages: [msg], type: 'notify' });
+      // No hay proxy todavía: bufferear hasta que se registre. Esto cubre
+      // dos casos críticos:
+      //  1) bot arrancando — registrarProxy() corre antes de que bot.iniciar()
+      //     enchufe handlers a sock.ev.
+      //  2) reconexión del worker — los msg-incoming que socket.io bufferea
+      //     mientras backend reinicia llegan antes que reconectarProxiesBots().
+      const queue = pendingMsgIncoming.get(uid) || [];
+      if (queue.length >= MAX_PENDING_MSGS) queue.shift(); // descartar el más viejo
+      queue.push(msg);
+      pendingMsgIncoming.set(uid, queue);
+      logger.info(`[WorkerHandler] msg-incoming buffereado para ${uid.slice(-6)} (${queue.length}/${MAX_PENDING_MSGS}) — proxy no listo aún`);
     });
 
     socket.on('worker:contacts-upsert', ({ userId, contacts }) => {
@@ -264,6 +286,10 @@ function inicializarWorkerHandler(io) {
         // Limpiar buffers pendientes — datos del worker desconectado ya no sirven
         pendingChatsSet.clear();
         pendingContactsUpsert.clear();
+        // Los msg-incoming pendientes SÍ los preservamos: socket.io del worker
+        // bufferea sus emits durante la desconexión y los reenvía al reconectar.
+        // Si limpiamos acá, perderíamos los mensajes que llegaron al WhatsApp
+        // del usuario justo en el instante de la desconexión backend↔worker.
         externalListeners.onWorkerDisconnected?.();
       }
     });
@@ -292,10 +318,12 @@ function registrarProxy(userId, proxy) {
 
   // Vaciar eventos buffereados que llegaron antes de que el proxy existiera.
   // Usamos un pequeño delay para que el bot-engine termine de inicializarse
-  // y sus handlers de 'chats.set' / 'contacts.upsert' estén activos.
+  // y sus handlers de 'chats.set' / 'contacts.upsert' / 'messages.upsert'
+  // estén activos.
   const chats    = pendingChatsSet.get(uid);
   const contacts = pendingContactsUpsert.get(uid);
-  if (chats || contacts) {
+  const msgs     = pendingMsgIncoming.get(uid);
+  if (chats || contacts || msgs?.length) {
     setTimeout(() => {
       if (contacts?.length) {
         logger.info(`[WorkerHandler] Flushing contacts buffer para ${uid.slice(-6)}: ${contacts.length} contacto(s)`);
@@ -306,6 +334,17 @@ function registrarProxy(userId, proxy) {
         logger.info(`[WorkerHandler] Flushing chats-set buffer para ${uid.slice(-6)}: ${chats.length} chat(s)`);
         proxy.inyectarEvento('chats.set', { chats });
         pendingChatsSet.delete(uid);
+      }
+      if (msgs?.length) {
+        logger.info(`[WorkerHandler] Flushing ${msgs.length} mensaje(s) buffereado(s) para ${uid.slice(-6)} — el bot va a procesarlos ahora`);
+        for (const m of msgs) {
+          try {
+            proxy.inyectarEvento('messages.upsert', { messages: [m], type: 'notify' });
+          } catch (e) {
+            logger.warn(`[WorkerHandler] Error inyectando msg buffereado: ${e.message}`);
+          }
+        }
+        pendingMsgIncoming.delete(uid);
       }
     }, 8000); // 8s — tiempo suficiente para que bot.iniciar() complete (MongoDB + config load)
   }
