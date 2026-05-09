@@ -12,7 +12,7 @@
       "destination": "https://akira-cloud.onrender.com/socket.io/:path*"
     },
     {
-      "source": "/((?!api|socket.io).*)",
+      "source": "/((?!api/|socket.io/|robots\\.txt|sitemap\\.xml|favicon|og-image|assets/).*)",
       "destination": "/index.html"
     }
   ],

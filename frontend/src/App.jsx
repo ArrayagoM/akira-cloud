@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 // Pages
 import Landing           from './pages/Landing';
@@ -101,6 +103,10 @@ export default function App() {
 
         <Route path="*" element={<NotFound />} />
       </Routes>
+      {/* Vercel Analytics & Speed Insights — solo registran en producción.
+          En dev son no-op, no contaminan datos. */}
+      <Analytics />
+      <SpeedInsights />
     </AuthProvider>
   );
 }
