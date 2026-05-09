@@ -10,14 +10,14 @@
   <meta name="keywords" content="bot whatsapp argentina, bot whatsapp ia, chatbot turnos, whatsapp automatico, mercadopago turnos, agenda turnos whatsapp, inteligencia artificial negocio" />
   <meta name="author" content="Juan Martín Arrayago — TinchoDev" />
   <meta name="robots" content="index, follow" />
-  <link rel="canonical" href="https://akiracloud.vercel.app/" />
+  <link rel="canonical" href="https://akira-cloud.vercel.app/" />
 
   <!-- ── Open Graph (Facebook / WhatsApp) ─────────────────── -->
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://akiracloud.vercel.app/" />
+  <meta property="og:url" content="https://akira-cloud.vercel.app/" />
   <meta property="og:title" content="Akira Cloud — Bot WhatsApp con IA para tu negocio" />
   <meta property="og:description" content="Agenda turnos, cobra con MercadoPago y atiende clientes 24/7. El bot de WhatsApp más potente de Argentina." />
-  <meta property="og:image" content="https://akiracloud.vercel.app/og-image.png" />
+  <meta property="og:image" content="https://akira-cloud.vercel.app/og-image.png" />
   <meta property="og:locale" content="es_AR" />
   <meta property="og:site_name" content="Akira Cloud" />
 
@@ -25,7 +25,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Akira Cloud — Bot WhatsApp con IA" />
   <meta name="twitter:description" content="Agenda turnos, cobra con MercadoPago y atiende clientes 24/7 automáticamente." />
-  <meta name="twitter:image" content="https://akiracloud.vercel.app/og-image.png" />
+  <meta name="twitter:image" content="https://akira-cloud.vercel.app/og-image.png" />
 
   <!-- ── Schema.org / Rich Snippets ───────────────────────── -->
   <script type="application/ld+json">
@@ -48,7 +48,7 @@
       "name": "Juan Martín Arrayago",
       "url": "https://martin-arrayago.com"
     },
-    "url": "https://akiracloud.vercel.app"
+    "url": "https://akira-cloud.vercel.app"
   }
   </script>
 
@@ -69,9 +69,38 @@
 
   <!-- ── Theme color (barra del navegador en mobile) ───────── -->
   <meta name="theme-color" content="#0d0d0d" />
+
+  <!-- ── Links legales (verificador de Google OAuth) ───────── -->
+  <!-- Estos rel-links los detectan crawlers que no ejecutan JS — necesarios
+       para que Google verifique la marca al aprobar la pantalla de consentimiento. -->
+  <link rel="privacy-policy" href="https://akira-cloud.vercel.app/privacidad" />
+  <link rel="terms-of-service" href="https://akira-cloud.vercel.app/terminos" />
 </head>
 <body>
   <div id="root"></div>
+
+  <!--
+    Footer estático SEO/legal — visible para crawlers que no ejecutan JS
+    (incluido el verificador de Google OAuth, que escanea la home buscando
+    un link a la política de privacidad antes de aprobar la marca).
+    Se oculta en pantalla con `hidden` apenas React monta sobre #root.
+    React-Router lo intercepta cuando un usuario real hace click.
+  -->
+  <noscript>
+    <footer>
+      <p>Akira Cloud — Bot de WhatsApp con IA para tu negocio.</p>
+      <ul>
+        <li><a href="/privacidad">Política de Privacidad</a></li>
+        <li><a href="/terminos">Términos del Servicio</a></li>
+        <li><a href="mailto:juanmartinarrayago@gmail.com">Contacto</a></li>
+      </ul>
+    </footer>
+  </noscript>
+  <footer id="legal-footer-seo" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">
+    <a href="/privacidad" rel="privacy-policy">Política de Privacidad</a>
+    <a href="/terminos" rel="terms-of-service">Términos del Servicio</a>
+  </footer>
+
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
