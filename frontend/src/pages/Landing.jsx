@@ -6,6 +6,7 @@ import {
   MessageSquare, Clock, Star, ChevronRight, Sparkles, Users, Bell,
   Hourglass, Tag, TrendingUp, Quote, Github, Linkedin, Globe, ChevronDown,
   PauseCircle, BellRing, MoreVertical, Check, CheckCheck,
+  Instagram, Facebook, Code2, MapPin, GraduationCap, Heart,
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1007,6 +1008,198 @@ function CtaFinal() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// SOBRE EL CREADOR — Juan Martín Arrayago / TinchoDev
+// ─────────────────────────────────────────────────────────────
+const REDES_CREADOR = [
+  { Icon: Github,    label: 'GitHub',    href: 'https://github.com/ArrayagoM' },
+  { Icon: Linkedin,  label: 'LinkedIn',  href: 'https://www.linkedin.com/in/juan-martin-arrayago/' },
+  { Icon: Globe,     label: 'Portfolio', href: 'https://martinarrayago.lat/' },
+  { Icon: Instagram, label: 'Instagram', href: 'https://www.instagram.com/juanmartinarrayago/' },
+  { Icon: Facebook,  label: 'Facebook',  href: 'https://www.facebook.com/juan.arrayago/' },
+];
+
+const ESPECIALIDADES_CREADOR = [
+  'Full Stack Web',
+  'React Native',
+  'IA & Bots',
+  'IoT & Arduino',
+  'Robótica',
+  'UI/UX',
+];
+
+function SobreElCreador() {
+  return (
+    <Section id="creador" className="!py-24 md:!py-32">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-14">
+          <Eyebrow color="#a78bfa">Sobre el creador</Eyebrow>
+          <h2 className="mt-4 text-3xl md:text-4xl font-bold text-white tracking-tight">
+            La mente detrás de <span style={{ color: 'var(--accent)' }}>Akira</span>
+          </h2>
+          <p className="mt-3 text-base max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
+            Akira no es de una corporación: la pensé, la diseñé y la programé yo, línea por línea.
+          </p>
+        </div>
+
+        <div className="relative rounded-3xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(160deg, rgba(167,139,250,0.08) 0%, var(--surface) 50%)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 20px 60px -30px rgba(167,139,250,0.20)',
+          }}>
+          {/* Glow decorativo */}
+          <div className="absolute -top-24 -left-24 w-72 h-72 rounded-full pointer-events-none"
+            style={{ background: 'radial-gradient(circle, rgba(167,139,250,0.18), transparent 70%)', filter: 'blur(30px)' }} />
+          <div className="absolute -bottom-24 -right-24 w-72 h-72 rounded-full pointer-events-none"
+            style={{ background: 'radial-gradient(circle, rgba(0,232,123,0.12), transparent 70%)', filter: 'blur(30px)' }} />
+
+          <div className="relative grid md:grid-cols-[280px_1fr] gap-8 md:gap-12 p-8 md:p-12 items-start">
+            {/* ── Avatar + identidad ── */}
+            <div className="flex flex-col items-center md:items-start text-center md:text-left">
+              <div className="relative">
+                {/* Halo */}
+                <div className="absolute inset-0 rounded-full"
+                  style={{
+                    background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
+                    filter: 'blur(20px)',
+                    opacity: 0.6,
+                    transform: 'scale(1.05)',
+                  }} />
+                <img
+                  src="https://github.com/ArrayagoM.png"
+                  alt="Juan Martín Arrayago — Creador de Akira Cloud"
+                  loading="lazy"
+                  className="relative w-40 h-40 md:w-48 md:h-48 rounded-full object-cover"
+                  style={{
+                    border: '3px solid var(--accent)',
+                    boxShadow: '0 10px 40px -10px rgba(0,232,123,0.5)',
+                  }}
+                />
+                {/* Badge dev */}
+                <div className="absolute -bottom-2 -right-2 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-bold"
+                  style={{
+                    background: 'var(--bg)',
+                    border: '2px solid var(--accent)',
+                    color: 'var(--accent)',
+                  }}>
+                  <Code2 size={10} /> DEV
+                </div>
+              </div>
+
+              <h3 className="mt-5 text-xl font-bold text-white">Juan Martín Arrayago</h3>
+              <p className="text-sm font-semibold mt-0.5" style={{ color: 'var(--accent)' }}>
+                @TinchoDev
+              </p>
+
+              <div className="mt-3 flex flex-col gap-1.5 text-xs" style={{ color: 'var(--muted)' }}>
+                <span className="flex items-center gap-1.5">
+                  <MapPin size={12} /> Ranchos, Buenos Aires · Argentina 🇦🇷
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <GraduationCap size={12} /> Facultad de Ingeniería · Lomas de Zamora
+                </span>
+              </div>
+
+              {/* Redes sociales */}
+              <div className="mt-5 flex items-center gap-2 flex-wrap justify-center md:justify-start">
+                {REDES_CREADOR.map(({ Icon, label, href }) => (
+                  <a
+                    key={label}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={label}
+                    title={label}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:scale-110"
+                    style={{
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <Icon size={15} style={{ color: 'var(--text2)' }} />
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Bio + filosofía + skills ── */}
+            <div>
+              <p className="text-base leading-relaxed" style={{ color: 'var(--text)' }}>
+                Soy desarrollador <strong>Full Stack</strong> y especialista en{' '}
+                <strong>web, mobile, IoT y robótica</strong>. Akira nació de una idea
+                simple: que cualquier comerciante pueda tener un asistente inteligente
+                en WhatsApp sin ser técnico, sin contratar agencias caras y sin atarse
+                a plataformas que cambian las reglas cuando quieren.
+              </p>
+
+              <div className="mt-5 p-4 rounded-xl"
+                style={{
+                  background: 'rgba(0,232,123,0.06)',
+                  borderLeft: '3px solid var(--accent)',
+                }}>
+                <Quote size={16} className="mb-2" style={{ color: 'var(--accent)' }} />
+                <p className="text-sm italic leading-relaxed" style={{ color: 'var(--text)' }}>
+                  Vengo de una familia humilde. Cada línea de código que escribí en
+                  Akira es el resultado de años de estudio autodidacta y dedicación.
+                  No entrego proyectos — entrego <strong>soluciones</strong>.
+                </p>
+                <p className="text-xs mt-2 font-semibold" style={{ color: 'var(--accent)' }}>
+                  — Juan Martín
+                </p>
+              </div>
+
+              <div className="mt-6">
+                <p className="text-xs font-semibold uppercase tracking-wider mb-3"
+                  style={{ color: 'var(--muted)' }}>
+                  Lo que hago
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {ESPECIALIDADES_CREADOR.map((esp) => (
+                    <span key={esp}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium"
+                      style={{
+                        background: 'var(--surface2)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text2)',
+                      }}>
+                      {esp}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <a
+                  href="https://martinarrayago.lat/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary text-sm px-5 py-2.5"
+                >
+                  Ver mi portfolio <ArrowRight size={14} />
+                </a>
+                <a
+                  href="https://github.com/ArrayagoM"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary text-sm px-5 py-2.5 flex items-center gap-2"
+                >
+                  <Github size={14} /> Ver mi GitHub
+                </a>
+              </div>
+
+              <p className="mt-6 text-xs flex items-center gap-1.5" style={{ color: 'var(--muted)' }}>
+                <Heart size={11} className="text-[var(--accent)]" />
+                Si Akira te suma, contame. Trabajo con desarrolladores y negocios que quieren resolver problemas reales.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // FOOTER
 // ─────────────────────────────────────────────────────────────
 function Footer() {
@@ -1045,20 +1238,19 @@ function Footer() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-white mb-3">Conectate</p>
-            <div className="flex items-center gap-2">
-              <a href="#" className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--surface3)]"
-                style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                <Github size={14} style={{ color: 'var(--text2)' }} />
-              </a>
-              <a href="#" className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--surface3)]"
-                style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                <Linkedin size={14} style={{ color: 'var(--text2)' }} />
-              </a>
-              <a href="#" className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--surface3)]"
-                style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                <Globe size={14} style={{ color: 'var(--text2)' }} />
-              </a>
+            <div className="flex items-center gap-2 flex-wrap">
+              {REDES_CREADOR.map(({ Icon, label, href }) => (
+                <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+                  aria-label={label} title={label}
+                  className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--surface3)]"
+                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                  <Icon size={14} style={{ color: 'var(--text2)' }} />
+                </a>
+              ))}
             </div>
+            <p className="text-[11px] mt-3" style={{ color: 'var(--muted)' }}>
+              Creador: <Link to="/#creador" className="hover:text-white transition-colors">Juan M. Arrayago</Link>
+            </p>
           </div>
         </div>
         <div className="pt-6 flex flex-col md:flex-row items-center justify-between gap-3"
@@ -1123,6 +1315,7 @@ export default function Landing() {
         <Pricing />
         <Testimonios />
         <Faq />
+        <SobreElCreador />
         <CtaFinal />
       </main>
       <Footer />
