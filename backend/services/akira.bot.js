@@ -2805,22 +2805,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           .toLowerCase();
         if (text.includes('bad mac') || text.includes('bad_mac')) {
           _macErrorCount++;
-          if (_macErrorCount >= 2 && !_sessionClearScheduled && !botDetenidoIntencional) {
-            _sessionClearScheduled = true;
-            log(
-              '⚠️ [Baileys] Sesión corrupta (Bad MAC ×' +
-                _macErrorCount +
-                ') — limpiando para pedir QR nuevo',
-            );
-            setTimeout(async () => {
-              try {
-                await clearAuth();
-                emitter.emit('disconnected', 'sesión corrupta — QR requerido');
-                await detener('session-cleared');
-              } catch (e) {
-                log('❌ Error limpiando sesión corrupta: ' + e.message);
-              }
-            }, 2000);
+          // NUNCA borrar la sesión por Bad MAC. Es ruido normal de Signal
+          // Protocol (renegociación de claves con contactos nuevos). Borrarla
+          // forzaba un QR nuevo cada vez que llegaba un mensaje desde un
+          // contacto cuya cache de claves había expirado. Solo loggeamos.
+          if (_macErrorCount % 20 === 0) {
+            log(`ℹ️ [Baileys] Bad MAC acumulado x${_macErrorCount} (normal en Signal — la sesión sigue activa)`);
           }
         }
       },
@@ -2875,34 +2865,15 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           return;
         }
 
-        // código: undefined → WhatsApp cerró la conexión sin código de error.
-        // Esto pasa cuando la sesión está corrupta o expirada.
-        // Si ocurre 3 veces seguidas en menos de 2 minutos → sesión muerta, limpiar y detener.
+        // POLÍTICA: la sesión NUNCA se borra automáticamente por desconexiones
+        // sin código (cortes de internet/luz, watchdog ping fail, Render
+        // restart, ciclos rápidos). El usuario explícitamente pidió que la
+        // sesión solo se cierre cuando WhatsApp diga "loggedOut/replaced/
+        // badSession" (manejado arriba) o cuando él cierre sesión desde su
+        // celular. Acá reintentamos indefinidamente con la sesión guardada.
         reconectarIntentos++;
-        const tiempoDesdeConexion = Date.now() - tsUltimaConexion;
-        const esCicloRapido = tiempoDesdeConexion < 120_000; // < 2 minutos
-
-        // ── Sesión corrupta: limpiar tras ciclos rápidos consecutivos
-        // 3 desconexiones rápidas (< 2 min cada una) = sesión muerta con certeza
-        if (code === undefined && esCicloRapido && reconectarIntentos >= 3) {
-          log(
-            `🗑️ Sesión inválida detectada (${reconectarIntentos} desconexiones rápidas) — limpiando sesión y pidiendo QR nuevo`,
-          );
-          emitter.emit('disconnected', `sesión inválida — QR requerido`);
-          await clearAuth().catch(() => {});
-          reconectarIntentos = 0;
-          await detener('session-cleared');
-          return;
-        }
-
-        if (reconectarIntentos >= 10) {
-          // Demasiados intentos fallidos — sesión probablemente muerta
-          log(`❌ 10 intentos de reconexión fallidos — limpiando sesión y pidiendo QR nuevo`);
-          emitter.emit('disconnected', `demasiados intentos — QR requerido`);
-          await clearAuth().catch(() => {});
-          reconectarIntentos = 0;
-          await detener('session-cleared');
-          return;
+        if (reconectarIntentos % 10 === 0) {
+          log(`ℹ️ Sigo intentando reconectar (intento ${reconectarIntentos}) — sesión preservada`);
         }
 
         // Desconexión transitoria — reconectar automáticamente.

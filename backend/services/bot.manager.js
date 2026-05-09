@@ -224,8 +224,19 @@ async function startBot(userId, slot = 0) {
           });
         },
       });
+    } else if (process.env.WORKER_SECRET) {
+      // El backend está configurado para modo híbrido (worker en la PC del
+      // usuario) pero el worker NO está conectado en este momento. Si
+      // arrancáramos en cloud-direct, el bot guardaría la sesión WA en
+      // /tmp/sessions/ del filesystem efímero de Render — y al próximo
+      // deploy/restart se perdería forzando un QR nuevo. Mejor abortar y
+      // pedirle al usuario que prenda el worker.
+      throw new Error(
+        'El worker local no está conectado. Encendé tu PC y dejá corriendo el worker (cd worker && npm start) antes de iniciar el bot. La sesión WhatsApp vive en tu PC, no en el servidor.'
+      );
     } else {
-      // Modo cloud-direct (legacy): el bot crea su propio socket Baileys
+      // Modo cloud-direct (legacy, solo cuando no hay WORKER_SECRET):
+      // el bot crea su propio socket Baileys directamente en Render.
       logger.info(`[BotMgr] Modo CLOUD-DIRECT: bot ${key} crea socket Baileys local`);
       bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
     }

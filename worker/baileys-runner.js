@@ -259,18 +259,13 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
         ].join(' ').toLowerCase();
         if (text.includes('bad mac') || text.includes('bad_mac')) {
           _macErrorCount++;
-          if (_macErrorCount >= 2 && !_sessionClearScheduled && !botDetenidoIntencional) {
-            _sessionClearScheduled = true;
-            log?.(`⚠️ [Baileys] Sesión corrupta (Bad MAC ×${_macErrorCount}) — limpiando`);
-            setTimeout(async () => {
-              try {
-                await clearAuthRef?.();
-                emit('onDisconnect', 'sesión corrupta — QR requerido', true);
-                await detener('session-cleared');
-              } catch (e) {
-                log?.(`❌ [BaileysRunner] clear bad mac: ${e.message}`);
-              }
-            }, 2000);
+          // NUNCA borrar la sesión por Bad MAC. Bad MAC es normal en Signal
+          // Protocol (cada vez que un contacto nuevo manda mensaje, la primera
+          // tentativa de descifrado puede fallar y Baileys renegocia las
+          // claves). Borrar la sesión por esto fuerza un QR nuevo y arruina
+          // al usuario. Solo loggeamos para visibilidad.
+          if (_macErrorCount % 20 === 0) {
+            log?.(`ℹ️ [Baileys] Bad MAC acumulado x${_macErrorCount} (normal en Signal — la sesión sigue activa)`);
           }
         }
       },
@@ -319,18 +314,15 @@ function crearBaileysRunner({ sessionDir, log, callbacks = {} }) {
 
         reconectarIntentos++;
 
-        // NOTA: NO limpiamos sesión por desconexiones rápidas con code=undefined.
-        // Cuando cae internet, Baileys cierra repetidamente con code=undefined (no
-        // es un error de WA, es network). Borrar la sesión en esos casos causa que
-        // el bot pida QR nuevo cada vez que hay un corte de luz/internet. El guard
-        // de >= 15 intentos es suficiente para ciclos infinitos genuinamente malos.
-        if (reconectarIntentos >= 15) {
-          log?.('❌ 15 intentos de reconexión fallidos — limpiando sesión');
-          await clearAuthRef?.().catch(() => {});
-          reconectarIntentos = 0;
-          emit('onDisconnect', 'demasiados intentos — QR requerido', true);
-          await detener('session-cleared');
-          return;
+        // POLÍTICA: la sesión NUNCA se borra automáticamente por intentos de
+        // reconexión, Bad MAC, ni desconexiones con code=undefined. El usuario
+        // explícitamente pidió que la sesión solo se cierre cuando WhatsApp lo
+        // diga (códigos 401/440/500 manejados arriba) o cuando él cierre
+        // sesión desde su celular. Cortes de luz/internet/Render restart deben
+        // sobrevivirse reintentando indefinidamente con la sesión guardada.
+        // Solo loggeamos progreso cada 10 intentos para que se vea actividad.
+        if (reconectarIntentos % 10 === 0) {
+          log?.(`ℹ️ Sigo intentando reconectar (intento ${reconectarIntentos}) — sesión preservada`);
         }
 
         reconectando = false;
