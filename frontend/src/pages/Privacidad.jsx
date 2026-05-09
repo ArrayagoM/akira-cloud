@@ -101,7 +101,7 @@ export default function Privacidad() {
               <li>Revocar el acceso a servicios de Google en cualquier momento.</li>
               <li>Exportar tus datos de configuración.</li>
             </ul>
-            <p>Para ejercer estos derechos, contactanos en <strong>soporte@akira-cloud.vercel.app</strong></p>
+            <p>Para ejercer estos derechos, contactanos en <strong>soporte@akiracloud.lat</strong></p>
           </Section>
 
           <Section title="8. Menores de edad">
@@ -123,8 +123,8 @@ export default function Privacidad() {
           <Section title="10. Contacto">
             <p>
               Si tenés preguntas sobre esta política, podés contactarnos en:<br />
-              <strong>Email:</strong> soporte@akira-cloud.vercel.app<br />
-              <strong>Web:</strong> <a href="https://akira-cloud.vercel.app" style={{ color: '#00e87b' }}>akira-cloud.vercel.app</a>
+              <strong>Email:</strong> soporte@akiracloud.lat<br />
+              <strong>Web:</strong> <a href="https://akiracloud.lat" style={{ color: '#00e87b' }}>akiracloud.lat</a>
             </p>
           </Section>
         </div>

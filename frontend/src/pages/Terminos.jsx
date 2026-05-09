@@ -63,7 +63,7 @@ export default function Terminos() {
 
           <Section title="4. Planes y pagos">
             <p>
-              Los planes de suscripción y sus precios están disponibles en <a href="https://akira-cloud.vercel.app/#precios" style={{ color: '#00e87b' }}>akira-cloud.vercel.app/#precios</a>.
+              Los planes de suscripción y sus precios están disponibles en <a href="https://akiracloud.lat/#precios" style={{ color: '#00e87b' }}>akiracloud.lat/#precios</a>.
             </p>
             <ul>
               <li>Los pagos son procesados por MercadoPago. Al pagar, aceptás también sus términos.</li>
@@ -166,8 +166,8 @@ export default function Terminos() {
           <Section title="14. Contacto">
             <p>
               Para consultas sobre estos Términos:<br />
-              <strong>Email:</strong> soporte@akira-cloud.vercel.app<br />
-              <strong>Web:</strong> <a href="https://akira-cloud.vercel.app" style={{ color: '#00e87b' }}>akira-cloud.vercel.app</a>
+              <strong>Email:</strong> soporte@akiracloud.lat<br />
+              <strong>Web:</strong> <a href="https://akiracloud.lat" style={{ color: '#00e87b' }}>akiracloud.lat</a>
             </p>
           </Section>
         </div>
