@@ -61,7 +61,9 @@
       "@type": "PostalAddress",
       "addressCountry": "AR",
       "addressRegion": "Buenos Aires",
-      "addressLocality": "Ranchos"
+      "addressLocality": "Ranchos",
+      "postalCode": "7110",
+      "streetAddress": "Ranchos, General Paz"
     },
     "contactPoint": [{
       "@type": "ContactPoint",
@@ -205,7 +207,83 @@
   }
   </script>
 
-  <!-- 4) WebSite con SearchAction (sitelinks searchbox en Google) -->
+  <!-- 4) Person: ficha del creador para Knowledge Graph + AI search -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "Juan Martín Arrayago",
+    "alternateName": ["TinchoDev", "Juan M. Arrayago", "Juan Arrayago"],
+    "jobTitle": "Desarrollador Full Stack y Fundador",
+    "description": "Desarrollador Full Stack argentino especializado en aplicaciones web, mobile, IoT, robótica y diseño UI/UX. Creador y fundador de Akira Cloud. Apasionado por las tecnologías web, con experiencia construyendo desde landing pages hasta sistemas IoT completos. Trabaja de forma 100% remota desde Ranchos, Buenos Aires.",
+    "image": "https://github.com/ArrayagoM.png",
+    "gender": "Male",
+    "nationality": {
+      "@type": "Country",
+      "name": "Argentina"
+    },
+    "address": {
+      "@type": "PostalAddress",
+      "addressCountry": "AR",
+      "addressRegion": "Buenos Aires",
+      "addressLocality": "Ranchos",
+      "postalCode": "7110"
+    },
+    "alumniOf": {
+      "@type": "EducationalOrganization",
+      "name": "Facultad de Ingeniería — Universidad Nacional de Lomas de Zamora",
+      "url": "https://www.unlz.edu.ar/"
+    },
+    "knowsAbout": [
+      "Desarrollo Web Full Stack",
+      "React",
+      "React Native",
+      "Node.js",
+      "TypeScript",
+      "JavaScript",
+      "Python",
+      "MongoDB",
+      "PostgreSQL",
+      "MySQL",
+      "Inteligencia Artificial",
+      "Bots de WhatsApp",
+      "Internet de las Cosas (IoT)",
+      "Arduino",
+      "ESP32",
+      "Robótica",
+      "Impresión 3D",
+      "Diseño UI/UX",
+      "Figma",
+      "Photoshop"
+    ],
+    "knowsLanguage": [
+      { "@type": "Language", "name": "Spanish", "alternateName": "es" },
+      { "@type": "Language", "name": "English", "alternateName": "en" }
+    ],
+    "worksFor": {
+      "@type": "Organization",
+      "name": "Akira Cloud",
+      "url": "https://akiracloud.lat"
+    },
+    "url": "https://martinarrayago.lat",
+    "mainEntityOfPage": "https://akiracloud.lat/#creador",
+    "sameAs": [
+      "https://github.com/ArrayagoM",
+      "https://www.linkedin.com/in/juan-martin-arrayago/",
+      "https://www.instagram.com/juanmartinarrayago/",
+      "https://www.facebook.com/juan.arrayago/",
+      "https://martinarrayago.lat/"
+    ],
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "professional",
+      "email": "info@akiracloud.lat",
+      "availableLanguage": ["Spanish", "English"]
+    }
+  }
+  </script>
+
+  <!-- 5) WebSite con SearchAction (sitelinks searchbox en Google) -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
