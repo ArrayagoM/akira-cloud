@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { Analytics } from '@vercel/analytics/react';
 
 // Pages
 import Landing           from './pages/Landing';
@@ -101,6 +102,7 @@ export default function App() {
 
         <Route path="*" element={<NotFound />} />
       </Routes>
+      <Analytics />
     </AuthProvider>
   );
 }
