@@ -9,7 +9,29 @@ const Config     = require('../models/Config');
 const BotCliente = require('../models/BotCliente');
 const Turno      = require('../models/Turno');
 const WaitlistEntry = require('../models/WaitlistEntry');
+const logger     = require('../config/logger');
 const { requireAuth } = require('../middleware/auth');
+
+// ── Webhook MercadoPago — PÚBLICO (sin auth, lo llama MP) ────────────
+// MP llama a esta URL cuando un cliente del bot del usuario paga un turno.
+// Reemplaza el flujo anterior que requería ngrok exponiendo el express
+// interno del bot. El bot ahora corre dentro de este mismo backend (Render),
+// así que el webhook llega directo y se enruta al bot.engine del usuario.
+//
+// Seguridad: respondemos 200 inmediatamente (requisito de MP) y procesamos
+// en background. La verificación del pago la hace bot.procesarWebhookMP()
+// llamando a la API de MP con el access token del usuario, así que aunque
+// alguien mande un POST falso con un payment_id inventado, MP devuelve
+// "no encontrado" y no se agenda nada. Va ANTES del requireAuth.
+router.post('/webhook-mp/:userId', (req, res) => {
+  res.sendStatus(200);
+  const userId = req.params.userId;
+  const payload = req.body;
+  logger.info(`[Bot:WebhookMP] ${String(userId).slice(-6)} type=${payload?.type} dataId=${payload?.data?.id}`);
+  botManager.procesarWebhookMP(userId, payload).catch((e) => {
+    logger.error(`[Bot:WebhookMP] error ${String(userId).slice(-6)}: ${e.message}`);
+  });
+});
 
 router.use(requireAuth);
 

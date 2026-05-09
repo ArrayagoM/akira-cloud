@@ -925,6 +925,31 @@ function getQRPendiente(uid) {
   return entry;
 }
 
+// ── Webhook MercadoPago ──────────────────────────────────────
+// Llamado desde el endpoint /api/bot/webhook-mp/:userId cuando MP notifica
+// un pago. Reenvía el payload al bot.engine del usuario para que confirme
+// el turno y notifique al cliente. Reemplaza el webhook por ngrok.
+async function procesarWebhookMP(userId, payload) {
+  const uid = String(userId);
+  const key = botKey(uid, 0);
+  const bot = instancias.get(key);
+  if (!bot) {
+    logger.warn(`[BotMgr] webhook-mp para ${uid.slice(-6)} pero el bot no está activo en este backend`);
+    return { ok: false, msg: 'bot_not_active' };
+  }
+  if (typeof bot.procesarWebhookMP !== 'function') {
+    logger.warn(`[BotMgr] webhook-mp: bot ${uid.slice(-6)} no expone procesarWebhookMP`);
+    return { ok: false, msg: 'no_handler' };
+  }
+  try {
+    await bot.procesarWebhookMP(payload);
+    return { ok: true };
+  } catch (e) {
+    logger.error(`[BotMgr] webhook-mp ${uid.slice(-6)} error: ${e.message}`);
+    return { ok: false, msg: e.message };
+  }
+}
+
 module.exports = {
   startBot,
   stopBot,
@@ -943,5 +968,6 @@ module.exports = {
   enviarMensajeExterno,
   ejecutarHealthcheck,
   getQRPendiente,
+  procesarWebhookMP,
   getWorkerInfo: workerHandler.getWorkerInfo,
 };

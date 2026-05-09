@@ -18,11 +18,16 @@ function toMPDateAR(date) {
          `.${pad(d.getUTCMilliseconds(), 3)}-03:00`;
 }
 
-function crearMPService({ accessToken, precioTurno, duracion, negocio, ngrokDomain, log }) {
+function crearMPService({ accessToken, precioTurno, duracion, negocio, backendUrl, userId, log }) {
   function crearPago(chatId, nombre, fecha, hora, horaFin) {
     return new Promise((res, rej) => {
       if (!accessToken) return rej(new Error('MP_ACCESS_TOKEN no configurado'));
-      const webhookUrl = ngrokDomain ? `https://${ngrokDomain}/webhook-bot` : '';
+      // El webhook va al backend público (Render). Sin ngrok.
+      // bot.routes.js maneja /api/bot/webhook-mp/:userId y enruta al bot.engine
+      // del usuario via bot.manager.procesarWebhookMP().
+      const webhookUrl = backendUrl && userId
+        ? `${String(backendUrl).replace(/\/$/, '')}/api/bot/webhook-mp/${userId}`
+        : '';
       const hI   = parseInt(hora.split(':')[0]);
       const hF   = horaFin ? parseInt(horaFin.split(':')[0]) : hI + duracion;
       const cant  = Math.max(1, hF - hI);

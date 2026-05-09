@@ -169,7 +169,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     precioTurno: PRECIO_TURNO,
     duracion: DURACION_RESERVA_HORAS,
     negocio: NEGOCIO,
-    ngrokDomain: NGROK_DOMAIN,
+    // Webhook va al backend público (Render). Reemplaza ngrok.
+    backendUrl: process.env.BACKEND_URL || '',
+    userId: USER_ID,
     log,
   });
   const groqSvc = crearGroqService({
@@ -2586,115 +2588,112 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   }
 
   // ── Webhook MercadoPago ──────────────────────────────────────
-  function iniciarServidor() {
-    const app = express();
-    app.use(express.json());
-    app.post('/webhook-bot', async (req, res) => {
-      res.sendStatus(200);
-      const p = req.body;
-      if (p.type !== 'payment' || !p.data?.id) return;
-      try {
-        const pago = await mp.verificarPago(p.data.id);
-        if (pago.status !== 'approved') return;
-        const rk = pago.external_reference;
-        const res2 = reservasPendientes[rk];
-        if (!res2) return;
-        if (Date.now() > res2.expiresAt) {
-          await enviarMensaje(
-            res2.chatId,
-            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero la reserva expiró. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
-          );
-          delete reservasPendientes[rk];
-          db.guardar(RESERVAS_PATH, reservasPendientes);
-          return;
-        }
-        const [y, m, d] = res2.fecha.split('-').map(Number);
-        const hI = parseInt(res2.hora.split(':')[0]);
-        const hF = res2.horaFin
-          ? parseInt(res2.horaFin.split(':')[0])
-          : hI + DURACION_RESERVA_HORAS;
-        const ini = calendar.crearFecha(y, m, d, hI);
-        const fin = calendar.crearFecha(y, m, d, hF);
-        const conf = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
-        if (conf.length > 0) {
-          await enviarMensaje(
-            res2.chatId,
-            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario quedó ocupado. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
-          );
-          delete reservasPendientes[rk];
-          db.guardar(RESERVAS_PATH, reservasPendientes);
-          return;
-        }
-        const um = clientesSvc.cargarMemoria(res2.chatId);
-        const tel = um?.numeroReal || extraerNumero(res2.chatId);
-        const ev = await calendar.crearEvento(
-          CALENDAR_ID,
-          `Turno — ${res2.nombre}`,
-          `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
-          ini,
-          fin,
-          res2.email || null,
-          tel,
+  // Lógica común: procesa una notificación MP (payment.created/updated),
+  // verifica el pago contra la API de MP, y si está aprobado agenda el turno
+  // y notifica al cliente. Se invoca desde:
+  //  1) el endpoint público del backend principal (/api/bot/webhook-mp/:userId)
+  //     — flujo principal en producción, sin ngrok.
+  //  2) el express interno en PUERTO (legacy / dev local con tunel manual).
+  async function procesarWebhookMP(p) {
+    if (!p || p.type !== 'payment' || !p.data?.id) return;
+    try {
+      const pago = await mp.verificarPago(p.data.id);
+      if (pago.status !== 'approved') return;
+      const rk = pago.external_reference;
+      const res2 = reservasPendientes[rk];
+      if (!res2) return;
+      if (Date.now() > res2.expiresAt) {
+        await enviarMensaje(
+          res2.chatId,
+          `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero la reserva expiró. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
         );
         delete reservasPendientes[rk];
         db.guardar(RESERVAS_PATH, reservasPendientes);
-        if (ev) {
-          if (um) {
-            if (!um.turnosConfirmados) um.turnosConfirmados = [];
-            um.turnosConfirmados.push({
-              fecha: res2.fecha,
-              hora: res2.hora,
-              horaFin: res2.horaFin || null,
-              pagoId: pago.id,
-              confirmadoEn: new Date().toISOString(),
-            });
-            um.historial.push({
-              role: 'assistant',
-              content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.`,
-            });
-            clientesSvc.guardarMemoria(res2.chatId, um);
-          }
-          const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
-          programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
-          programarResena(
-            res2.chatId,
-            ev.id,
-            res2.nombre,
-            res2.fecha,
-            res2.horaFin || `${hFwh}:00`,
-          );
-          await enviarMensaje(
-            res2.chatId,
-            `¡Listo, ${res2.nombre}! 🎉\n✅ *Pago: $${res2.total || PRECIO_TURNO} ARS*\n📅 *Turno:* ${res2.fecha} de *${res2.hora}${res2.horaFin ? '–' + res2.horaFin : ''}*\n${ev.htmlLink ? `📆 ${ev.htmlLink}\n` : ''}\n⏰ Te recordamos 24hs, 4hs y 30min antes. ¡Te esperamos! 🙌`,
-          );
-        } else {
-          await enviarMensaje(
-            res2.chatId,
-            `Hola ${res2.nombre}! Pago recibido ✅ pero error en el calendario. ${MI_NOMBRE} confirma manualmente. 🙏`,
-          );
-        }
-      } catch (e) {
-        log('[Webhook] ' + e.message);
+        return;
       }
+      const [y, m, d] = res2.fecha.split('-').map(Number);
+      const hI = parseInt(res2.hora.split(':')[0]);
+      const hF = res2.horaFin
+        ? parseInt(res2.horaFin.split(':')[0])
+        : hI + DURACION_RESERVA_HORAS;
+      const ini = calendar.crearFecha(y, m, d, hI);
+      const fin = calendar.crearFecha(y, m, d, hF);
+      const conf = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+      if (conf.length > 0) {
+        await enviarMensaje(
+          res2.chatId,
+          `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario quedó ocupado. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
+        );
+        delete reservasPendientes[rk];
+        db.guardar(RESERVAS_PATH, reservasPendientes);
+        return;
+      }
+      const um = clientesSvc.cargarMemoria(res2.chatId);
+      const tel = um?.numeroReal || extraerNumero(res2.chatId);
+      const ev = await calendar.crearEvento(
+        CALENDAR_ID,
+        `Turno — ${res2.nombre}`,
+        `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
+        ini,
+        fin,
+        res2.email || null,
+        tel,
+      );
+      delete reservasPendientes[rk];
+      db.guardar(RESERVAS_PATH, reservasPendientes);
+      if (ev) {
+        if (um) {
+          if (!um.turnosConfirmados) um.turnosConfirmados = [];
+          um.turnosConfirmados.push({
+            fecha: res2.fecha,
+            hora: res2.hora,
+            horaFin: res2.horaFin || null,
+            pagoId: pago.id,
+            confirmadoEn: new Date().toISOString(),
+          });
+          um.historial.push({
+            role: 'assistant',
+            content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.`,
+          });
+          clientesSvc.guardarMemoria(res2.chatId, um);
+        }
+        const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
+        programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
+        programarResena(
+          res2.chatId,
+          ev.id,
+          res2.nombre,
+          res2.fecha,
+          res2.horaFin || `${hFwh}:00`,
+        );
+        await enviarMensaje(
+          res2.chatId,
+          `¡Listo, ${res2.nombre}! 🎉\n✅ *Pago: $${res2.total || PRECIO_TURNO} ARS*\n📅 *Turno:* ${res2.fecha} de *${res2.hora}${res2.horaFin ? '–' + res2.horaFin : ''}*\n${ev.htmlLink ? `📆 ${ev.htmlLink}\n` : ''}\n⏰ Te recordamos 24hs, 4hs y 30min antes. ¡Te esperamos! 🙌`,
+        );
+      } else {
+        await enviarMensaje(
+          res2.chatId,
+          `Hola ${res2.nombre}! Pago recibido ✅ pero error en el calendario. ${MI_NOMBRE} confirma manualmente. 🙏`,
+        );
+      }
+    } catch (e) {
+      log('[Webhook] ' + e.message);
+    }
+  }
+
+  function iniciarServidor() {
+    const app = express();
+    app.use(express.json());
+    // Endpoint legacy: el webhook ahora va al backend principal (sin ngrok).
+    // Lo dejamos disponible por compatibilidad con setups que aún tienen
+    // un tunel local manual apuntando a este puerto.
+    app.post('/webhook-bot', async (req, res) => {
+      res.sendStatus(200);
+      procesarWebhookMP(req.body).catch((e) => log('[Webhook legacy] ' + e.message));
     });
     app.get('/health', (_, r) => r.json({ ok: true, bot: MI_NOMBRE }));
     expressServer = app.listen(PUERTO, () => log(`🚀 Webhook bot en puerto ${PUERTO}`));
     expressServer.on('error', (e) => log(`⚠️ Puerto ${PUERTO}: ${e.message}`));
-  }
-
-  async function iniciarNgrok() {
-    if (!NGROK_AUTH_TOKEN) return;
-    try {
-      const ng = require('@ngrok/ngrok');
-      const l = await ng.forward({
-        addr: PUERTO,
-        authtoken: NGROK_AUTH_TOKEN,
-        domain: NGROK_DOMAIN || undefined,
-      });
-      log(`✅ Ngrok: ${l.url()}/webhook-bot`);
-    } catch (e) {
-      log('❌ Ngrok: ' + e.message);
-    }
   }
 
   // ── Conexión Baileys ─────────────────────────────────────────
@@ -3290,7 +3289,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       log,
     });
     iniciarServidor();
-    if (NGROK_AUTH_TOKEN) await iniciarNgrok();
+    // ngrok eliminado del flujo principal: el webhook MP llega al backend
+    // público (Render) vía /api/bot/webhook-mp/:userId y bot.manager lo
+    // reenvía a procesarWebhookMP() de esta instancia.
     // Escuchar solicitudes externas de sync de catálogo (desde bot.manager)
     emitter.on('catalog:sync', () => {
       log('[Catálogo] 🔄 Sync solicitado manualmente...');
@@ -3452,9 +3453,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
   }
 
-  emitter.iniciar       = iniciar;
-  emitter.detener       = detener;
-  emitter.enviarMensaje = enviarMensaje;
+  emitter.iniciar           = iniciar;
+  emitter.detener           = detener;
+  emitter.enviarMensaje     = enviarMensaje;
+  emitter.procesarWebhookMP = procesarWebhookMP;
   return emitter;
 }
 
