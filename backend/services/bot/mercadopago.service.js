@@ -4,6 +4,20 @@
 
 const https = require('https');
 
+// MercadoPago AR exige ISO 8601 con offset explícito (-03:00) en los campos
+// expiration_date_*. Si se manda con sufijo "Z" (UTC), MP a veces interpreta
+// la hora como local-Argentina, lo que hace que la preferencia parezca "aún
+// no válida" cuando el cliente abre el link → el botón "Pagar" aparece en
+// GRIS y no permite continuar. Este helper genera el formato correcto.
+function toMPDateAR(date) {
+  const ms  = date.getTime() - 3 * 60 * 60 * 1000; // shift a hora AR
+  const d   = new Date(ms);
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
+         `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}` +
+         `.${pad(d.getUTCMilliseconds(), 3)}-03:00`;
+}
+
 function crearMPService({ accessToken, precioTurno, duracion, negocio, ngrokDomain, log }) {
   function crearPago(chatId, nombre, fecha, hora, horaFin) {
     return new Promise((res, rej) => {
@@ -19,8 +33,11 @@ function crearMPService({ accessToken, precioTurno, duracion, negocio, ngrokDoma
         external_reference: `${chatId}|${fecha}|${hora}|${horaFin || hora}`,
         notification_url: webhookUrl,
         expires: true,
-        expiration_date_from: new Date().toISOString(),
-        expiration_date_to:   new Date(Date.now() + 30 * 60000).toISOString(),
+        // expiration_date_from omitido: si se setea = ahora, MP a veces lo
+        // considera como aún-futuro por desincronización de relojes y deja el
+        // botón "Pagar" en gris. Sin este campo MP defaultea a "ahora" y la
+        // preferencia es válida desde el momento en que el cliente abre el link.
+        expiration_date_to: toMPDateAR(new Date(Date.now() + 30 * 60000)),
       });
       const req = https.request(
         { hostname: 'api.mercadopago.com', path: '/checkout/preferences', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` } },
