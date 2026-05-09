@@ -1941,7 +1941,60 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     }
     usuario.email = texto.trim().toLowerCase();
     clientesSvc.guardarMemoria(jid, usuario);
-    const { fecha, hora, horaFin } = cacheTemporal[jid].reservaPendiente;
+
+    const cache = cacheTemporal[jid] || {};
+
+    // ── Flujo alojamiento (agendar_alojamiento con MP configurado) ──
+    if (cache.reservaAlojPendiente) {
+      const { fecha_entrada, fecha_salida, nombre_unidad } = cache.reservaAlojPendiente;
+      delete cacheTemporal[jid];
+      db.guardar(CACHE_PATH, cacheTemporal);
+
+      const unidad = nombre_unidad
+        ? UNIDADES_ALOJAMIENTO.find((u) =>
+            u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()),
+          )
+        : UNIDADES_ALOJAMIENTO[0] || null;
+      const precioPorNoche = unidad ? unidad.precioPorNoche : PRECIO_TURNO;
+      const noches = Math.max(1, Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000));
+      const total  = precioPorNoche * noches;
+
+      try {
+        const pref = await mp.crearPago(jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA);
+        const rk = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
+        reservasPendientes[rk] = {
+          chatId:      jid,
+          fecha:       fecha_entrada,
+          hora:        CHECK_IN_HORA,
+          horaFin:     fecha_salida,
+          unidad:      unidad?.nombre || '',
+          nombre:      usuario.nombre,
+          email:       usuario.email,
+          cant:        noches,
+          totalPrecio: total,
+          expiresAt:   Date.now() + 30 * 60000,
+        };
+        db.guardar(RESERVAS_PATH, reservasPendientes);
+        await enviarMensaje(
+          jid,
+          `¡Perfecto! 🎉 Para confirmar tu reserva del *${fecha_entrada}* al *${fecha_salida}*${unidad ? ` en ${unidad.nombre}` : ''}:\n\n💳 *Pagá aquí:*\n${pref.init_point}\n\n💰 *$${total} ARS* (${noches} noche${noches !== 1 ? 's' : ''})\n⏳ Vence en 30 min. ✅`,
+        );
+        notificarDueno(
+          `🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+        );
+      } catch (e) {
+        log('[capturaEmail/aloj] ' + e.message);
+        await enviarMensaje(jid, '¡Ups! Hubo un problema al generar el link de pago. ¿Me repetís la consulta?');
+      }
+      return;
+    }
+
+    // ── Flujo turno normal ──
+    if (!cache.reservaPendiente) {
+      // email guardado, no hay reserva pendiente activa
+      return;
+    }
+    const { fecha, hora, horaFin } = cache.reservaPendiente;
     delete cacheTemporal[jid];
     db.guardar(CACHE_PATH, cacheTemporal);
     await generarPago(jid, usuario, fecha, hora, horaFin || null);
