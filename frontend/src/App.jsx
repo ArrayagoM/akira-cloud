@@ -22,6 +22,14 @@ import SugerenciasPage   from './pages/SugerenciasPage';
 import ChatsPage         from './pages/ChatsPage';
 import ClientesPage      from './pages/ClientesPage';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
+// ── Páginas verticales por nicho (SEO) ─────────────────────
+import Peluquerias       from './pages/Peluquerias';
+import Consultorios      from './pages/Consultorios';
+import Gimnasios         from './pages/Gimnasios';
+import Alquileres        from './pages/Alquileres';
+import Restaurantes      from './pages/Restaurantes';
+// ── Blog ───────────────────────────────────────────────────
+import Blog              from './pages/Blog';
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -100,6 +108,17 @@ export default function App() {
 
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/terminos"   element={<Terminos />} />
+
+        {/* ── Páginas verticales por nicho (SEO) ── */}
+        <Route path="/peluquerias"  element={<Peluquerias />} />
+        <Route path="/consultorios" element={<Consultorios />} />
+        <Route path="/gimnasios"    element={<Gimnasios />} />
+        <Route path="/alquileres"   element={<Alquileres />} />
+        <Route path="/restaurantes" element={<Restaurantes />} />
+
+        {/* ── Blog ── */}
+        <Route path="/blog"          element={<Blog />} />
+        <Route path="/blog/:slug"    element={<Blog />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>

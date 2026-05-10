@@ -1,20 +1,74 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- ═══ HOME ═══ -->
   <url>
     <loc>https://akiracloud.lat/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  </url>
+
+  <!-- ═══ AUTH / ONBOARDING ═══ -->
+  <url>
+    <loc>https://akiracloud.lat/register</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/login</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
+
+  <!-- ═══ VERTICALES POR NICHO (alta prioridad SEO) ═══ -->
   <url>
-    <loc>https://akiracloud.lat/register</loc>
+    <loc>https://akiracloud.lat/peluquerias</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/consultorios</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/gimnasios</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/alquileres</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/restaurantes</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- ═══ BLOG ═══ -->
+  <url>
+    <loc>https://akiracloud.lat/blog</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/blog/como-automatizar-turnos-whatsapp</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
+  <url>
+    <loc>https://akiracloud.lat/blog/cobrar-mercadopago-whatsapp</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://akiracloud.lat/blog/bot-whatsapp-vs-secretaria</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- ═══ LEGAL ═══ -->
   <url>
     <loc>https://akiracloud.lat/privacidad</loc>
     <changefreq>yearly</changefreq>
@@ -25,6 +79,8 @@
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
+
+  <!-- ═══ PRE-LANZAMIENTO ═══ -->
   <url>
     <loc>https://akiracloud.lat/pre-lanzamiento</loc>
     <changefreq>weekly</changefreq>
