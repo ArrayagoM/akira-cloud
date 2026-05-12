@@ -312,13 +312,33 @@ function UrgencyBar() {
 // ─────────────────────────────────────────────────────────────
 // NAV
 // ─────────────────────────────────────────────────────────────
+// Lista de verticales — usada en el dropdown del Nav y en la sección Verticales.
+// Mantener una sola fuente de verdad para que ambos componentes coincidan.
+const VERTICALES = [
+  { slug: 'peluquerias',  emoji: '💇', titulo: 'Peluquerías',   sub: 'Barberías y salones' },
+  { slug: 'consultorios', emoji: '🏥', titulo: 'Consultorios',  sub: 'Médicos, psicólogos, kinesiólogos' },
+  { slug: 'gimnasios',    emoji: '💪', titulo: 'Gimnasios',     sub: 'Yoga, pilates, crossfit, personal trainers' },
+  { slug: 'alquileres',   emoji: '🏡', titulo: 'Alquileres',    sub: 'AirBnb, cabañas, hospedajes' },
+  { slug: 'restaurantes', emoji: '🍽️', titulo: 'Restaurantes',  sub: 'Bares, cafeterías, reservas de mesa' },
+];
+
 function Nav() {
   const [scrolled, setScrolled] = useState(false);
+  const [solOpen, setSolOpen] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+  // Cerrar dropdown al click fuera
+  useEffect(() => {
+    if (!solOpen) return;
+    const onClick = (e) => {
+      if (!e.target.closest('[data-sol-dropdown]')) setSolOpen(false);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, [solOpen]);
   return (
     <nav className="sticky top-0 inset-x-0 z-50 transition-all duration-300"
       style={{
@@ -336,9 +356,47 @@ function Nav() {
           <span className="font-bold text-base text-white">Akira<span style={{ color: 'var(--accent)' }}> Cloud</span></span>
         </Link>
         <div className="hidden md:flex items-center gap-7 text-sm font-medium" style={{ color: 'var(--text2)' }}>
+          {/* ── Dropdown Soluciones (verticales por nicho) ── */}
+          <div className="relative" data-sol-dropdown>
+            <button
+              onClick={(e) => { e.stopPropagation(); setSolOpen((v) => !v); }}
+              className="flex items-center gap-1 hover:text-white transition-colors"
+              aria-haspopup="true"
+              aria-expanded={solOpen}>
+              Soluciones <ChevronDown size={14} className={`transition-transform ${solOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {solOpen && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-72 rounded-xl shadow-2xl overflow-hidden z-50"
+                style={{
+                  background: 'rgba(13,18,26,0.98)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 20px 60px -10px rgba(0,0,0,0.6)',
+                }}>
+                <div className="p-2">
+                  {VERTICALES.map((v) => (
+                    <Link key={v.slug} to={`/${v.slug}`}
+                      className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-[rgba(0,232,123,0.06)] transition-colors group"
+                      onClick={() => setSolOpen(false)}>
+                      <span className="text-xl flex-shrink-0">{v.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white group-hover:text-[var(--accent)] transition-colors">{v.titulo}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>{v.sub}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+                <div className="px-3 py-2 text-[11px] text-center"
+                  style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)', color: 'var(--muted)' }}>
+                  ¿Otro rubro? Akira se adapta a cualquier negocio con turnos.
+                </div>
+              </div>
+            )}
+          </div>
           <a href="#features" className="hover:text-white transition-colors">Features</a>
           <a href="#crm"      className="hover:text-white transition-colors">CRM</a>
           <a href="#precios"  className="hover:text-white transition-colors">Precios</a>
+          <Link to="/blog"    className="hover:text-white transition-colors">Blog</Link>
           <a href="#faq"      className="hover:text-white transition-colors">FAQ</a>
         </div>
         <div className="flex items-center gap-2">
@@ -1008,6 +1066,51 @@ function CtaFinal() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// VERTICALES — cards a las páginas dedicadas por nicho
+// ─────────────────────────────────────────────────────────────
+function Verticales() {
+  return (
+    <Section id="verticales" className="!py-20">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-10">
+          <Eyebrow color="#7dd3fc">Para tu negocio</Eyebrow>
+          <h2 className="mt-4 text-3xl md:text-4xl font-bold text-white tracking-tight">
+            Una <span style={{ color: 'var(--accent)' }}>solución específica</span> para cada rubro
+          </h2>
+          <p className="mt-3 text-base max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
+            Akira está pensado para negocios reales argentinos. Elegí tu rubro y
+            te muestro exactamente cómo te puede ayudar.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {VERTICALES.map((v) => (
+            <Link key={v.slug} to={`/${v.slug}`}
+              className="block p-5 rounded-2xl text-center transition-all hover:-translate-y-1"
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+              }}>
+              <div className="text-3xl mb-3">{v.emoji}</div>
+              <h3 className="text-sm font-bold text-white mb-1">{v.titulo}</h3>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text2)' }}>
+                {v.sub}
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold"
+                style={{ color: 'var(--accent)' }}>
+                Ver detalles <ArrowRight size={11} />
+              </span>
+            </Link>
+          ))}
+        </div>
+        <p className="mt-8 text-center text-xs" style={{ color: 'var(--muted)' }}>
+          ¿No es ninguno de estos? Akira se adapta a cualquier negocio que reciba consultas y reservas por WhatsApp.
+        </p>
+      </div>
+    </Section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // SOBRE EL CREADOR — Juan Martín Arrayago / TinchoDev
 // ─────────────────────────────────────────────────────────────
 const REDES_CREADOR = [
@@ -1474,8 +1577,8 @@ function Footer() {
     <footer className="px-5 md:px-8 pt-12 pb-10"
       style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
       <div className="max-w-6xl mx-auto">
-        <div className="grid md:grid-cols-4 gap-8 mb-10">
-          <div>
+        <div className="grid sm:grid-cols-2 md:grid-cols-5 gap-8 mb-10">
+          <div className="md:col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center"
                 style={{ background: 'rgba(0,232,123,0.12)', border: '1px solid rgba(0,232,123,0.25)' }}>
@@ -1483,8 +1586,11 @@ function Footer() {
               </div>
               <span className="font-bold text-base text-white">Akira<span style={{ color: 'var(--accent)' }}> Cloud</span></span>
             </Link>
-            <p className="text-xs leading-relaxed" style={{ color: 'var(--muted)' }}>
-              Tu bot de WhatsApp con IA. Atiende, agenda y cobra solo.
+            <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--muted)' }}>
+              Tu bot de WhatsApp con IA. Atiende, agenda y cobra solo. Hecho en Argentina por <Link to="/#creador" className="hover:text-white">Juan M. Arrayago</Link>.
+            </p>
+            <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--muted)' }}>
+              📍 Ranchos · Buenos Aires · 🇦🇷
             </p>
           </div>
           <div>
@@ -1494,6 +1600,19 @@ function Footer() {
               <li><a href="#crm"      className="hover:text-white transition-colors">CRM</a></li>
               <li><a href="#precios"  className="hover:text-white transition-colors">Precios</a></li>
               <li><a href="#faq"      className="hover:text-white transition-colors">FAQ</a></li>
+              <li><Link to="/blog"    className="hover:text-white transition-colors">Blog</Link></li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-white mb-3">Soluciones</p>
+            <ul className="space-y-2 text-xs" style={{ color: 'var(--text2)' }}>
+              {VERTICALES.map((v) => (
+                <li key={v.slug}>
+                  <Link to={`/${v.slug}`} className="hover:text-white transition-colors">
+                    {v.titulo}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>
@@ -1501,6 +1620,8 @@ function Footer() {
             <ul className="space-y-2 text-xs" style={{ color: 'var(--text2)' }}>
               <li><Link to="/terminos"   className="hover:text-white transition-colors">Términos</Link></li>
               <li><Link to="/privacidad" className="hover:text-white transition-colors">Privacidad</Link></li>
+              <li><a href="mailto:soporte@akiracloud.lat" className="hover:text-white transition-colors">Soporte</a></li>
+              <li><Link to="/#creador"   className="hover:text-white transition-colors">Sobre el creador</Link></li>
             </ul>
           </div>
           <div>
@@ -1579,6 +1700,7 @@ export default function Landing() {
         </Section>
         <CrmSection />
         <Features />
+        <Verticales />
         <Pricing />
         <Testimonios />
         <Faq />
