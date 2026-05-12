@@ -43,8 +43,14 @@ router.get('/google/connect', (req, res) => {
   const oauth2Client = crearOAuth2Client();
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
+    // Scopes MÍNIMOS — Google aprueba más rápido scopes restrictivos.
+    // calendar.events solo permite ver/crear/modificar eventos (no toca ACLs,
+    // colores, configuraciones, ni el calendario en sí). Suficiente para
+    // que Akira agende turnos.
+    // Si en el futuro necesitás scope más amplio (calendar completo, calendar.acls)
+    // hay que actualizar acá Y en el OAuth consent screen de Google Cloud.
     scope: [
-      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile',
     ],
