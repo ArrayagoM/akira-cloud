@@ -764,8 +764,28 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
 
     const sys = { role: 'system', content: sysContent };
 
-    log(`[DBG] Groq CALL → ${usuario.historial.length} msgs en historial`);
-    let resp = await groqSvc.llamarGroq([sys, ...usuario.historial]);
+    // Sanitizar historial: eliminar tool_calls huérfanos (sin tool_result siguiente)
+    // y mensajes tool sin assistant previo — causan que el LLM repita bookings viejos.
+    const MAX_HIST = 30;
+    const histLimpio = (() => {
+      const raw = usuario.historial.slice(-MAX_HIST);
+      const clean = [];
+      for (let i = 0; i < raw.length; i++) {
+        const m = raw[i];
+        if (m.role === 'assistant' && m.tool_calls?.length > 0) {
+          const next = raw[i + 1];
+          if (!next || next.role !== 'tool') continue; // huérfano — saltearlo
+        }
+        if (m.role === 'tool') {
+          const prev = clean[clean.length - 1];
+          if (!prev || prev.role !== 'assistant' || !prev.tool_calls?.length) continue;
+        }
+        clean.push(m);
+      }
+      return clean;
+    })();
+    log(`[DBG] Groq CALL → ${histLimpio.length} msgs en historial`);
+    let resp = await groqSvc.llamarGroq([sys, ...histLimpio]);
     log(`[DBG] Groq OK → choices=${resp?.choices?.length}`);
     let msg = resp.choices[0].message;
 
