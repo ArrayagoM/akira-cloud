@@ -2630,8 +2630,36 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       const pago = await mp.verificarPago(p.data.id);
       if (pago.status !== 'approved') return;
       const rk = pago.external_reference;
-      const res2 = reservasPendientes[rk];
-      if (!res2) return;
+      let res2 = reservasPendientes[rk];
+      if (!res2) {
+        // Render pudo haberse reiniciado — _reservas.json se pierde.
+        // Reconstruimos desde external_reference + cliente en MongoDB.
+        log(`[Webhook] reserva ${rk} no está en memoria — intentando reconstruir`);
+        const parts = (rk || '').split('|');
+        if (parts.length >= 3) {
+          const rchatId   = parts[0];
+          const rfecha    = parts[1];
+          const rhora     = parts[2];
+          const rhoraFin  = parts[3] && parts[3] !== rhora ? parts[3] : null;
+          const rum = clientesSvc.cargarMemoria(rchatId);
+          if (rum) {
+            res2 = {
+              chatId:  rchatId,
+              fecha:   rfecha,
+              hora:    rhora,
+              horaFin: rhoraFin,
+              nombre:  rum.nombre || pago.payer?.name || 'Cliente',
+              email:   rum.email  || null,
+              total:   PRECIO_TURNO,
+            };
+            log(`[Webhook] Reconstruido: ${rchatId} ${rfecha} ${rhora}`);
+          }
+        }
+        if (!res2) {
+          log(`[Webhook] No se pudo reconstruir la reserva — ignorando webhook ${rk}`);
+          return;
+        }
+      }
       if (Date.now() > res2.expiresAt) {
         await enviarMensaje(
           res2.chatId,
@@ -3473,5 +3501,4 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   emitter.procesarWebhookMP = procesarWebhookMP;
   return emitter;
 }
-
 module.exports = crearAkiraBot;
