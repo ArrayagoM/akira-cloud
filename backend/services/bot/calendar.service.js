@@ -281,7 +281,12 @@ function crearCalendarService({
       }
     }
 
-    return { id: turnoDoc._id.toString(), summary: resumen };
+    // Buscar htmlLink actualizado (el turno puede haber sido actualizado con googleEventId)
+    const turnoActualizado = await Turno.findById(turnoDoc._id).select('googleEventId googleSyncStatus').lean().catch(() => null);
+    const htmlLink = (turnoActualizado?.googleSyncStatus === 'synced' && turnoActualizado?.googleEventId)
+      ? `https://calendar.google.com/calendar/event?eid=${Buffer.from(turnoActualizado.googleEventId).toString('base64')}`
+      : null;
+    return { id: turnoDoc._id.toString(), summary: resumen, htmlLink };
   }
 
   // ── eliminarEvento ───────────────────────────────────────────

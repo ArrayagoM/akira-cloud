@@ -754,6 +754,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           `  - Nunca confirmes el turno antes de que la herramienta lo registre\n` +
           `  - Nunca menciones JSON, código ni datos internos\n` +
           `  - Si el cliente dice "también quiero el de las X" → es un NUEVO turno, no un reagendamiento\n` +
+          `  - Si el cliente dice "el de las X" y X es la hora de FIN de un slot (ej: slot 12:00-13:00, cliente dice "el de las 13") → interpretarlo como ese slot (12:00)\n` +
+          `  - Si el cliente pide una hora que no fue mostrada como disponible, explicale cuáles SÍ están disponibles y ofrecele esas opciones\n` +
           `💬 ESTILO DE RESPUESTA: Natural, cálido y profesional. Máximo 6 líneas. Sin listas largas ni tecnicismos.\n` +
           (catalogoStr
             ? `📦 PRODUCTOS DISPONIBLES:\n${catalogoStr}\nUsá consultar_catalogo si el cliente pregunta por algún producto.\n`
@@ -921,7 +923,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
 
         if (MP_ACCESS_TOKEN) {
-          // ── Flujo MercadoPago: requiere email para el payer ──
+          // Si no hay email guardado, pedirlo antes de generar el pago
           if (!usuario.email) {
             cacheTemporal[jid] = {
               esperandoEmail: true,
@@ -2694,10 +2696,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           res2.fecha,
           res2.horaFin || `${hFwh}:00`,
         );
-        await enviarMensaje(
-          res2.chatId,
-          `¡Listo, ${res2.nombre}! 🎉\n✅ *Pago: $${res2.total || PRECIO_TURNO} ARS*\n📅 *Turno:* ${res2.fecha} de *${res2.hora}${res2.horaFin ? '–' + res2.horaFin : ''}*\n${ev.htmlLink ? `📆 ${ev.htmlLink}\n` : ''}\n⏰ Te recordamos 24hs, 4hs y 30min antes. ¡Te esperamos! 🙌`,
-        );
+        const horaFinStr = res2.horaFin || `${hF}:00`;
+        let msgConfirmacion =
+          `¡Listo, ${res2.nombre}! 🎉 Tu turno está *confirmado y reservado*.\n\n` +
+          `✅ *Pago recibido:* $${res2.total || PRECIO_TURNO} ARS\n` +
+          `📅 *Fecha:* ${res2.fecha}\n` +
+          `🕐 *Horario:* ${res2.hora} – ${horaFinStr} hs\n`;
+        if (ev.htmlLink) {
+          msgConfirmacion += `📆 *Evento en tu calendario:*\n${ev.htmlLink}\n`;
+        }
+        msgConfirmacion += `\n⏰ Te vamos a recordar 24hs, 4hs y 30 minutos antes para que no se te pase. ¡Te esperamos! 🙌`;
+        await enviarMensaje(res2.chatId, msgConfirmacion);
       } else {
         await enviarMensaje(
           res2.chatId,
@@ -3463,44 +3472,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   emitter.enviarMensaje     = enviarMensaje;
   emitter.procesarWebhookMP = procesarWebhookMP;
   return emitter;
-}
-
-module.exports = crearAkiraBot;
-    for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
-    if (sockRef) {
-      try {
-        // En modo PROXY, opts.silencioso=true evita que el cierre se propague
-        // al worker (worker:stop-bot). Sin esto, reciclar la instancia en el
-        // backend (reconexión, shutdown) mata la sesión WA del worker y fuerza
-        // un QR nuevo. En modo cloud-direct el flag se ignora silenciosamente.
-        if (opts?.silencioso) {
-          sockRef.end({ silencioso: true });
-        } else {
-          sockRef.end();
-        }
-      } catch (e) {
-        log('sock.end: ' + e.message);
-      }
-    }
-    if (expressServer) {
-      try {
-        expressServer.close();
-      } catch {}
-      expressServer = null;
-    }
-    log(opts?.silencioso ? '🛑 Bot detenido localmente (worker sigue activo).' : '🛑 Bot detenido.');
-    emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
-  }
-
-  emitter.iniciar           = iniciar;
-  emitter.detener           = detener;
-  emitter.enviarMensaje     = enviarMensaje;
-  emitter.procesarWebhookMP = procesarWebhookMP;
-  return emitter;
-}
-
-module.exports = crearAkiraBot;
-
 }
 
 module.exports = crearAkiraBot;
