@@ -249,12 +249,13 @@ function crearCalendarService({
         });
 
         if (gResult.ok) {
-          // Guardar el googleEventId en MongoDB para poder eliminarlo/actualizarlo después
+          // Guardar el googleEventId Y el htmlLink en MongoDB
           await Turno.findByIdAndUpdate(turnoDoc._id, {
-            googleEventId:    gResult.eventId,
-            googleCalendarId: gCal.calendarId,
-            googleSyncStatus: 'synced',
-            googleSyncedAt:   new Date(),
+            googleEventId:      gResult.eventId,
+            googleCalendarId:   gCal.calendarId,
+            googleSyncStatus:   'synced',
+            googleSyncedAt:     new Date(),
+            googleEventHtmlLink: gResult.link || null,
           });
           log(`[Calendar] ✅ Sync GCal OK — eventId: ${gResult.eventId}`);
           if (gResult.link) {
@@ -281,10 +282,10 @@ function crearCalendarService({
       }
     }
 
-    // Buscar htmlLink actualizado (el turno puede haber sido actualizado con googleEventId)
-    const turnoActualizado = await Turno.findById(turnoDoc._id).select('googleEventId googleSyncStatus').lean().catch(() => null);
-    const htmlLink = (turnoActualizado?.googleSyncStatus === 'synced' && turnoActualizado?.googleEventId)
-      ? `https://calendar.google.com/calendar/event?eid=${Buffer.from(turnoActualizado.googleEventId).toString('base64')}`
+    // Usar el htmlLink real de la API de Google Calendar (no construido manualmente)
+    const turnoActualizado = await Turno.findById(turnoDoc._id).select('googleSyncStatus googleEventHtmlLink').lean().catch(() => null);
+    const htmlLink = (turnoActualizado?.googleSyncStatus === 'synced' && turnoActualizado?.googleEventHtmlLink)
+      ? turnoActualizado.googleEventHtmlLink
       : null;
     return { id: turnoDoc._id.toString(), summary: resumen, htmlLink };
   }

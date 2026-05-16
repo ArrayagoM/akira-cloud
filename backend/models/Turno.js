@@ -57,6 +57,7 @@ const TurnoSchema = new mongoose.Schema(
     googleSyncStatus:     { type: String, enum: ['pending','synced','failed',null], default: null },
     googleSyncError:      { type: String, default: null },  // mensaje de error si falló sync
     googleSyncedAt:       { type: Date,   default: null },
+    googleEventHtmlLink:  { type: String, default: null },  // URL real del evento (de la API de GCal)
   },
   {
     timestamps: true,
