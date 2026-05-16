@@ -152,15 +152,32 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   // (se llama al iniciar y cada vez que el usuario guarda cambios en el dashboard)
   function _crearCalendar() {
     return crearCalendarService({
-      userId: USER_ID,
-      calendarId: CALENDAR_ID || 'principal',
-      horaInicio: HORA_INICIO_DIA,
-      horaFin: HORA_FIN_DIA,
-      duracion: DURACION_RESERVA_HORAS,
-      zonaHoraria: ZONA_HORARIA,
-      horarios: HORARIOS_ATENCION,
+      userId:         USER_ID,
+      calendarId:     CALENDAR_ID || 'principal',
+      horaInicio:     HORA_INICIO_DIA,
+      horaFin:        HORA_FIN_DIA,
+      duracion:       DURACION_RESERVA_HORAS,
+      zonaHoraria:    ZONA_HORARIA,
+      horarios:       HORARIOS_ATENCION,
       diasBloqueados: DIAS_BLOQUEADOS,
       log,
+      // Google Calendar OAuth — si el usuario conectó su cuenta
+      googleTokens:   GOOGLE_CALENDAR_TOKENS,
+      googleCalId:    CALENDAR_ID && CALENDAR_ID.includes('@') ? CALENDAR_ID : 'primary',
+      onTokenRefresh: async (newTokens) => {
+        // Persistir los tokens refrescados en la DB para no perder acceso
+        try {
+          const Config = require('../models/Config');
+          const cfg = await Config.findOne({ userId: USER_ID });
+          if (cfg) {
+            cfg.setKey('googleCalendarTokens', JSON.stringify(newTokens));
+            await cfg.save();
+            log('[Calendar] Tokens Google Calendar actualizados en DB');
+          }
+        } catch (e) {
+          log(`[Calendar] ⚠️ No se pudieron guardar tokens refrescados: ${e.message}`);
+        }
+      },
     });
   }
   let calendar = _crearCalendar();
@@ -3277,10 +3294,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         const cfg = await Config.findOne({ userId: USER_ID });
         if (!cfg) return;
         const raw = cfg.getKey('googleCalendarTokens');
-        if (!raw) return;
-        const tokens = JSON.parse(raw);
-        calendar.recargarTokens(tokens);
-        log('🗓️ Google Calendar tokens recargados sin reiniciar el bot');
+        if (!raw) {
+          log('🗓️ calendar:reload — sin tokens GCal, usando solo MongoDB');
+          return;
+        }
+        const newTokens = JSON.parse(raw);
+        // Actualizar GOOGLE_CALENDAR_TOKENS en memoria y recrear el servicio completo
+        // para que el nuevo GCal service use los tokens frescos
+        Object.assign(GOOGLE_CALENDAR_TOKENS || {}, newTokens);
+        calendar = _crearCalendar();
+        log('🗓️ Google Calendar reconectado con tokens frescos — modo híbrido activo');
       } catch (e) {
         log('⚠️ calendar:reload error: ' + e.message);
       }
@@ -3398,6 +3421,40 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     reconectando = false;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     detenerWatchdog();
+    for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
+    if (sockRef) {
+      try {
+        // En modo PROXY, opts.silencioso=true evita que el cierre se propague
+        // al worker (worker:stop-bot). Sin esto, reciclar la instancia en el
+        // backend (reconexión, shutdown) mata la sesión WA del worker y fuerza
+        // un QR nuevo. En modo cloud-direct el flag se ignora silenciosamente.
+        if (opts?.silencioso) {
+          sockRef.end({ silencioso: true });
+        } else {
+          sockRef.end();
+        }
+      } catch (e) {
+        log('sock.end: ' + e.message);
+      }
+    }
+    if (expressServer) {
+      try {
+        expressServer.close();
+      } catch {}
+      expressServer = null;
+    }
+    log(opts?.silencioso ? '🛑 Bot detenido localmente (worker sigue activo).' : '🛑 Bot detenido.');
+    emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
+  }
+
+  emitter.iniciar           = iniciar;
+  emitter.detener           = detener;
+  emitter.enviarMensaje     = enviarMensaje;
+  emitter.procesarWebhookMP = procesarWebhookMP;
+  return emitter;
+}
+
+module.exports = crearAkiraBot;
     for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
     if (sockRef) {
       try {

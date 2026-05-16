@@ -50,6 +50,13 @@ const TurnoSchema = new mongoose.Schema(
     noShow:                   { type: Boolean, default: false },
     // Reseña
     reseniaSolicitadaEn:      { type: Date, default: null },
+
+    // Sincronización Google Calendar
+    googleEventId:        { type: String, default: null },  // ID del evento en Google Calendar
+    googleCalendarId:     { type: String, default: null },  // ID del calendario de Google usado
+    googleSyncStatus:     { type: String, enum: ['pending','synced','failed',null], default: null },
+    googleSyncError:      { type: String, default: null },  // mensaje de error si falló sync
+    googleSyncedAt:       { type: Date,   default: null },
   },
   {
     timestamps: true,
