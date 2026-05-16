@@ -68,8 +68,8 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
       e.isRateLimit = true;
       throw e;
     }
-    // max_tokens 380: suficiente para WA, menos tokens = respuesta más rápida
-    const opts = { model: modelo, messages: msgs, max_tokens: 380 };
+    // max_tokens 520: espacio suficiente para respuestas cálidas y completas en WA
+    const opts = { model: modelo, messages: msgs, max_tokens: 520 };
     if (conTools) { opts.tools = herramientas(); opts.tool_choice = 'auto'; }
 
     // Timeout de 15s — si Groq no responde en 15s, no va a responder bien.
