@@ -790,6 +790,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     let msg = resp.choices[0].message;
 
     if (msg.tool_calls?.length > 0) {
+      // Guardar posición antes de agregar mensajes de tools — para armar msgs2 limpio
+      const histLenAntesTools = histLimpio.length;
       usuario.historial.push({ role: msg.role, content: msg.content, tool_calls: msg.tool_calls });
       for (const t of msg.tool_calls) {
         let args = {};
@@ -813,6 +815,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
       }
 
+      // Segunda llamada Groq: usar histLimpio (sanitizado) + los mensajes nuevos del turno
+      // (assistant con tool_calls + tool results). Evita mandar todo usuario.historial que
+      // puede incluir mensajes sin sanear y es más largo que necesario.
+      const newToolMsgs = usuario.historial.slice(histLenAntesTools);
       const msgs2 = [
         {
           role: 'system',
@@ -820,7 +826,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             `Sos Akira de ${MI_NOMBRE}. Natural, cálido, WhatsApp con ${usuario.nombre}. Max 3 líneas.` +
             (linkMP ? ' El link de pago se agrega automáticamente — NO lo menciones.' : ''),
         },
-        ...usuario.historial,
+        ...histLimpio,
+        ...newToolMsgs,
       ];
       try {
         resp = await groqSvc.llamarGroq(msgs2, false);
@@ -2552,9 +2559,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       // Indicador de escritura
       await sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
-      let u = clientesSvc.cargarMemoria(jid);
-      if (!u) u = await clientesSvc.cargarMemoriaAsync(jid);
-      if (!u) {
+      // Reutilizar `usuario` cargado arriba — evita doble carga/query a MongoDB.
+      // Si por algún motivo no está (MongoDB tardó y caché vacía), intentar una vez más.
+      if (!usuario) usuario = await clientesSvc.cargarMemoriaAsync(jid);
+      if (!usuario) {
         // MongoDB inaccesible — distinguir usuario CONOCIDO de usuario NUEVO
         // Si cacheTemporal[jid] tiene datos, el usuario YA tuvo conversaciones previas
         // (turnos, consultas, etc.) → crear usuario temporal para poder responder.
@@ -2562,7 +2570,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         const tmpKeys = Object.keys(cacheTemporal[jid] || {});
         if (tmpKeys.length > 0) {
           const nombreTmp = pushName ? capitalizar(quitarEmojis(pushName.trim())) : '';
-          u = {
+          usuario = {
             jid,
             nombre:           nombreTmp,
             telefono:         jid,
@@ -2572,7 +2580,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             historial:        [],
             turnosConfirmados:[],
           };
-          clientesSvc.guardarMemoria(jid, u); // cache RAM inmediato; MongoDB en background
+          clientesSvc.guardarMemoria(jid, usuario); // cache RAM inmediato; MongoDB en background
           log(`[DB] ⚠️ MongoDB inaccesible — usuario temporal "${nombreTmp || tel}" creado. El bot responde igual.`);
         } else {
           // Usuario genuinamente nuevo (primer mensaje EVER) — registrar nombre
@@ -2580,27 +2588,28 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           return;
         }
       }
-      u.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
-      u.historial = recortarHistorial(u.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
+      usuario.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
+      usuario.historial = recortarHistorial(usuario.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
 
-      // ── Anti-mudo: si pasan 4s sin respuesta del LLM, mandar un "dejame chequear..."
-      // El cliente NUNCA debe esperar más de 4s sin ver actividad clara del bot.
+      // ── Anti-mudo: si pasan 9s sin respuesta del LLM, mandar un "dejame chequear..."
+      // NOTA: el bot hace 2 llamadas a Groq cuando usa tools (consultar + agendar) → 6-12s total.
+      // Con 4s el interim SIEMPRE disparaba en consultas de disponibilidad/agenda,
+      // generando un mensaje basura antes de la respuesta real. Subido a 9s para evitarlo.
       let respuestaInterimEnviada = false;
       const interimTimer = setTimeout(() => {
         respuestaInterimEnviada = true;
-        // Re-disparar "composing" por las dudas y mandar un texto breve
         sock.sendPresenceUpdate('composing', jid).catch(() => {});
         enviarMensaje(jid, 'Dame un segundo que chequeo… 🙌').catch(() => {});
-      }, 4000);
+      }, 9000);
 
       let respuesta;
       try {
-        respuesta = await procesarConIA(jid, u);
+        respuesta = await procesarConIA(jid, usuario);
       } finally {
         clearTimeout(interimTimer);
       }
-      u.historial.push({ role: 'assistant', content: respuesta });
-      clientesSvc.guardarMemoria(jid, u);
+      usuario.historial.push({ role: 'assistant', content: respuesta });
+      clientesSvc.guardarMemoria(jid, usuario);
 
       await sock.sendPresenceUpdate('paused', jid).catch(() => {});
       log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..." (interim=${respuestaInterimEnviada})`);
