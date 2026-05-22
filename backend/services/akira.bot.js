@@ -1001,11 +1001,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         push(`Ya tenés reserva pendiente para el ${pend.fecha} ${pend.hora}. Pagá esa primero.`);
         return;
       }
-      const hF = args.hora_fin || null;
+      // 🚨 NO confiar en args.hora_fin del LLM: el modelo 8b a veces alucina
+      // hora_fin lejano (ej: cliente dice "el de las 11" y manda hora_fin=14)
+      // → cobraba 3 horas = $30.000 cuando el slot es 1h = $10.000.
+      // Forzamos duración fija de 1 slot (= DURACION_RESERVA_HORAS, default 1h).
+      // Si en el futuro hay slots de duración variable, se maneja por
+      // agendar_servicio (que sí tiene SERVICIOS_LIST con duracion por servicio).
       const [y, m, d] = args.fecha.split('-').map(Number);
       const hI = parseInt(args.hora.split(':')[0]);
-      const hFn = hF ? parseInt(hF.split(':')[0]) : hI + DURACION_RESERVA_HORAS;
-      const cant = Math.max(1, hFn - hI);
+      const hFn = hI + DURACION_RESERVA_HORAS;
+      const cant = 1; // siempre 1 slot — el cliente elige UN horario por agendar_turno
       const total = PRECIO_TURNO * cant;
       const sk = `${args.fecha}|${args.hora}`;
       if (slotsEnProceso.has(sk)) {
