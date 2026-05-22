@@ -105,12 +105,32 @@ function crearWaitlistService({ userId, calendarId, log }) {
     return entry || null;
   }
 
+  // Devuelve la ÚNICA oferta activa del cliente (sin filtrar por fecha).
+  // Útil cuando el cliente responde "SÍ" sin contexto: agarramos la última
+  // oferta abierta. Si hay varias, devuelve la más reciente.
+  async function obtenerOfertaActivaSinFecha(jid) {
+    return WaitlistEntry.findOne({
+      userId, jid, estado: 'contactado',
+      expiraEn: { $gt: new Date() },
+    }).sort({ contactadoEn: -1 });
+  }
+
+  // Marca la oferta como rechazada (cliente dijo NO) y pasa al siguiente.
+  async function rechazarOferta(entryId, fecha, hora, enviarMensaje, notificarDueno) {
+    const entry = await WaitlistEntry.findById(entryId);
+    if (!entry) return;
+    entry.estado = 'rechazado';
+    await entry.save();
+    log(`[Waitlist] ❌ ${entry.clienteNombre} rechazó oferta — pasando al siguiente`);
+    await notificarSiguiente(fecha, hora, enviarMensaje, notificarDueno);
+  }
+
   // Listar espera activa para una fecha (para el dashboard)
   async function listarEspera(fecha) {
     return WaitlistEntry.find({ userId, fecha, estado: 'esperando' }).sort({ createdAt: 1 }).lean();
   }
 
-  return { agregarALista, notificarSiguiente, confirmarDesdeWaitlist, tieneOfertaActiva, listarEspera };
+  return { agregarALista, notificarSiguiente, confirmarDesdeWaitlist, tieneOfertaActiva, obtenerOfertaActivaSinFecha, rechazarOferta, listarEspera };
 }
 
 module.exports = crearWaitlistService;

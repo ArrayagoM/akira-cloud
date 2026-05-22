@@ -21,7 +21,7 @@
     "test": "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
+    "@whiskeysockets/baileys": "^6.7.23",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",

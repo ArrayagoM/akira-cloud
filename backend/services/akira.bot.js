@@ -44,7 +44,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
 
   // ── Config ─────────────────────────────────────────────────
   const GROQ_API_KEY = config.GROQ_API_KEY || '';
-  const MODELO = 'llama-3.3-70b-versatile';
+  // Modelo Groq: balance velocidad/calidad. 8b-instant es ~3x más rápido que
+  // 70b-versatile y suficiente para tool calling de turnos (probado).
+  const MODELO = 'llama-3.1-8b-instant';
   const MI_NOMBRE = config.MI_NOMBRE || 'Asistente';
   const SERVICIOS = config.SERVICIOS || 'turnos y reservas';
   const NEGOCIO = config.NEGOCIO || `el negocio de ${MI_NOMBRE}`;
@@ -226,8 +228,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   let watchdogTimer = null;
   let ultimoMensajeTs = Date.now();
   let catalogFallos = 0;
-  // Cooldown para fallback de "no entendí tu mensaje" (anti-spam por JID)
-  const fallbackCooldown = new Map(); // jid → timestamp último fallback enviado
   let esNegocioWA = null; // null=desconocido, false=no es Business, true=es Business
   let reconectarIntentos = 0; // contador de reconexiones sin éxito
   let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
@@ -237,6 +237,52 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   let conectandoLock = false; // Anti-paralelo: evita múltiples conectar() simultáneos
 
   // ── Helpers ─────────────────────────────────────────────────
+
+  // Resuelve un JID @lid a su PN real @s.whatsapp.net usando todos los fallbacks
+  // disponibles. Devuelve el JID resuelto o null si no se pudo.
+  // Es async por el último fallback (signalRepository) pero los primeros son sync,
+  // así que en el 99% de los casos retorna en microsegundos sin awaits reales.
+  async function resolverLid(rawJid, key) {
+    // 1. Baileys ya lo resolvió y lo puso en la key
+    const senderPn = key?.senderPn || key?.participantPn;
+    if (senderPn && senderPn.endsWith('@s.whatsapp.net')) {
+      lidCache.set(rawJid, senderPn);
+      return senderPn;
+    }
+    // 2. participant directo (si vino como número real)
+    const participant = key?.participant;
+    if (participant && participant.endsWith('@s.whatsapp.net')) {
+      lidCache.set(rawJid, participant);
+      return participant;
+    }
+    // 3. cache local (aprendido de mensajes / contacts previos)
+    if (lidCache.has(rawJid)) return lidCache.get(rawJid);
+    // 4. Store interno de Baileys (lidMapping). Baileys lo va poblando con
+    //    cada contact sync, app-state, y mensajes que sí trajeron senderPn.
+    try {
+      const repo = sock?.signalRepository?.lidMapping;
+      const pn = await repo?.getPNForLID?.(rawJid);
+      if (pn && typeof pn === 'string' && pn.endsWith('@s.whatsapp.net')) {
+        lidCache.set(rawJid, pn);
+        return pn;
+      }
+    } catch {}
+    return null;
+  }
+
+  // Aprende mapeos LID↔PN desde un objeto contact (contacts.upsert / contacts.update).
+  // WhatsApp puede mandar el contact con `id` = pn y `lid` = lid (o viceversa).
+  function aprenderLidDeContacto(c) {
+    if (!c) return;
+    const id = c.id || '';
+    const lid = c.lid || '';
+    if (id.endsWith('@lid') && lid.endsWith('@s.whatsapp.net')) {
+      lidCache.set(id, lid);
+    } else if (id.endsWith('@s.whatsapp.net') && lid.endsWith('@lid')) {
+      lidCache.set(lid, id);
+    }
+  }
+
   function quitarEmojis(t) {
     return t
       .replace(/\p{Emoji}/gu, '')
@@ -565,6 +611,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   }
   function limpiarExpiradas() {
     let cambio = false;
+    // Libera slots de Turnos pendientes que pasaron los 30min sin confirmar pago.
+    // Esto permite que otro cliente reserve el horario sin que quede bloqueado.
+    calendar.limpiarPendientesExpirados?.().catch(() => {});
     for (const k of Object.keys(reservasPendientes))
       if (reservasPendientes[k].expiresAt <= Date.now()) {
         delete reservasPendientes[k];
@@ -680,7 +729,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         (usuario.turnosConfirmados?.length
           ? `[INT] Servicios agendados: ${usuario.turnosConfirmados.map((t) => `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${t.fecha} ${t.hora}`).join(' | ')}\n`
           : '') +
-        `FLUJO OBLIGATORIO: 1.Preguntar qué servicio quiere → 2.Pedir datos del ítem (patente+modelo, nombre mascota, etc.) → 3.Consultar disponibilidad → 4.Cliente elige horario → 5.Confirmar → 6.Llamar agendar_servicio. NUNCA saltear pasos.\n` +
+        `FLUJO OBLIGATORIO: 1.Preguntar qué servicio quiere → 2.Pedir datos del ítem (patente+modelo, nombre mascota, etc.) → 3.Consultar disponibilidad → 4.Cliente elige horario ("puede ser a las X?") → 5.PEDIR confirmación literal ("¿Te confirmo el [servicio] para el [fecha] a las [hora]? Decime 'dale' y te paso el link.") → 6.Cuando responda "sí/dale/confirmo" → llamar agendar_servicio. NUNCA saltear pasos. NUNCA llamar agendar_servicio si el cliente solo PREGUNTÓ.\n` +
+        `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
         `Cancelar→cancelar_servicio, Cambiar→reagendar_servicio. Máx 4 líneas. Sin JSON ni código.\n` +
         (catalogoStr
           ? `📦 PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan.\n`
@@ -712,7 +762,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           (usuario.turnosConfirmados?.length
             ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map((t) => `${t.unidad ? t.unidad + ' ' : ''}${t.fecha}→${t.horaFin || ''}`).join(', ')}\n`
             : '') +
-          `FLUJO: 1.Cliente dice fechas [y nº huéspedes si hay varias unidades] → 2.Llamar consultar_disponibilidad_alojamiento (con nombre_unidad si aplica) → 3.Informar precio total y dirección → 4.Cliente confirma → 5.Llamar agendar_alojamiento. NUNCA saltear pasos.\n` +
+          `FLUJO: 1.Cliente dice fechas [y nº huéspedes] → 2.consultar_disponibilidad_alojamiento → 3.Informar precio total + dirección → 4.PEDIR confirmación literal ("¿Te confirmo del [entrada] al [salida]? Decime 'dale' y te mando el link de pago.") → 5.Cuando responda "sí/dale/confirmo" → llamar agendar_alojamiento. NUNCA saltear pasos. NUNCA llamar agendar_alojamiento si el cliente solo preguntó.\n` +
+          `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
           `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_alojamiento, Cambiar fechas→reagendar_alojamiento.\n` +
           (catalogoStr
             ? `📦 CATÁLOGO DE PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan por productos.\n`
@@ -743,13 +794,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           (usuario.turnosConfirmados?.length
             ? `✅ Turnos ya confirmados de ${usuario.nombre}: ${usuario.turnosConfirmados.map((t) => `${t.fecha} ${t.hora}`).join(', ')}. No preguntes si pagó, ya pagó.\n`
             : '') +
-          `📋 FLUJO OBLIGATORIO:\n` +
+          `📋 FLUJO OBLIGATORIO (3 PASOS — NUNCA SALTEAR):\n` +
           `  1. Si pregunta por disponibilidad → llamar consultar_disponibilidad con la fecha\n` +
-          `  2. Mostrar slots disponibles de forma atractiva (ej: "¡Tenés libre las 9, 10 y 11 hs! ¿Cuál te queda mejor? 😊")\n` +
-          `  3. Cliente elige hora → confirmás brevemente → llamar agendar_turno\n` +
-          `  4. Si quiere VARIOS turnos en el mismo día → llamar agendar_turno UNA VEZ POR CADA TURNO (no reagendar)\n` +
-          `  5. Cancelar→cancelar_turno | Cambiar fecha/hora→reagendar_turno\n` +
-          `❌ ERRORES A EVITAR:\n` +
+          `  2. Mostrar slots disponibles (ej: "Tenés libre las 9, 10 y 11 hs. ¿Cuál te queda mejor? 😊")\n` +
+          `  3. Cliente elige hora ("puede ser a las 14?", "me sirve las 10") → NO LLAMES agendar_turno todavía.\n` +
+          `     RESPONDÉ pidiendo confirmación literal: "¿Te confirmo el turno del [fecha] a las [hora]? Decime 'dale' y te paso el link de pago."\n` +
+          `  4. SOLO cuando el cliente responda LITERALMENTE "sí/dale/confirmo/reservame/ok" → AHÍ llamás agendar_turno.\n` +
+          `  5. Si quiere VARIOS turnos en el mismo día → agendar_turno UNA VEZ POR CADA TURNO (no reagendar)\n` +
+          `  6. Cancelar→cancelar_turno | Cambiar fecha/hora→reagendar_turno\n` +
+          `❌ ERRORES PROHIBIDOS:\n` +
+          `  - 🚨 NUNCA llames agendar_turno si el cliente solo PREGUNTÓ ("puede ser?", "me podés agendar?") — pregunta requiere confirmación primero.\n` +
+          `  - 🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo hace cuando corresponde.\n` +
           `  - Nunca uses reagendar_turno cuando el cliente pide un TURNO ADICIONAL (distinto horario)\n` +
           `  - Nunca confirmes el turno antes de que la herramienta lo registre\n` +
           `  - Nunca menciones JSON, código ni datos internos\n` +
@@ -804,21 +859,38 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         await ejecutarTool(t, args, jid, usuario);
       }
 
-      let linkMP = null;
-      for (const m of usuario.historial) {
-        if (m.role === 'tool' && m.content) {
-          const match = m.content.match(/Link:\s*(https:\/\/www\.mercadopago\.com\.ar[^\s.]+)/);
-          if (match) {
-            linkMP = match[1];
-            break;
-          }
-        }
-      }
-
       // Segunda llamada Groq: usar histLimpio (sanitizado) + los mensajes nuevos del turno
       // (assistant con tool_calls + tool results). Evita mandar todo usuario.historial que
       // puede incluir mensajes sin sanear y es más largo que necesario.
       const newToolMsgs = usuario.historial.slice(histLenAntesTools);
+
+      // ── LINK MP solo del TURNO ACTUAL ────────────────────────────
+      // 🚨 BUG CRÍTICO ANTERIOR: el código buscaba en TODO usuario.historial,
+      // así que un link MP de un agendar_turno PREVIO quedaba "pegado" y
+      // reaparecía en cada respuesta posterior — incluso cuando el cliente
+      // solo preguntaba disponibilidad. Ahora SOLO miramos los tool_messages
+      // generados en esta MISMA interacción (newToolMsgs), y SOLO si el
+      // assistant llamó una tool que genera link (agendar_*).
+      const toolsQueGeneranLink = new Set([
+        'agendar_turno',
+        'agendar_servicio',
+        'agendar_alojamiento',
+      ]);
+      const llamoToolDePago = msg.tool_calls?.some((t) =>
+        toolsQueGeneranLink.has(t?.function?.name),
+      );
+      let linkMP = null;
+      if (llamoToolDePago) {
+        for (const m of newToolMsgs) {
+          if (m.role === 'tool' && m.content) {
+            const match = m.content.match(/Link:\s*(https:\/\/www\.mercadopago\.com\.ar[^\s.]+)/);
+            if (match) {
+              linkMP = match[1];
+              break;
+            }
+          }
+        }
+      }
       const msgs2 = [
         {
           role: 'system',
@@ -893,28 +965,29 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         .filter((m) => m.role === 'user')
         .map((m) => (m.content || '').toLowerCase());
       const ultimo = msgs[msgs.length - 1] || '';
-      const confirma = [
-        'si',
-        'sí',
-        'dale',
-        'bueno',
-        'ok',
-        'reservame',
-        'reservá',
-        'agendame',
-        'quiero',
-        'perfecto',
-        'listo',
-        'va',
-        'confirmo',
-        'poneme',
-        'anotame',
-      ].some((p) => ultimo.includes(p));
-      const presel = cacheTemporal[jid]?.preseleccionado;
-      const porCache = presel && presel.fecha === args.fecha && presel.hora === args.hora;
-      if (!confirma && !porCache) {
+      // CONFIRMACIÓN = elección clara, NO pregunta.
+      // 1) Si es pregunta ("puede ser?", "me podés agendar?") → BLOQUEA
+      // 2) Confirma si: tiene palabra explícita ("sí/dale/confirmo/...")
+      //    O elige la hora directamente ("el de las 11", "11", "a las 11", "11:00")
+      const esPregunta = /\?\s*$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/, /\blisto\b/, /\bperfecto\b/,
+      ];
+      const tieneConfirmacionExplicita = palabrasConfirmacion.some((re) => re.test(ultimo));
+      // Eligió la hora directamente: "el de las 11", "las 11", "11hs", "11:00", "a las 11"
+      const horaNum = parseInt(args.hora?.split(':')[0]);
+      const eligioHora = !isNaN(horaNum) && (
+        new RegExp(`\\b${horaNum}\\s*(:|hs|hrs|h\\b)`, 'i').test(ultimo) ||
+        new RegExp(`\\b(el|las|a las|el de las|de las)\\s+${horaNum}\\b`, 'i').test(ultimo) ||
+        new RegExp(`^${horaNum}$`).test(ultimo.trim())
+      );
+      const confirma = !esPregunta && (tieneConfirmacionExplicita || eligioHora);
+      if (!confirma) {
         push(
-          `El cliente no confirmó aún. Preguntale si quiere el turno del ${args.fecha} a las ${args.hora}.`,
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo el turno del ${args.fecha} a las ${args.hora}? Decime 'dale' y te paso el link de pago." Esperá su confirmación EXPLÍCITA (sí/dale/confirmo/ok) o que elija claramente la hora ("el de las X") antes de llamar agendar_turno de nuevo.`,
         );
         return;
       }
@@ -950,7 +1023,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
 
         if (MP_ACCESS_TOKEN) {
-          // Si no hay email guardado, pedirlo antes de generar el pago
+          // Si no hay email guardado, pedirlo antes de generar el pago.
+          // El email es REQUERIDO para invitar al cliente al evento de Calendar.
           if (!usuario.email) {
             cacheTemporal[jid] = {
               esperandoEmail: true,
@@ -959,6 +1033,37 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             db.guardar(CACHE_PATH, cacheTemporal);
             push('Para reservar necesitamos el email del cliente. Pedíselo.');
             return;
+          }
+          // ── PRE-RESERVAR slot en MongoDB con estado 'pendiente' ─────
+          // Antes de generar el link MP, bloqueamos el slot creando un Turno
+          // pendiente. El índice único (userId+calendarId+fechaInicio) garantiza
+          // que dos clientes NO puedan reservar el mismo slot en paralelo —
+          // el segundo recibirá DuplicateKey y se le pedirá elegir otro horario.
+          // Si el pago confirma → cambiamos estado a 'confirmado' (atómico).
+          // Si vence sin pagar → limpiarExpiradas() lo marca 'cancelado'.
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: `Turno — ${usuario.nombre}`,
+              descripcion: `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Email: ${usuario.email}`,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: usuario.numeroReal || extraerNumero(jid),
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Turno] Slot ya tomado por otro cliente: ${args.fecha} ${args.hora}`);
+              push('SLOT_OCUPADO: Ese horario acaba de ser reservado por otro cliente. Llamá a consultar_disponibilidad y pedile que elija otro.');
+              return;
+            }
+            throw e;
           }
           const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hF);
           const rk = `${jid}|${args.fecha}|${args.hora}|${hF || args.hora}`;
@@ -971,6 +1076,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             email: usuario.email,
             cant,
             total,
+            turnoId: turnoPendiente._id.toString(), // 🔥 ID del Turno pendiente para confirmar en webhook
             expiresAt: Date.now() + 30 * 60000,
           };
           db.guardar(RESERVAS_PATH, reservasPendientes);
@@ -1132,28 +1238,18 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         .filter((m) => m.role === 'user')
         .map((m) => (m.content || '').toLowerCase());
       const ultimo = msgs[msgs.length - 1] || '';
-      const confirma = [
-        'si',
-        'sí',
-        'dale',
-        'bueno',
-        'ok',
-        'reservame',
-        'reservá',
-        'quiero',
-        'perfecto',
-        'listo',
-        'va',
-        'confirmo',
-        'poneme',
-        'anotame',
-      ].some((p) => ultimo.includes(p));
-      const cache = cacheTemporal[jid]?.ultimaConsultaAloj;
-      const porCache =
-        cache && cache.fechaEntrada === fecha_entrada && cache.fechaSalida === fecha_salida;
-      if (!confirma && !porCache) {
+      // Confirmación EXPLÍCITA (no preguntas tipo "puede ser?", "me podés agendar?")
+      const esPregunta = /\?$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/,
+      ];
+      const confirma = !esPregunta && palabrasConfirmacion.some((re) => re.test(ultimo));
+      if (!confirma) {
         push(
-          `El cliente no confirmó. Preguntale si quiere reservar del ${fecha_entrada} al ${fecha_salida}.`,
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo la reserva del ${fecha_entrada} al ${fecha_salida}? Si sí, decime "dale" y te paso el link de pago." Esperá confirmación EXPLÍCITA antes de llamar agendar_alojamiento.`,
         );
         return;
       }
@@ -1441,25 +1537,25 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         .filter((m) => m.role === 'user')
         .map((m) => (m.content || '').toLowerCase());
       const ultimo = msgs[msgs.length - 1] || '';
-      const confirma = [
-        'si',
-        'sí',
-        'dale',
-        'bueno',
-        'ok',
-        'reservame',
-        'agendame',
-        'quiero',
-        'perfecto',
-        'listo',
-        'va',
-        'confirmo',
-        'poneme',
-        'anotame',
-      ].some((p) => ultimo.includes(p));
+      // Confirmación = elección clara, NO pregunta. Acepta "sí/dale/confirmo" O elección directa ("el de las 11")
+      const esPregunta = /\?\s*$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/, /\blisto\b/, /\bperfecto\b/,
+      ];
+      const tieneConfirmacionExplicita = palabrasConfirmacion.some((re) => re.test(ultimo));
+      const horaNum = parseInt(args.hora?.split(':')[0]);
+      const eligioHora = !isNaN(horaNum) && (
+        new RegExp(`\\b${horaNum}\\s*(:|hs|hrs|h\\b)`, 'i').test(ultimo) ||
+        new RegExp(`\\b(el|las|a las|el de las|de las)\\s+${horaNum}\\b`, 'i').test(ultimo) ||
+        new RegExp(`^${horaNum}$`).test(ultimo.trim())
+      );
+      const confirma = !esPregunta && (tieneConfirmacionExplicita || eligioHora);
       if (!confirma) {
         push(
-          `El cliente no confirmó aún. Preguntale si quiere agendar el ${args.servicio} para el ${args.fecha} a las ${args.hora}.`,
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo ${args.servicio} para el ${args.fecha} a las ${args.hora}? Decime 'dale' y te paso el link." Esperá confirmación EXPLÍCITA o elección clara de hora antes de llamar agendar_servicio.`,
         );
         return;
       }
@@ -1480,25 +1576,61 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       }
       slotsEnProceso.add(sk);
       try {
-        // Calcular precio y duración
+        // Calcular precio y duración (en MINUTOS — el slot puede ser 30, 45, 90, etc.)
         const servicioConf = SERVICIOS_LIST.find((s) =>
           s.nombre.toLowerCase().includes((args.servicio || '').toLowerCase()),
         );
         const durMin = servicioConf?.duracion || 60;
         const total = servicioConf?.precio || PRECIO_TURNO;
         const [y, m, d] = args.fecha.split('-').map(Number);
-        const hI = parseInt(args.hora.split(':')[0]);
-        const hFn = args.hora_fin
-          ? parseInt(args.hora_fin.split(':')[0])
-          : hI + Math.ceil(durMin / 60);
-        const hFnStr = `${String(hFn).padStart(2, '0')}:00`;
-        const ini = calendar.crearFecha(y, m, d, hI);
-        const fin = calendar.crearFecha(y, m, d, hFn);
+        const [hh, mm] = args.hora.split(':').map(Number);
+        const hI = hh;
+        const minI = mm || 0;
+        const ini = calendar.crearFecha(y, m, d, hI, minI);
+        // fin = ini + durMin (respeta la duración configurada, NO redondea a hora)
+        const fin = new Date(ini.getTime() + durMin * 60 * 1000);
+        // Para texto al cliente usamos HH:MM real
+        const hFnStr = `${String(fin.getHours()).padStart(2, '0')}:${String(fin.getMinutes()).padStart(2, '0')}`;
 
         const tituloEvento = `${args.servicio} — ${args.info_item} — ${usuario.nombre}`;
         const descEvento = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Ítem: ${args.info_item}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+        const tel = usuario.numeroReal || extraerNumero(jid);
 
         if (MP_ACCESS_TOKEN) {
+          // Pre-reservar slot en MongoDB antes de generar link MP (anti doble-venta)
+          if (!usuario.email) {
+            cacheTemporal[jid] = {
+              esperandoEmail: true,
+              reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hFnStr },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            push('Para reservar necesitamos el email del cliente. Pedíselo.');
+            return;
+          }
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: tituloEvento,
+              descripcion: descEvento,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: tel,
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Servicio] Slot ya tomado: ${args.fecha} ${args.hora}`);
+              push('SLOT_OCUPADO: Otro cliente reservó ese horario. Llamá a consultar_disponibilidad y pedile que elija otro.');
+              return;
+            }
+            throw e;
+          }
           const pref = await mp.crearPreferencia(usuario.nombre, args.fecha, args.hora, total, jid);
           if (pref?.init_point) {
             const rk = `${jid}|${args.fecha}|${args.hora}|${hFnStr}`;
@@ -1513,16 +1645,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
               total,
               servicio: args.servicio,
               infoItem: args.info_item,
+              turnoId: turnoPendiente._id.toString(),
               expiresAt: Date.now() + 30 * 60000,
             };
             db.guardar(RESERVAS_PATH, reservasPendientes);
             push(
-              `Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}. $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`,
+              `Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`,
             );
             notificarDueno(
-              `🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}\n💳 Esperando pago MP ($${total})\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+              `🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💳 Esperando pago MP ($${total})\n📱 +${tel}`,
             );
           } else {
+            // Si MP falla, liberar el slot pendiente
+            await Turno.findByIdAndUpdate(turnoPendiente._id, { estado: 'cancelado' }).catch(() => {});
             push('Error generando link de pago. Intentá de nuevo.');
           }
         } else {
@@ -1842,25 +1977,35 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       const hF = horaFin ? parseInt(horaFin.split(':')[0]) : hI + 1;
       const cant = Math.max(1, hF - hI);
       const total = PRECIO_TURNO * cant;
+      const [y, m, d] = fecha.split('-').map(Number);
+      const ini = calendar.crearFecha(y, m, d, hI);
+      const fin = calendar.crearFecha(y, m, d, hF);
+      const tel = usuario.numeroReal || extraerNumero(jid);
 
-      // Sin MercadoPago: usar transferencia bancaria (flujo post-email)
+      // Sin MercadoPago: agendar directo + transferencia
       if (!MP_ACCESS_TOKEN) {
-        const [y, m, d] = fecha.split('-').map(Number);
-        const ini = calendar.crearFecha(y, m, d, hI);
-        const fin = calendar.crearFecha(y, m, d, hF);
-        const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
-        await calendar.crearEvento(
+        const desc = `WhatsApp: +${tel}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+        const evento = await calendar.crearEvento(
           CALENDAR_ID,
           `Turno — ${usuario.nombre}`,
           desc,
           ini,
           fin,
           usuario.email,
-          usuario.numeroReal || extraerNumero(jid),
+          tel,
         );
+        if (evento?.slotOcupado) {
+          await enviarMensaje(jid, `¡Ups! El horario ${hora} acaba de ser tomado por otro cliente. ¿Te queda bien otro horario?`);
+          return;
+        }
+        if (!evento || !evento.id) {
+          await enviarMensaje(jid, `¡Ups! Hubo un problema técnico al guardar el turno. ${MI_NOMBRE} te contacta para confirmar manualmente. 🙏`);
+          notificarDueno(`🚨 Error guardando turno de ${usuario.nombre} (${fecha} ${hora}) — confirmar manual.`);
+          return;
+        }
         usuario.turnosConfirmados = [
           ...(usuario.turnosConfirmados || []),
-          { fecha, hora, horaFin: horaFin || null },
+          { fecha, hora, horaFin: horaFin || null, turnoId: evento.id },
         ];
         clientesSvc.guardarMemoria(jid, usuario);
         programarRecs(jid, usuario.nombre, fecha, hora);
@@ -1875,9 +2020,36 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           msg += `${MI_NOMBRE} te va a indicar cómo abonar. ✅`;
         }
         await enviarMensaje(jid, msg);
+        notificarDueno(`✅ *Turno agendado*\n👤 ${usuario.nombre}\n📅 ${fecha} ${hora}\n💰 $${total} (transferencia pendiente)\n📱 +${tel}`);
         return;
       }
 
+      // ── Flujo con MercadoPago: pre-reservar slot y generar link ──
+      // Pre-reserva en MongoDB (estado='pendiente') ANTES de generar link.
+      // El índice único previene que dos clientes paguen el mismo slot.
+      const Turno = require('../models/Turno');
+      let turnoPendiente;
+      try {
+        turnoPendiente = await Turno.create({
+          userId: USER_ID,
+          calendarId: CALENDAR_ID || 'principal',
+          resumen: `Turno — ${usuario.nombre}`,
+          descripcion: `WhatsApp: +${tel} | Email: ${usuario.email}`,
+          fechaInicio: ini,
+          fechaFin: fin,
+          clienteNombre: usuario.nombre,
+          clienteTelefono: tel,
+          clienteEmail: usuario.email,
+          estado: 'pendiente',
+          pago: { monto: total, metodo: 'mercadopago' },
+        });
+      } catch (e) {
+        if (e.code === 11000) {
+          await enviarMensaje(jid, `¡Ups! El horario ${hora} acaba de ser reservado por otro cliente. ¿Te queda bien otro?`);
+          return;
+        }
+        throw e;
+      }
       const pref = await mp.crearPago(jid, usuario.nombre, fecha, hora, horaFin);
       const rk = `${jid}|${fecha}|${hora}|${horaFin || hora}`;
       reservasPendientes[rk] = {
@@ -1889,6 +2061,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         email: usuario.email,
         cant,
         total,
+        turnoId: turnoPendiente._id.toString(),
         expiresAt: Date.now() + 30 * 60000,
       };
       db.guardar(RESERVAS_PATH, reservasPendientes);
@@ -2287,22 +2460,21 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     if (isJidGroup(rawJid)) return;
 
     // ── FIX LID (Linked Identity) ───────────────────────────────
-    // WhatsApp empezó a entregar mensajes con `xxx@lid` en lugar de
-    // `xxx@s.whatsapp.net`. NO se puede responder a un @lid directamente.
-    // Baileys 6.7+ expone msg.key.senderPn con el JID real (s.whatsapp.net).
-    // Si no, intentamos extraer el número y armar un JID estándar como fallback.
+    // WhatsApp entrega mensajes con `xxx@lid` (identidad anónima). No se puede
+    // responder a un @lid directo: hay que resolver el PN real (@s.whatsapp.net).
+    // Cascada de fallbacks ordenada de más barata a más costosa:
+    //   1. msg.key.senderPn / participantPn (Baileys ya resolvió)
+    //   2. msg.key.participant si es @s.whatsapp.net
+    //   3. lidCache local (aprendido de mensajes previos / contacts.upsert)
+    //   4. sock.signalRepository.lidMapping.getPNForLID (store interno Baileys)
     let jid = rawJid;
     if (rawJid.endsWith('@lid')) {
-      const senderPn = msg.key.senderPn || msg.key.participantPn;
-      if (senderPn && senderPn.endsWith('@s.whatsapp.net')) {
-        jid = senderPn;
-        lidCache.set(rawJid, jid); // guardar para próximos mensajes sin senderPn
-        log(`🔗 [LID] ${rawJid} → ${jid}`);
-      } else if (lidCache.has(rawJid)) {
-        jid = lidCache.get(rawJid);
-        log(`🔗 [LID cache] ${rawJid} → ${jid}`);
-      } else {
-        log(`⚠️ [LID] Mensaje de ${rawJid} sin senderPn — no se puede responder. Es probable que tengas Baileys desactualizado o WhatsApp aún no envió el contacto.`);
+      jid = await resolverLid(rawJid, msg.key);
+      if (!jid) {
+        // No pudimos resolver — solo registrar para visibilidad. El cliente recibirá
+        // respuesta automáticamente cuando WhatsApp envíe el siguiente mensaje del
+        // mismo contacto incluyendo senderPn (suele pasar en segundos).
+        log(`⚠️ [LID] ${rawJid} sin PN resoluble — esperando contact sync de WhatsApp`);
         return;
       }
     }
@@ -2374,30 +2546,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         return;
       }
       // ⚠️ Mensaje SIN texto extraíble Y sin tipo conocido → muy probablemente
-      // un mensaje que falló al descifrar (Bad MAC, sesión Signal desincronizada).
-      // Antes lo descartábamos en silencio → cliente sin respuesta.
-      // Ahora respondemos con fallback (con cooldown 30s para no spammear si
-      // llegan varios fallidos seguidos).
-      const ultimoFallback = fallbackCooldown.get(jid) || 0;
-      const ahora = Date.now();
-      if (ahora - ultimoFallback < 30_000) {
-        log(`⏭️ [${jid}] Mensaje sin descifrar — fallback en cooldown, sin responder`);
-        return;
-      }
-      fallbackCooldown.set(jid, ahora);
-      // Limpiar cooldowns viejos para no llenar memoria
-      if (fallbackCooldown.size > 200) {
-        for (const [k, t] of fallbackCooldown.entries()) {
-          if (ahora - t > 5 * 60_000) fallbackCooldown.delete(k);
-        }
-      }
-      log(`🚨 [${jid}] Mensaje sin descifrar (probable Bad MAC) — enviando fallback al cliente`);
-      const uc2 = clientesSvc.cargarMemoria(jid);
-      const nombre = uc2?.nombre ? `, ${uc2.nombre}` : '';
-      await enviarMensaje(
-        jid,
-        `¡Disculpá${nombre}! 🙏 Tu último mensaje no me llegó completo. ¿Me lo podés repetir?`,
-      ).catch(() => {});
+      // falló al descifrar (Bad MAC). NO enviamos fallback al cliente: WhatsApp
+      // reintenta automáticamente el mensaje en segundos con sesión renegociada
+      // y nuestro dedup deja pasar los retries (ver messages.upsert). Mandar un
+      // "no entendí" acá generaba confusión y mensajes duplicados al cliente.
+      log(`🤫 [${jid}] Mensaje sin descifrar — silencio, esperando retry de WhatsApp`);
       return;
     }
 
@@ -2462,6 +2615,44 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       if (cacheTemporal[jid]?.esperandoEmail) {
         await capturaEmail(jid, texto, clientesSvc.cargarMemoria(jid));
         return;
+      }
+
+      // ── Interceptor: oferta de waitlist activa ───────────────
+      // Cuando otro cliente cancela y se le ofreció el slot a este cliente,
+      // tiene 15min para responder. Acá interceptamos SÍ/NO sin pasar por el LLM
+      // para máxima velocidad y precisión.
+      const ofertaWL = await waitlistSvc.obtenerOfertaActivaSinFecha?.(jid).catch(() => null);
+      if (ofertaWL) {
+        if (bodyLower.match(/\bsi\b|\bsí\b|\bdale\b|\bok\b|\bok!\b|\bquiero\b|\bperfecto\b|\bconfirmo\b|\blo tomo\b|\blisto\b/)) {
+          // Confirmar la oferta: marcar confirmado en waitlist + generar reserva real
+          ofertaWL.estado = 'confirmado';
+          await ofertaWL.save().catch(() => {});
+          const fechaOf = ofertaWL.fecha;
+          const horaOf = ofertaWL.hora || '09:00';
+          log(`[Waitlist] ✅ ${ofertaWL.clienteNombre} aceptó oferta ${fechaOf} ${horaOf}`);
+          // Si tenemos email del cliente → generar link MP directamente
+          const um = clientesSvc.cargarMemoria(jid) || usuario;
+          if (um?.email) {
+            await generarPago(jid, um, fechaOf, horaOf, null);
+          } else {
+            // Pedir email primero (lo seguirá capturaEmail → generarPago)
+            cacheTemporal[jid] = {
+              ...(cacheTemporal[jid] || {}),
+              esperandoEmail: true,
+              reservaPendiente: { fecha: fechaOf, hora: horaOf, horaFin: null },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            await enviarMensaje(jid, `¡Buenísimo! 🎉 Para confirmar tu turno necesito tu email. ¿Cuál es?`);
+          }
+          notificarDueno(`✅ *Waitlist confirmó*: ${ofertaWL.clienteNombre} aceptó el turno del ${fechaOf}${ofertaWL.hora ? ' a las ' + ofertaWL.hora : ''}.`);
+          return;
+        }
+        if (bodyLower.match(/\bno\b|\bno puedo\b|\bno me sirve\b|\bno gracias\b|\bpaso\b|\bdejá\b|\bdejalo\b/)) {
+          await waitlistSvc.rechazarOferta(ofertaWL._id, ofertaWL.fecha, ofertaWL.hora, enviarMensaje, notificarDueno);
+          await enviarMensaje(jid, `Entendido, paso al siguiente. ¡Gracias por avisar! 🙏`);
+          return;
+        }
+        // Si responde otra cosa, dejar que el LLM lo procese pero la oferta sigue activa
       }
 
       // ── Interceptor: confirmación anti no-show ───────────────
@@ -2556,8 +2747,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
       }
 
-      // Indicador de escritura
-      await sock.sendPresenceUpdate('composing', jid).catch(() => {});
+      // Indicador "escribiendo..." apenas detectamos un mensaje válido.
+      // Fire-and-forget para no sumar latencia al path crítico.
+      sock.sendPresenceUpdate('composing', jid).catch(() => {});
 
       // Reutilizar `usuario` cargado arriba — evita doble carga/query a MongoDB.
       // Si por algún motivo no está (MongoDB tardó y caché vacía), intentar una vez más.
@@ -2591,28 +2783,13 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       usuario.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
       usuario.historial = recortarHistorial(usuario.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
 
-      // ── Anti-mudo: si pasan 9s sin respuesta del LLM, mandar un "dejame chequear..."
-      // NOTA: el bot hace 2 llamadas a Groq cuando usa tools (consultar + agendar) → 6-12s total.
-      // Con 4s el interim SIEMPRE disparaba en consultas de disponibilidad/agenda,
-      // generando un mensaje basura antes de la respuesta real. Subido a 9s para evitarlo.
-      let respuestaInterimEnviada = false;
-      const interimTimer = setTimeout(() => {
-        respuestaInterimEnviada = true;
-        sock.sendPresenceUpdate('composing', jid).catch(() => {});
-        enviarMensaje(jid, 'Dame un segundo que chequeo… 🙌').catch(() => {});
-      }, 9000);
-
-      let respuesta;
-      try {
-        respuesta = await procesarConIA(jid, usuario);
-      } finally {
-        clearTimeout(interimTimer);
-      }
+      const respuesta = await procesarConIA(jid, usuario);
       usuario.historial.push({ role: 'assistant', content: respuesta });
       clientesSvc.guardarMemoria(jid, usuario);
 
-      await sock.sendPresenceUpdate('paused', jid).catch(() => {});
-      log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..." (interim=${respuestaInterimEnviada})`);
+      // 'paused' fire-and-forget — no bloqueamos el envío del mensaje real.
+      sock.sendPresenceUpdate('paused', jid).catch(() => {});
+      log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..."`);
 
       const debeAudio = fueAudio && audioSvc && audioSvc.debeResponderEnAudio(respuesta);
       if (debeAudio) {
@@ -2672,6 +2849,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           const rhoraFin  = parts[3] && parts[3] !== rhora ? parts[3] : null;
           const rum = clientesSvc.cargarMemoria(rchatId);
           if (rum) {
+            // Buscar Turno pendiente que coincida (creado en agendar_turno)
+            const Turno = require('../models/Turno');
+            const [yy, mm, dd] = rfecha.split('-').map(Number);
+            const hhI = parseInt(rhora.split(':')[0]);
+            const iniRec = calendar.crearFecha(yy, mm, dd, hhI);
+            const tPend = await Turno.findOne({
+              userId: USER_ID,
+              fechaInicio: iniRec,
+              estado: 'pendiente',
+            }).lean().catch(() => null);
             res2 = {
               chatId:  rchatId,
               fecha:   rfecha,
@@ -2679,9 +2866,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
               horaFin: rhoraFin,
               nombre:  rum.nombre || pago.payer?.name || 'Cliente',
               email:   rum.email  || null,
-              total:   PRECIO_TURNO,
+              total:   tPend?.pago?.monto || PRECIO_TURNO,
+              turnoId: tPend?._id?.toString() || null,
             };
-            log(`[Webhook] Reconstruido: ${rchatId} ${rfecha} ${rhora}`);
+            log(`[Webhook] Reconstruido: ${rchatId} ${rfecha} ${rhora} turnoId=${res2.turnoId || 'no'}`);
           }
         }
         if (!res2) {
@@ -2689,15 +2877,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           return;
         }
       }
-      if (Date.now() > res2.expiresAt) {
-        await enviarMensaje(
-          res2.chatId,
-          `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero la reserva expiró. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
-        );
-        delete reservasPendientes[rk];
-        db.guardar(RESERVAS_PATH, reservasPendientes);
-        return;
-      }
+      // OK: tenemos res2 con datos de la reserva.
+      const Turno = require('../models/Turno');
+      const um = clientesSvc.cargarMemoria(res2.chatId);
+      const tel = um?.numeroReal || extraerNumero(res2.chatId);
       const [y, m, d] = res2.fecha.split('-').map(Number);
       const hI = parseInt(res2.hora.split(':')[0]);
       const hF = res2.horaFin
@@ -2705,73 +2888,142 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         : hI + DURACION_RESERVA_HORAS;
       const ini = calendar.crearFecha(y, m, d, hI);
       const fin = calendar.crearFecha(y, m, d, hF);
-      const conf = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
-      if (conf.length > 0) {
-        await enviarMensaje(
-          res2.chatId,
-          `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario quedó ocupado. ${MI_NOMBRE} te contacta para reagendar. 🙏`,
-        );
-        delete reservasPendientes[rk];
-        db.guardar(RESERVAS_PATH, reservasPendientes);
-        return;
+
+      // ── CONFIRMAR el Turno pendiente (path normal) ───────────────
+      // Si tenemos turnoId, confirmamos atómicamente el Turno existente.
+      // Esto evita doble-venta: si otro cliente ya confirmó este slot,
+      // findOneAndUpdate con estado='pendiente' no encontrará nada.
+      let turnoConfirmado = null;
+      if (res2.turnoId) {
+        turnoConfirmado = await Turno.findOneAndUpdate(
+          { _id: res2.turnoId, userId: USER_ID, estado: 'pendiente' },
+          {
+            estado: 'confirmado',
+            'pago.monto':       res2.total || PRECIO_TURNO,
+            'pago.metodo':      'mercadopago',
+            'pago.comprobante': String(pago.id),
+            descripcion:        `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
+          },
+          { new: true },
+        ).catch((e) => { log(`[Webhook] confirmar Turno ERROR: ${e.message}`); return null; });
       }
-      const um = clientesSvc.cargarMemoria(res2.chatId);
-      const tel = um?.numeroReal || extraerNumero(res2.chatId);
-      const ev = await calendar.crearEvento(
-        CALENDAR_ID,
-        `Turno — ${res2.nombre}`,
-        `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
-        ini,
-        fin,
-        res2.email || null,
-        tel,
-      );
+
+      // Si NO había turnoId o el Turno pendiente ya no existe (Render restart
+      // sin pre-reserva), crear el Turno ahora vía calendar.crearEvento. Verifica
+      // conflictos de slot internamente y devuelve { slotOcupado: true } si
+      // otro cliente ya tomó este slot.
+      if (!turnoConfirmado) {
+        log(`[Webhook] Sin turno pendiente — creando directo via calendar.crearEvento`);
+        const ev = await calendar.crearEvento(
+          CALENDAR_ID,
+          `Turno — ${res2.nombre}`,
+          `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
+          ini,
+          fin,
+          res2.email || null,
+          tel,
+        );
+        if (ev?.slotOcupado) {
+          // ⚠️ El slot fue tomado por otro cliente entre el link y el pago.
+          // Le notificamos al cliente Y al dueño para que haga refund manual.
+          log(`⚠️ [Webhook] Pago recibido pero slot ocupado: ${res2.fecha} ${res2.hora} (pagoId=${pago.id})`);
+          await enviarMensaje(
+            res2.chatId,
+            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario ${res2.fecha} ${res2.hora} ya había sido tomado por otro cliente. ${MI_NOMBRE} te contacta para reagendar o reintegrar el pago. 🙏`,
+          );
+          notificarDueno(
+            `🚨 *DOBLE VENTA — ACCIÓN REQUERIDA*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} pagado MP\n💳 ID Pago: ${pago.id}\n📱 +${tel}\n\n⚠️ El slot ya estaba ocupado. Reintegrar el pago manualmente o reagendar al cliente.`,
+          );
+          delete reservasPendientes[rk];
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          return;
+        }
+        if (!ev || !ev.id) {
+          // Error técnico creando el Turno en MongoDB (validación, DB caída, etc.)
+          log(`❌ [Webhook] crearEvento devolvió null — pago recibido sin turno (pagoId=${pago.id})`);
+          await enviarMensaje(
+            res2.chatId,
+            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero hubo un problema técnico al guardar el turno. ${MI_NOMBRE} te contacta para confirmar manualmente. 🙏`,
+          );
+          notificarDueno(
+            `🚨 *Pago recibido pero turno NO guardado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} pagado MP\n💳 ID Pago: ${pago.id}\n📱 +${tel}\n\n⚠️ Confirmar manualmente o reintegrar.`,
+          );
+          delete reservasPendientes[rk];
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          return;
+        }
+        // Si crearEvento lo creó OK, hidratamos turnoConfirmado y guardamos el pago.
+        turnoConfirmado = await Turno.findByIdAndUpdate(
+          ev.id,
+          {
+            'pago.monto':       res2.total || PRECIO_TURNO,
+            'pago.metodo':      'mercadopago',
+            'pago.comprobante': String(pago.id),
+          },
+          { new: true },
+        ).catch(() => null);
+      }
+
+      // ── Si llegamos acá, el Turno está confirmado en MongoDB ─────
+      // (y se sincronizó a Google Calendar si está conectado).
+      // Sincronizar manualmente a GCal si veníamos del path findOneAndUpdate
+      // (en ese caso, el calendar.service no se invocó así que no hay GCal sync).
+      if (res2.turnoId && turnoConfirmado && !turnoConfirmado.googleEventId) {
+        // Pre-reservado tipo 'pendiente' → ahora hay que sincronizar a GCal
+        calendar.syncTurnoToGCal?.(turnoConfirmado._id).catch?.((e) =>
+          log(`[Webhook] sync GCal post-confirm: ${e?.message || e}`),
+        );
+      }
+
       delete reservasPendientes[rk];
       db.guardar(RESERVAS_PATH, reservasPendientes);
-      if (ev) {
-        if (um) {
-          if (!um.turnosConfirmados) um.turnosConfirmados = [];
-          um.turnosConfirmados.push({
-            fecha: res2.fecha,
-            hora: res2.hora,
-            horaFin: res2.horaFin || null,
-            pagoId: pago.id,
-            confirmadoEn: new Date().toISOString(),
-          });
-          um.historial.push({
-            role: 'assistant',
-            content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.`,
-          });
-          clientesSvc.guardarMemoria(res2.chatId, um);
-        }
-        const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
-        programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
-        programarResena(
-          res2.chatId,
-          ev.id,
-          res2.nombre,
-          res2.fecha,
-          res2.horaFin || `${hFwh}:00`,
-        );
-        const horaFinStr = res2.horaFin || `${hF}:00`;
-        let msgConfirmacion =
-          `¡Listo, ${res2.nombre}! 🎉 Tu turno está *confirmado y reservado*.\n\n` +
-          `✅ *Pago recibido:* $${res2.total || PRECIO_TURNO} ARS\n` +
-          `📅 *Fecha:* ${res2.fecha}\n` +
-          `🕐 *Horario:* ${res2.hora} – ${horaFinStr} hs\n`;
-        if (ev.htmlLink) {
-          msgConfirmacion += `📆 *Evento en tu calendario:*\n${ev.htmlLink}\n`;
-        }
-        msgConfirmacion += `\n⏰ Te vamos a recordar 24hs, 4hs y 30 minutos antes para que no se te pase. ¡Te esperamos! 🙌`;
-        await enviarMensaje(res2.chatId, msgConfirmacion);
-      } else {
-        await enviarMensaje(
-          res2.chatId,
-          `Hola ${res2.nombre}! Pago recibido ✅ pero error en el calendario. ${MI_NOMBRE} confirma manualmente. 🙏`,
-        );
+
+      // Actualizar cache del cliente
+      if (um) {
+        if (!um.turnosConfirmados) um.turnosConfirmados = [];
+        um.turnosConfirmados.push({
+          fecha: res2.fecha,
+          hora: res2.hora,
+          horaFin: res2.horaFin || null,
+          pagoId: pago.id,
+          turnoId: turnoConfirmado?._id?.toString(),
+          confirmadoEn: new Date().toISOString(),
+        });
+        um.historial.push({
+          role: 'assistant',
+          content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.`,
+        });
+        clientesSvc.guardarMemoria(res2.chatId, um);
       }
+
+      const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
+      programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
+      programarResena(
+        res2.chatId,
+        turnoConfirmado?._id?.toString() || res2.turnoId,
+        res2.nombre,
+        res2.fecha,
+        res2.horaFin || `${hFwh}:00`,
+      );
+
+      // Notificar al dueño — turno confirmado y pagado
+      notificarDueno(
+        `✅ *Turno confirmado y pagado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} ARS (MP)\n💳 ID Pago: ${pago.id}\n📱 +${tel}`,
+      );
+
+      const horaFinStr = res2.horaFin || `${hF}:00`;
+      let msgConfirmacion =
+        `¡Listo, ${res2.nombre}! 🎉 Tu turno está *confirmado y reservado*.\n\n` +
+        `✅ *Pago recibido:* $${res2.total || PRECIO_TURNO} ARS\n` +
+        `📅 *Fecha:* ${res2.fecha}\n` +
+        `🕐 *Horario:* ${res2.hora} – ${horaFinStr} hs\n`;
+      if (turnoConfirmado?.googleEventHtmlLink) {
+        msgConfirmacion += `📆 *Evento en tu calendario:*\n${turnoConfirmado.googleEventHtmlLink}\n`;
+      }
+      msgConfirmacion += `\n⏰ Te vamos a recordar 24hs, 4hs y 30 minutos antes para que no se te pase. ¡Te esperamos! 🙌`;
+      await enviarMensaje(res2.chatId, msgConfirmacion);
     } catch (e) {
-      log('[Webhook] ' + e.message);
+      log('[Webhook] ' + (e.stack || e.message));
     }
   }
 
@@ -3033,6 +3285,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     sock.ev.on('contacts.upsert', (contacts) => {
       for (const c of contacts) {
         if (!c.id) continue;
+        aprenderLidDeContacto(c); // aprende mapping LID↔PN si vino enlazado
         const nombre = c.notify || c.name || '';
         if (nombre) {
           contactosWA.set(c.id, nombre);
@@ -3180,6 +3433,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     sock.ev.on('contacts.upsert', (contacts) => {
       for (const c of contacts) {
         if (!c.id) continue;
+        aprenderLidDeContacto(c); // aprende mapping LID↔PN si vino enlazado
         const nombre = c.notify || c.name || '';
         if (nombre) {
           contactosWA.set(c.id, nombre);

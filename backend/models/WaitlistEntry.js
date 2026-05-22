@@ -12,7 +12,7 @@ const WaitlistEntrySchema = new mongoose.Schema({
   calendarId:    { type: String, default: 'principal' },
   estado: {
     type: String,
-    enum: ['esperando', 'contactado', 'confirmado', 'expirado'],
+    enum: ['esperando', 'contactado', 'confirmado', 'expirado', 'rechazado'],
     default: 'esperando',
     index: true,
   },

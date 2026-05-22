@@ -68,8 +68,9 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
       e.isRateLimit = true;
       throw e;
     }
-    // max_tokens 520: espacio suficiente para respuestas cálidas y completas en WA
-    const opts = { model: modelo, messages: msgs, max_tokens: 520 };
+    // max_tokens 350: respuestas WhatsApp suelen ser <200 tokens. Menos tokens
+    // = menos latencia. Si necesita más, sube acá (cada 100 tokens ~= +0.3s).
+    const opts = { model: modelo, messages: msgs, max_tokens: 350 };
     if (conTools) { opts.tools = herramientas(); opts.tool_choice = 'auto'; }
 
     // Timeout de 15s — si Groq no responde en 15s, no va a responder bien.

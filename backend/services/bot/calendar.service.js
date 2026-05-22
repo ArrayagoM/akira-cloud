@@ -390,6 +390,69 @@ function crearCalendarService({
   // Compatibilidad — ya no necesita tokens externos
   function recargarTokens() { log('[Calendar] recargarTokens — sin acción necesaria'); }
 
+  // Sincroniza un Turno (ya creado en MongoDB) a Google Calendar.
+  // Útil cuando el Turno se confirmó vía findOneAndUpdate (path de pre-reserva)
+  // y no pasó por crearEvento() — entonces hay que crear el evento GCal aparte.
+  async function syncTurnoToGCal(turnoId) {
+    if (!gCal) return { ok: false, error: 'gcal_not_connected' };
+    const turno = await Turno.findById(turnoId).catch(() => null);
+    if (!turno) return { ok: false, error: 'turno_not_found' };
+    if (turno.googleEventId) return { ok: true, eventId: turno.googleEventId, skipped: true };
+    try {
+      const r = await gCal.crearEvento({
+        summary:                turno.resumen,
+        description:            turno.descripcion || '',
+        ini:                    turno.fechaInicio,
+        fin:                    turno.fechaFin,
+        clienteEmail:           turno.clienteEmail || '',
+        verificarConflictoFlag: false,
+      });
+      if (r.ok) {
+        await Turno.findByIdAndUpdate(turno._id, {
+          googleEventId:       r.eventId,
+          googleCalendarId:    gCal.calendarId,
+          googleSyncStatus:    'synced',
+          googleSyncedAt:      new Date(),
+          googleEventHtmlLink: r.link || null,
+        });
+        log(`[Calendar] ✅ Sync GCal post-confirm: ${r.eventId}`);
+        return { ok: true, eventId: r.eventId, link: r.link };
+      }
+      await Turno.findByIdAndUpdate(turno._id, {
+        googleSyncStatus: 'failed',
+        googleSyncError:  r.error || 'unknown',
+      });
+      return { ok: false, error: r.error };
+    } catch (e) {
+      log(`[Calendar] syncTurnoToGCal excepción: ${e.message}`);
+      await Turno.findByIdAndUpdate(turno._id, {
+        googleSyncStatus: 'failed',
+        googleSyncError:  e.message,
+      }).catch(() => {});
+      return { ok: false, error: e.message };
+    }
+  }
+
+  // Limpieza periódica: marca como 'cancelado' los Turnos pendientes que
+  // expiraron sin recibir pago (>30min de antigüedad). Libera el slot para que
+  // otro cliente pueda reservarlo. Llamar cada N minutos desde el bot.
+  async function limpiarPendientesExpirados() {
+    const limite = new Date(Date.now() - 30 * 60 * 1000); // 30 min atrás
+    try {
+      const r = await Turno.updateMany(
+        { userId, estado: 'pendiente', createdAt: { $lt: limite } },
+        { $set: { estado: 'cancelado' } },
+      );
+      if (r.modifiedCount > 0) {
+        log(`[Calendar] 🧹 ${r.modifiedCount} turno(s) pendiente(s) expirados → cancelados`);
+      }
+      return r.modifiedCount;
+    } catch (e) {
+      log(`[Calendar] limpiarPendientesExpirados error: ${e.message}`);
+      return 0;
+    }
+  }
+
   return {
     isConnected:      () => true,
     gCalConectado:    () => !!gCal,
@@ -400,6 +463,8 @@ function crearCalendarService({
     crearEvento,
     eliminarEvento,
     agregarEmailATurno,
+    syncTurnoToGCal,
+    limpiarPendientesExpirados,
     recargarTokens,
   };
 }
