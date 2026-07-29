@@ -5,7 +5,8 @@
   "main": "worker.js",
   "scripts": {
     "start": "node worker.js",
-    "dev": "nodemon worker.js"
+    "dev": "nodemon worker.js",
+    "test": "node tests/instkey.test.js"
   },
   "dependencies": {
     "@ngrok/ngrok": "^1.4.0",

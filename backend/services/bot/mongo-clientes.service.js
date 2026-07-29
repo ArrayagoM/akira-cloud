@@ -78,6 +78,8 @@ function crearMongoClientesService(userId, log) {
           silenciado,
           historial:        normalizarHistorial(c.historial || []),
           turnosConfirmados:c.turnosConfirmados || [],
+          // Memoria de largo plazo — NUNCA se resetea (a diferencia del historial).
+          perfilResumen:    c.perfilResumen || '',
         };
         cache.set(c.jid, datos);
       }
@@ -150,6 +152,7 @@ function crearMongoClientesService(userId, log) {
           silenciado:       false,
           historial:        normalizarHistorial(doc.historial || []),
           turnosConfirmados:doc.turnosConfirmados || [],
+          perfilResumen:    doc.perfilResumen || '',
         };
         cache.set(jid, datos);
         log(`[DB] ✅ cargarMemoriaAsync → usuario ${doc.nombre||jid} recuperado en ${elapsed}ms`);
@@ -193,6 +196,10 @@ function crearMongoClientesService(userId, log) {
       silenciado:        datos.silenciado        || false,
       historial:         historialReducido,
       turnosConfirmados: datos.turnosConfirmados || [],
+      // Memoria de largo plazo — se pasa tal cual venga en `datos` (nunca se
+      // resetea acá); si el caller no la tocó, sigue siendo la misma que ya
+      // estaba en cache/DB porque `usuario` se carga con este campo incluido.
+      perfilResumen:     datos.perfilResumen || '',
     };
 
     // Solo intentar persistir si MongoDB está realmente conectado.
@@ -232,6 +239,7 @@ function crearMongoClientesService(userId, log) {
       silenciado:        false,
       historial:         [],
       turnosConfirmados: [],
+      perfilResumen:     '',
     };
     try {
       await BotCliente.findOneAndUpdate(
@@ -280,6 +288,7 @@ function useMongoClientesState(userId) {
         silenciado:        doc.silenciado,
         historial:         doc.historial || [],
         turnosConfirmados: doc.turnosConfirmados || [],
+        perfilResumen:     doc.perfilResumen || '',
       } : null;
     } catch (e) {
       console.error('[MongoClientes] cargarMemoria error:', e.message);
@@ -301,6 +310,7 @@ function useMongoClientesState(userId) {
             silenciado:        data.silenciado        || false,
             historial:         data.historial         || [],
             turnosConfirmados: data.turnosConfirmados || [],
+            perfilResumen:     data.perfilResumen     || '',
           },
         },
         { upsert: true, new: true }

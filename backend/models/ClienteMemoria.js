@@ -20,6 +20,8 @@ const ClienteMemoriaSchema = new mongoose.Schema({
   silenciado:       { type: Boolean, default: false },
   historial:        { type: [MensajeSchema], default: [] },
   turnosConfirmados: { type: mongoose.Schema.Types.Mixed, default: [] },
+  // Memoria de largo plazo — nunca se resetea (ver services/bot/perfil-cliente.service.js)
+  perfilResumen:    { type: String, default: '', maxlength: 2000 },
 }, {
   collection: 'clientes_memoria',
   timestamps: true,

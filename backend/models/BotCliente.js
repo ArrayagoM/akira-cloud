@@ -42,6 +42,18 @@ const BotClienteSchema = new mongoose.Schema(
       type:    [TurnoSchema],
       default: [],
     },
+
+    // ─── Memoria de largo plazo (perfil del cliente) ─────────────────
+    // Resumen corto (2-4 líneas) que el bot va aprendiendo del cliente:
+    // cómo prefiere que le hablen, si es frecuente, si suele cancelar,
+    // método de pago preferido, etc. A diferencia de `historial` (que se
+    // trunca a los últimos mensajes), este campo NUNCA se resetea — se
+    // actualiza periódicamente vía LLM (ver services/bot/perfil-cliente.service.js)
+    // justo antes de que el historial local se trunque, para no perder ese
+    // contexto viejo. Es la base de "la atención del negocio" que persiste
+    // más allá de la ventana de contexto corta.
+    perfilResumen:                { type: String, default: '', maxlength: 2000 },
+
     noShowCount:                  { type: Number, default: 0 },
     ultimoMensajeReengagement:    { type: Date, default: null },
 

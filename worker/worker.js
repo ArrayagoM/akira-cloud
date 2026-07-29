@@ -19,6 +19,7 @@ const fs = require('fs');
 const https = require('https');
 
 const { crearBaileysRunner } = require('./baileys-runner');
+const { instKey, sessionDirName, parseSessionDirName } = require('./lib/instkey');
 
 // ── Config ────────────────────────────────────────────────────
 const RENDER_URL = process.env.BACKEND_URL || process.env.RENDER_URL;
@@ -36,13 +37,17 @@ console.log(`[Worker] Backend: ${RENDER_URL}`);
 console.log(`[Worker] Sesiones: ${SESSIONS_PATH}`);
 
 // ── Estado ────────────────────────────────────────────────────
-const runners = new Map(); // userId → baileys-runner
-const arranqueEnCurso = new Set();
+// Todos estos Maps se indexan por instKey = "userId:slot" (ver lib/instkey.js),
+// NO por userId solo. Un mismo usuario puede tener varias cuentas de WhatsApp
+// activas en paralelo (plan Agencia, slot 0-4) y cada una necesita su propia
+// entrada — de lo contrario la segunda pisa a la primera y solo responde una.
+const runners = new Map(); // instKey → baileys-runner
+const arranqueEnCurso = new Set(); // instKey
 
-// Cache de último chats.set y contacts.upsert por userId.
+// Cache de último chats.set y contacts.upsert por instKey.
 // Permite re-enviar al backend cuando reconecta sin que Baileys vuelva a disparar el evento.
-const lastChatsSet      = new Map(); // userId → chats[]
-const lastContactsUpsert = new Map(); // userId → contacts[]
+const lastChatsSet      = new Map(); // instKey → chats[]
+const lastContactsUpsert = new Map(); // instKey → contacts[]
 
 // Nota: NO interceptamos console.error para Bad MAC. Esos errores son
 // frecuentes y NORMALES en Signal Protocol (cada vez que un contacto
@@ -143,47 +148,51 @@ socket.on('disconnect', (reason) => {
 // ────────────────────────────────────────────────────────────
 //  ARRANCAR / DETENER bots
 // ────────────────────────────────────────────────────────────
-async function iniciarBot(uid) {
-  if (runners.has(uid)) {
-    console.log(`[Worker] Bot ${uid.slice(-6)} ya está activo`);
+async function iniciarBot(uid, slot = 0) {
+  const k = instKey(uid, slot);
+  const tagBase = `${uid.slice(-6)}${slot ? `:${slot}` : ''}`;
+
+  if (runners.has(k)) {
+    console.log(`[Worker] Bot ${tagBase} ya está activo`);
     // Emitir bot-started Y bot-ready: el backend puede estar reconectando y necesita
     // ambos eventos para que el proxy registre el estado "conectado" y empiece a
     // procesar mensajes. Sin bot-ready, connection.update:open nunca llega al motor
     // del bot y los mensajes entrantes se ignoran silenciosamente.
-    socket.emit('worker:bot-started', { userId: uid });
-    socket.emit('worker:bot-ready', { userId: uid });
+    socket.emit('worker:bot-started', { userId: uid, slot });
+    socket.emit('worker:bot-ready', { userId: uid, slot });
 
     // Re-enviar chats y contacts cacheados: el backend puede haberse reiniciado
     // y perdió el chats.set original (Baileys solo lo dispara una vez al conectar).
     // Sin esto, el panel de Chats queda vacío hasta la próxima reconexión de WhatsApp.
-    const cachedChats    = lastChatsSet.get(uid);
-    const cachedContacts = lastContactsUpsert.get(uid);
+    const cachedChats    = lastChatsSet.get(k);
+    const cachedContacts = lastContactsUpsert.get(k);
     if (cachedContacts?.length || cachedChats?.length) {
       setTimeout(() => {
         if (cachedContacts?.length) {
-          console.log(`[Worker] Bot ${uid.slice(-6)} — re-enviando ${cachedContacts.length} contactos al backend (reconexión)`);
-          socket.emit('worker:contacts-upsert', { userId: uid, contacts: cachedContacts });
+          console.log(`[Worker] Bot ${tagBase} — re-enviando ${cachedContacts.length} contactos al backend (reconexión)`);
+          socket.emit('worker:contacts-upsert', { userId: uid, slot, contacts: cachedContacts });
         }
         if (cachedChats?.length) {
-          console.log(`[Worker] Bot ${uid.slice(-6)} — re-enviando ${cachedChats.length} chats al backend (reconexión)`);
-          socket.emit('worker:chats-set', { userId: uid, chats: cachedChats });
+          console.log(`[Worker] Bot ${tagBase} — re-enviando ${cachedChats.length} chats al backend (reconexión)`);
+          socket.emit('worker:chats-set', { userId: uid, slot, chats: cachedChats });
         }
       }, 3000); // 3s delay — dar tiempo al backend para crear y registrar el proxy
     }
     return;
   }
-  if (arranqueEnCurso.has(uid)) {
-    console.log(`[Worker] Bot ${uid.slice(-6)} ya arrancando`);
+  if (arranqueEnCurso.has(k)) {
+    console.log(`[Worker] Bot ${tagBase} ya arrancando`);
     return;
   }
-  arranqueEnCurso.add(uid);
+  arranqueEnCurso.add(k);
   try {
-    const sessionDir = path.join(SESSIONS_PATH, uid);
-    const tag = uid.slice(-6);
+    const sessionDir = path.join(SESSIONS_PATH, sessionDirName(uid, slot));
+    const tag = tagBase;
     const log = (msg) => {
       console.log(`[Bot:${tag}] ${msg}`);
       socket.emit('worker:bot-log', {
         userId: uid,
+        slot,
         msg,
         ts: new Date().toLocaleTimeString('es-AR'),
       });
@@ -193,64 +202,66 @@ async function iniciarBot(uid) {
       sessionDir,
       log,
       callbacks: {
-        onQR: (qr) => socket.emit('worker:bot-qr', { userId: uid, qr }),
-        onReady: () => socket.emit('worker:bot-ready', { userId: uid }),
+        onQR: (qr) => socket.emit('worker:bot-qr', { userId: uid, slot, qr }),
+        onReady: () => socket.emit('worker:bot-ready', { userId: uid, slot }),
         onDisconnect: (reason, sessionCleared) => {
           socket.emit('worker:bot-disconnected', {
             userId: uid,
+            slot,
             reason,
             sessionCleared: !!sessionCleared,
           });
         },
         onStopped: ({ sessionCleared }) => {
-          runners.delete(uid);
-          socket.emit('worker:bot-stopped', { userId: uid, sessionCleared: !!sessionCleared });
+          runners.delete(k);
+          socket.emit('worker:bot-stopped', { userId: uid, slot, sessionCleared: !!sessionCleared });
         },
         onMessage: (msg) => {
           // Reenviar el mensaje completo al backend para procesar
-          socket.emit('worker:msg-incoming', { userId: uid, msg });
+          socket.emit('worker:msg-incoming', { userId: uid, slot, msg });
         },
         onContactsUpsert: (contacts) => {
           // Guardar en cache para re-enviar si el backend reconecta
-          if (contacts?.length) lastContactsUpsert.set(uid, contacts);
-          socket.emit('worker:contacts-upsert', { userId: uid, contacts });
+          if (contacts?.length) lastContactsUpsert.set(k, contacts);
+          socket.emit('worker:contacts-upsert', { userId: uid, slot, contacts });
         },
         onChatsSet: (chats) => {
           // Guardar en cache para re-enviar si el backend reconecta
-          if (chats?.length) lastChatsSet.set(uid, chats);
-          socket.emit('worker:chats-set', { userId: uid, chats });
+          if (chats?.length) lastChatsSet.set(k, chats);
+          socket.emit('worker:chats-set', { userId: uid, slot, chats });
         },
         onChatsUpsert: (chats) => {
-          socket.emit('worker:chats-upsert', { userId: uid, chats });
+          socket.emit('worker:chats-upsert', { userId: uid, slot, chats });
         },
       },
     });
 
-    runners.set(uid, runner);
+    runners.set(k, runner);
     await runner.conectar();
-    socket.emit('worker:bot-started', { userId: uid });
+    socket.emit('worker:bot-started', { userId: uid, slot });
     console.log(`[Worker] ✅ Bot ${tag} iniciado`);
   } catch (err) {
-    console.error(`[Worker] ❌ Error iniciando ${uid.slice(-6)}: ${err.message}`);
-    runners.delete(uid);
-    socket.emit('worker:bot-error', { userId: uid, msg: err.message });
+    console.error(`[Worker] ❌ Error iniciando ${tagBase}: ${err.message}`);
+    runners.delete(k);
+    socket.emit('worker:bot-error', { userId: uid, slot, msg: err.message });
   } finally {
-    arranqueEnCurso.delete(uid);
+    arranqueEnCurso.delete(k);
   }
 }
 
-async function detenerBot(uid) {
-  const runner = runners.get(uid);
+async function detenerBot(uid, slot = 0) {
+  const k = instKey(uid, slot);
+  const runner = runners.get(k);
   if (!runner) {
-    console.log(`[Worker] Bot ${uid.slice(-6)} ya detenido`);
+    console.log(`[Worker] Bot ${uid.slice(-6)}${slot ? `:${slot}` : ''} ya detenido`);
     return;
   }
   try {
     await runner.detener();
   } catch (e) {
-    console.warn(`[Worker] Error deteniendo ${uid.slice(-6)}: ${e.message}`);
+    console.warn(`[Worker] Error deteniendo ${uid.slice(-6)}${slot ? `:${slot}` : ''}: ${e.message}`);
   }
-  runners.delete(uid);
+  runners.delete(k);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -258,28 +269,37 @@ async function detenerBot(uid) {
 // ────────────────────────────────────────────────────────────
 
 // Backend pide arrancar el bot (ya no manda credenciales — backend procesa todo)
-socket.on('worker:start-bot', async ({ userId }) => {
+socket.on('worker:start-bot', async ({ userId, slot }) => {
   const uid = String(userId);
-  console.log(`[Worker] → start-bot ${uid.slice(-6)}`);
-  await iniciarBot(uid);
+  const s = parseInt(slot, 10) || 0;
+  console.log(`[Worker] → start-bot ${uid.slice(-6)}${s ? `:${s}` : ''}`);
+  await iniciarBot(uid, s);
 });
 
-socket.on('worker:stop-bot', async ({ userId }) => {
+socket.on('worker:stop-bot', async ({ userId, slot }) => {
   const uid = String(userId);
-  console.log(`[Worker] → stop-bot ${uid.slice(-6)}`);
-  await detenerBot(uid);
+  const s = parseInt(slot, 10) || 0;
+  console.log(`[Worker] → stop-bot ${uid.slice(-6)}${s ? `:${s}` : ''}`);
+  await detenerBot(uid, s);
 });
 
+// Pánico: detiene TODOS los slots de este usuario, no solo uno — el botón de
+// pánico bloquea la cuenta entera, no una sola cuenta de WhatsApp.
 socket.on('worker:panic-stop', async ({ userId }) => {
   const uid = String(userId);
-  await detenerBot(uid);
+  const keys = Array.from(runners.keys()).filter((k) => k.startsWith(`${uid}:`));
+  for (const k of keys) {
+    const idx = k.lastIndexOf(':');
+    const s = idx === -1 ? 0 : parseInt(k.slice(idx + 1), 10) || 0;
+    await detenerBot(uid, s);
+  }
 });
 
 // ── Comandos para EJECUTAR Baileys (vienen del backend) ─────
 // Patrón request/response: cada uno tiene un `reqId`. El backend usa
 // socket.emit con callback para recibir el resultado.
-socket.on('worker:exec-send-text', async ({ userId, jid, texto, reqId }, ack) => {
-  const runner = runners.get(String(userId));
+socket.on('worker:exec-send-text', async ({ userId, slot, jid, texto, reqId }, ack) => {
+  const runner = runners.get(instKey(userId, slot));
   if (!runner) {
     if (typeof ack === 'function') ack({ ok: false, error: 'bot_no_activo' });
     return socket.emit('worker:exec-result', { reqId, ok: false, error: 'bot_no_activo' });
@@ -289,8 +309,8 @@ socket.on('worker:exec-send-text', async ({ userId, jid, texto, reqId }, ack) =>
   socket.emit('worker:exec-result', { reqId, ...r });
 });
 
-socket.on('worker:exec-send-audio', async ({ userId, jid, bufferBase64, reqId }, ack) => {
-  const runner = runners.get(String(userId));
+socket.on('worker:exec-send-audio', async ({ userId, slot, jid, bufferBase64, reqId }, ack) => {
+  const runner = runners.get(instKey(userId, slot));
   if (!runner) {
     if (typeof ack === 'function') ack({ ok: false, error: 'bot_no_activo' });
     return socket.emit('worker:exec-result', { reqId, ok: false, error: 'bot_no_activo' });
@@ -300,8 +320,8 @@ socket.on('worker:exec-send-audio', async ({ userId, jid, bufferBase64, reqId },
   socket.emit('worker:exec-result', { reqId, ...r });
 });
 
-socket.on('worker:exec-presence', async ({ userId, estado, jid, reqId }, ack) => {
-  const runner = runners.get(String(userId));
+socket.on('worker:exec-presence', async ({ userId, slot, estado, jid, reqId }, ack) => {
+  const runner = runners.get(instKey(userId, slot));
   if (!runner) {
     if (typeof ack === 'function') ack({ ok: false, error: 'bot_no_activo' });
     return;
@@ -310,8 +330,8 @@ socket.on('worker:exec-presence', async ({ userId, estado, jid, reqId }, ack) =>
   if (typeof ack === 'function') ack(r);
 });
 
-socket.on('worker:exec-get-catalog', async ({ userId, opts, reqId }, ack) => {
-  const runner = runners.get(String(userId));
+socket.on('worker:exec-get-catalog', async ({ userId, slot, opts, reqId }, ack) => {
+  const runner = runners.get(instKey(userId, slot));
   if (!runner) {
     if (typeof ack === 'function') ack({ ok: false, error: 'bot_no_activo' });
     return socket.emit('worker:exec-result', { reqId, ok: false, error: 'bot_no_activo' });
@@ -321,8 +341,8 @@ socket.on('worker:exec-get-catalog', async ({ userId, opts, reqId }, ack) => {
   socket.emit('worker:exec-result', { reqId, ...r });
 });
 
-socket.on('worker:exec-download-media', async ({ userId, msg, reqId }, ack) => {
-  const runner = runners.get(String(userId));
+socket.on('worker:exec-download-media', async ({ userId, slot, msg, reqId }, ack) => {
+  const runner = runners.get(instKey(userId, slot));
   if (!runner) {
     if (typeof ack === 'function') ack({ ok: false, error: 'bot_no_activo' });
     return socket.emit('worker:exec-result', { reqId, ok: false, error: 'bot_no_activo' });
@@ -348,29 +368,33 @@ async function autoRestaurar() {
     return;
   }
 
-  const uids = [];
+  // Cada carpeta de sesión es "uid" (slot 0) o "uid_slotN" (slot N) — parseamos
+  // el nombre para reconstruir (uid, slot) y así restaurar TODAS las cuentas de
+  // WhatsApp guardadas, no solo la principal.
+  const entries = [];
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
     const credsPath = path.join(SESSIONS_PATH, d.name, 'creds.json');
     try {
       await fs.promises.access(credsPath, fs.constants.R_OK);
-      uids.push(d.name);
+      entries.push(parseSessionDirName(d.name));
     } catch {}
   }
-  if (uids.length === 0) {
+  if (entries.length === 0) {
     console.log('[Worker] No hay bots con sesión guardada.');
     return;
   }
-  console.log(`[Worker] 🔄 Auto-restaurando ${uids.length} bot(s)...`);
-  for (let i = 0; i < uids.length; i++) {
-    const uid = uids[i];
-    if (runners.has(uid) || arranqueEnCurso.has(uid)) continue;
+  console.log(`[Worker] 🔄 Auto-restaurando ${entries.length} bot(s)...`);
+  for (let i = 0; i < entries.length; i++) {
+    const { uid, slot } = entries[i];
+    const k = instKey(uid, slot);
+    if (runners.has(k) || arranqueEnCurso.has(k)) continue;
     if (i > 0) await new Promise((r) => setTimeout(r, 3000));
-    console.log(`[Worker] ▶ ${i + 1}/${uids.length} ${uid.slice(-6)}`);
+    console.log(`[Worker] ▶ ${i + 1}/${entries.length} ${uid.slice(-6)}${slot ? `:${slot}` : ''}`);
     try {
-      await iniciarBot(uid);
+      await iniciarBot(uid, slot);
     } catch (e) {
-      console.error(`[Worker] ❌ Auto-iniciando ${uid.slice(-6)}: ${e.message}`);
+      console.error(`[Worker] ❌ Auto-iniciando ${uid.slice(-6)}${slot ? `:${slot}` : ''}: ${e.message}`);
     }
   }
 }

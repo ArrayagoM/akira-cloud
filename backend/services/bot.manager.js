@@ -14,6 +14,9 @@ const logger  = require('../config/logger');
 const crearAkiraBot  = require('./akira.bot');
 const workerHandler  = require('./worker.handler');
 const { crearBaileysProxy } = require('./baileys.proxy');
+const { updateBotStatus } = require('./bot.status.util');
+const { parseInstKey } = require('./instkey.util');
+const { featuresDePlan } = require('../config/planes');
 
 // ── Mapa de instancias activas ───────────────────────────────
 // clave: "${userId}:${slot}" — slot 0 es la cuenta principal
@@ -33,18 +36,8 @@ const qrPendientes = new Map();
 const botKey = (uid, slot) => `${uid}:${slot}`;
 
 // ── Helper: actualizar estado en DB ─────────────────────────
-async function updateBotStatus(uid, slot, activo, conectado) {
-  const topLevel = slot === 0 ? { botActivo: activo, botConectado: conectado } : {};
-  // Actualizar elemento del array si existe
-  await User.findOneAndUpdate(
-    { _id: uid, 'cuentasWA.slot': slot },
-    { $set: { ...topLevel, 'cuentasWA.$.activo': activo, 'cuentasWA.$.conectado': conectado } }
-  ).catch(() => {});
-  // Si no existe en cuentasWA, al menos actualizar campos top-level (slot 0)
-  if (slot === 0) {
-    await User.findByIdAndUpdate(uid, topLevel).catch(() => {});
-  }
-}
+// (implementación real vive en bot.status.util.js — compartida con worker.handler.js
+// para no duplicar la lógica de slots y evitar un require circular)
 
 // ── Asignación de puertos sin colisiones ─────────────────────
 const PUERTO_BASE  = 3100;
@@ -116,12 +109,20 @@ async function startBot(userId, slot = 0) {
     if (!config || !config.estaCompleta()) throw new Error('Configuración incompleta. Cargá tu Groq API Key primero.');
     if (!user.planVigente()) throw new Error('Plan vencido. Renová tu suscripción.');
 
+    // ── Qué incluye este plan (ver config/planes.js) ────────────────
+    // 🚨 Antes de este fix, un usuario Trial/Básico podía cargar sus propias
+    // API keys de Calendar/MercadoPago/Rime en el dashboard y el bot las
+    // usaba igual, sin mirar el plan — la tabla de precios prometía que esas
+    // funciones eran solo Pro/Agencia pero nada en el código lo hacía cumplir.
+    const features = featuresDePlan(user.plan);
+
     // Desencriptar credenciales
     const credenciales = {
       GROQ_API_KEY:            config.getKey('keyGroq'),
-      MP_ACCESS_TOKEN:         config.getKey('keyMP')     || '',
+      MP_ACCESS_TOKEN:         features.mercadopago ? (config.getKey('keyMP') || '') : '',
       CALENDAR_ID:             config.getKey('idCalendar') || '',
-      RIME_API_KEY:            config.getKey('keyRime')   || '',
+      RIME_API_KEY:            features.audio ? (config.getKey('keyRime') || '') : '',
+      PLAN:                    user.plan || 'trial',
       NGROK_AUTH_TOKEN:        config.getKey('keyNgrok')  || '',
       NGROK_DOMAIN:            config.dominioNgrok        || '',
       MI_NOMBRE:               config.miNombre,
@@ -153,7 +154,8 @@ async function startBot(userId, slot = 0) {
     if (!credenciales.GROQ_API_KEY) throw new Error('GROQ API Key no configurada o inválida');
 
     // Tokens Google Calendar OAuth (desencriptados, se envían también al worker)
-    const googleCalendarTokens = config.googleCalendarTokens?.encrypted
+    // Gateado por plan — ver comentario de "features" más arriba.
+    const googleCalendarTokens = features.calendar && config.googleCalendarTokens?.encrypted
       ? config.getKey('googleCalendarTokens')
       : null;
     if (googleCalendarTokens) {
@@ -162,7 +164,7 @@ async function startBot(userId, slot = 0) {
     }
 
     // Credenciales de Google Calendar (service account) — se envía el JSON raw
-    const credGoogleEncriptado = config.credentialsGoogleB64?.encrypted
+    const credGoogleEncriptado = features.calendar && config.credentialsGoogleB64?.encrypted
       ? config.getKey('credentialsGoogleB64')
       : null;
     if (credGoogleEncriptado) {
@@ -197,8 +199,9 @@ async function startBot(userId, slot = 0) {
       const workerSocket = workerHandler.getWorkerSocket();
       proxy = crearBaileysProxy({
         userId: uid,
+        slot,
         workerSocket,
-        log: (m) => logger.info(`[BotMgr:Proxy:${uid.slice(-6)}] ${m}`),
+        log: (m) => logger.info(`[BotMgr:Proxy:${uid.slice(-6)}${slot ? `:${slot}` : ''}] ${m}`),
       });
       // El registro del proxy se hace DESPUÉS de bot.iniciar() (ver más abajo),
       // así los handlers (messages.upsert, connection.update, ...) ya están
@@ -214,7 +217,7 @@ async function startBot(userId, slot = 0) {
             try {
               if (!workerSocket?.connected) return resolve({ ok: false, error: 'worker_disconnected' });
               const t = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 30000);
-              workerSocket.emit('worker:exec-download-media', { userId: uid, msg }, (ack) => {
+              workerSocket.emit('worker:exec-download-media', { userId: uid, slot, msg }, (ack) => {
                 clearTimeout(t);
                 resolve(ack || { ok: false, error: 'no_ack' });
               });
@@ -425,7 +428,7 @@ async function startBot(userId, slot = 0) {
     // del worker), worker.handler los buffereó y los inyecta ahora con un
     // delay corto, garantizando que el bot los procese.
     if (proxy) {
-      workerHandler.registrarProxy(uid, proxy);
+      workerHandler.registrarProxy(uid, slot, proxy);
     }
 
     // En modo PROXY: pedirle al worker que abra la sesión Baileys.
@@ -478,7 +481,7 @@ async function stopBot(userId, slot = 0) {
   const bot = instancias.get(key);
   if (!bot) {
     // Limpieza igual del proxy si quedó registrado
-    if (workerHandler.tieneProxy(uid)) workerHandler.desregistrarProxy(uid);
+    if (workerHandler.tieneProxy(uid, slot)) workerHandler.desregistrarProxy(uid, slot);
     return { ok: false, msg: 'El bot no está activo' };
   }
 
@@ -491,7 +494,7 @@ async function stopBot(userId, slot = 0) {
     await bot.detener();
     instancias.delete(key);
     liberarPuerto(key);
-    workerHandler.desregistrarProxy(uid);
+    workerHandler.desregistrarProxy(uid, slot);
     await updateBotStatus(uid, slot, false, false);
     await Log.registrar({ userId: uid, tipo: 'bot_stop', mensaje: `Slot ${slot}: Bot detenido` });
     logger.info(`[BotMgr] Bot detenido para user ${uid} slot ${slot}`);
@@ -501,7 +504,7 @@ async function stopBot(userId, slot = 0) {
     logger.error(`[BotMgr] Error deteniendo bot ${uid} slot ${slot}: ${err.message}`);
     instancias.delete(key);
     liberarPuerto(key);
-    workerHandler.desregistrarProxy(uid);
+    workerHandler.desregistrarProxy(uid, slot);
     return { ok: false, msg: err.message };
   }
 }
@@ -573,17 +576,22 @@ async function reconectarProxiesBots(botIds = []) {
     return;
   }
 
-  logger.info(`[BotMgr] reconectarProxiesBots: worker reportó ${botIds.length} bot(s) activo(s) — registrando proxies...`);
+  // botIds llega como instKeys "uid:slot" (worker.js reporta Array.from(runners.keys())).
+  // Parseamos cada uno para reconstruir (uid, slot) — sin esto, todos los slots
+  // se reconectaban como si fueran slot 0 y se pisaban entre sí.
+  const pares = botIds.map((raw) => parseInstKey(String(raw)));
 
-  for (const userId of botIds) {
-    const uid = String(userId);
-    const key = botKey(uid, 0);
+  logger.info(`[BotMgr] reconectarProxiesBots: worker reportó ${pares.length} bot(s) activo(s) — registrando proxies...`);
+
+  for (let i = 0; i < pares.length; i++) {
+    const { uid, slot } = pares[i];
+    const key = botKey(uid, slot);
 
     try {
       // Si hay instancia en RAM con proxy stale, limpiarla para que startBot()
       // cree un proxy nuevo con el socket actual del worker.
       if (instancias.has(key)) {
-        logger.info(`[BotMgr] reconectarProxiesBots: limpiando instancia stale de ${uid.slice(-6)} para recrear proxy`);
+        logger.info(`[BotMgr] reconectarProxiesBots: limpiando instancia stale de ${uid.slice(-6)}${slot ? `:${slot}` : ''} para recrear proxy`);
         const botViejo = instancias.get(key);
         instancias.delete(key);
         liberarPuerto(key);
@@ -600,24 +608,24 @@ async function reconectarProxiesBots(botIds = []) {
       }
 
       // Desregistrar proxy viejo si quedó huérfano (sin propagar al worker)
-      if (workerHandler.tieneProxy(uid)) {
-        workerHandler.desregistrarProxyLocal(uid);
+      if (workerHandler.tieneProxy(uid, slot)) {
+        workerHandler.desregistrarProxyLocal(uid, slot);
       }
 
       // Crear instancia + proxy nuevo con el socket actual del worker
-      logger.info(`[BotMgr] reconectarProxiesBots: iniciando bot ${uid.slice(-6)}...`);
-      const result = await startBot(uid, 0);
+      logger.info(`[BotMgr] reconectarProxiesBots: iniciando bot ${uid.slice(-6)}${slot ? `:${slot}` : ''}...`);
+      const result = await startBot(uid, slot);
       if (result.ok) {
-        logger.info(`[BotMgr] reconectarProxiesBots: bot ${uid.slice(-6)} listo ✅`);
+        logger.info(`[BotMgr] reconectarProxiesBots: bot ${uid.slice(-6)}${slot ? `:${slot}` : ''} listo ✅`);
       } else {
-        logger.warn(`[BotMgr] reconectarProxiesBots: startBot ${uid.slice(-6)} → ${result.msg}`);
+        logger.warn(`[BotMgr] reconectarProxiesBots: startBot ${uid.slice(-6)}${slot ? `:${slot}` : ''} → ${result.msg}`);
       }
     } catch (e) {
-      logger.error(`[BotMgr] reconectarProxiesBots: error para ${uid.slice(-6)}: ${e.message}`);
+      logger.error(`[BotMgr] reconectarProxiesBots: error para ${uid.slice(-6)}${slot ? `:${slot}` : ''}: ${e.message}`);
     }
 
     // Pequeño stagger para no saturar MongoDB
-    if (botIds.indexOf(userId) < botIds.length - 1) {
+    if (i < pares.length - 1) {
       await new Promise(r => setTimeout(r, 1500));
     }
   }
@@ -677,11 +685,13 @@ async function restoreActiveBots() {
     }
 
     logger.info('[BotMgr] ✅ Restauración de bots completada.');
-    iniciarHealthcheck();
+    // El healthcheck YA NO se arranca acá — se llama una sola vez desde
+    // server.js, sin importar el modo (worker o cloud-direct). Antes
+    // dependía de que restoreActiveBots() corriera, pero en modo worker
+    // esta función nunca se invoca (ver server.js), así que el healthcheck
+    // de 5 minutos jamás arrancaba en producción.
   } catch (err) {
     logger.error('[BotMgr] Error en restoreActiveBots:', err.message);
-    // Iniciar healthcheck igualmente aunque la restauración parcialmente falle
-    iniciarHealthcheck();
   }
 }
 
@@ -811,10 +821,91 @@ function recargarConfig(userId, slot = 0) {
 //  HEALTHCHECK GLOBAL — cada 5 min verifica que DB y RAM estén sincronizados
 //  Si un usuario tiene botActivo=true en DB pero no hay instancia en RAM → reiniciar.
 // ────────────────────────────────────────────────────────────
+// Chequea y repara una instancia puntual (uid, slot). Devuelve 'reiniciado',
+// 'inactivo' o null (nada que hacer). Extraído para poder aplicarlo tanto al
+// slot 0 (campos top-level) como a cada slot>0 del array cuentasWA — antes
+// el healthcheck solo cubría slot 0 y las cuentas adicionales del plan
+// Agencia nunca se auto-reparaban si se caían.
+async function _chequearInstanciaHealthcheck(u, uid, slot) {
+  const key = botKey(uid, slot);
+
+  // Ignorar si ya está corriendo, arrancando o tiene auto-restart pendiente
+  if (instancias.has(key) || arranqueEnProceso.has(key) || autoRestartTimers.has(key)) return null;
+
+  // Verificar plan vigente
+  const ahora = new Date();
+  const planOk = u.esTester
+    || u.rol === 'admin'
+    || u.plan === 'admin'
+    || (u.plan === 'trial' && u.trialExpira && new Date(u.trialExpira) > ahora)
+    || (u.planExpira && new Date(u.planExpira) > ahora);
+
+  if (!planOk) {
+    // Plan vencido pero marcado activo — limpiar estado inconsistente
+    await updateBotStatus(uid, slot, false, false).catch(() => {});
+    return 'inactivo';
+  }
+
+  // ── Si hay un worker conectado, los bots corren ahí — no reiniciar localmente
+  // Delegamos al worker, llamando a startBot() que ahora carga credenciales
+  // desde Mongo (Render) y las envía embebidas al worker.
+  if (workerHandler.isWorkerAvailable()) {
+    logger.info(`[BotMgr] Healthcheck: bot ${key} no está en RAM local, pero worker está conectado — delegando`);
+    startBot(uid, slot).catch((e) => {
+      logger.warn(`[BotMgr] Healthcheck delegate falló para ${key}: ${e.message}`);
+    });
+    return 'reiniciado';
+  }
+
+  // ── Sin worker: cloud-direct solo tiene sentido para slot 0. Multi-cuenta
+  // sin worker no es un escenario soportado (Render es efímero) — no reiniciar.
+  if (slot !== 0) {
+    logger.warn(`[BotMgr] Healthcheck: bot ${key} sin worker disponible — slots>0 requieren worker, no se reinicia en cloud-direct`);
+    return null;
+  }
+
+  // ── Verificar que el usuario tenga sesión WA antes de reiniciar
+  // Si no tiene sesión, solo necesita escanear QR (no auto-reiniciar)
+  const tieneSesion = await WAAuth.exists({ _id: new RegExp(`^${uid}:creds$`) });
+  if (!tieneSesion) {
+    logger.info(`[BotMgr] Healthcheck: bot ${key} sin sesión WA — marcando inactivo (necesita QR)`);
+    await updateBotStatus(uid, slot, false, false).catch(() => {});
+    emitirAlUsuario(uid, 'bot:log', {
+      msg: '⚠️ Bot caído y sin sesión — iniciá el bot desde el panel para escanear un QR nuevo.',
+      ts: new Date().toLocaleTimeString('es-AR'),
+      slot,
+    });
+    return 'inactivo';
+  }
+
+  // Bot debería estar corriendo pero no está — reiniciar
+  logger.warn(`[BotMgr] Healthcheck: bot ${key} no está en RAM pero está marcado activo — reiniciando`);
+  emitirAlUsuario(uid, 'bot:log', {
+    msg: '🔧 Healthcheck: bot detectado caído — reiniciando automáticamente...',
+    ts: new Date().toLocaleTimeString('es-AR'),
+    slot,
+  });
+  Log.registrar({
+    userId: uid,
+    tipo: 'bot_healthcheck',
+    nivel: 'warn',
+    mensaje: `Healthcheck detectó bot caído — reiniciando automáticamente (slot ${slot})`,
+  }).catch(() => {});
+
+  startBot(uid, slot).catch(e => {
+    logger.error(`[BotMgr] Healthcheck: error reiniciando ${key}: ${e.message}`);
+    Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Healthcheck: error al reiniciar bot slot ${slot}: ${e.message}` }).catch(() => {});
+  });
+  return 'reiniciado';
+}
+
 async function ejecutarHealthcheck() {
   try {
-    const usuarios = await User.find({ botActivo: true, status: 'activo' })
-      .select('_id plan planExpira trialExpira esTester rol')
+    const usuarios = await User.find({
+      status: 'activo',
+      $or: [{ botActivo: true }, { 'cuentasWA.activo': true }],
+    })
+      .select('_id plan planExpira trialExpira esTester rol botActivo cuentasWA')
       .lean();
 
     let reiniciados = 0;
@@ -822,72 +913,19 @@ async function ejecutarHealthcheck() {
 
     for (const u of usuarios) {
       const uid = u._id.toString();
-      const key = botKey(uid, 0);
 
-      // Ignorar si ya está corriendo, arrancando o tiene auto-restart pendiente
-      if (instancias.has(key) || arranqueEnProceso.has(key) || autoRestartTimers.has(key)) continue;
-
-      // Verificar plan vigente
-      const ahora = new Date();
-      const planOk = u.esTester
-        || u.rol === 'admin'
-        || u.plan === 'admin'
-        || (u.plan === 'trial' && u.trialExpira && new Date(u.trialExpira) > ahora)
-        || (u.planExpira && new Date(u.planExpira) > ahora);
-
-      if (!planOk) {
-        // Plan vencido pero botActivo=true — limpiar estado inconsistente
-        await updateBotStatus(uid, 0, false, false).catch(() => {});
-        marcadosInactivos++;
-        continue;
+      if (u.botActivo) {
+        const r = await _chequearInstanciaHealthcheck(u, uid, 0);
+        if (r === 'reiniciado') reiniciados++;
+        else if (r === 'inactivo') marcadosInactivos++;
       }
 
-      // ── Si hay un worker conectado, los bots corren ahí — no reiniciar localmente
-      // Delegamos al worker, llamando a startBot() que ahora carga credenciales
-      // desde Mongo (Render) y las envía embebidas al worker.
-      if (workerHandler.isWorkerAvailable()) {
-        logger.info(`[BotMgr] Healthcheck: bot ${key} no está en RAM local, pero worker está conectado — delegando`);
-        startBot(uid, 0).catch((e) => {
-          logger.warn(`[BotMgr] Healthcheck delegate falló para ${key}: ${e.message}`);
-        });
-        reiniciados++;
-        continue;
+      for (const cuenta of (u.cuentasWA || [])) {
+        if (!cuenta || cuenta.slot === 0 || !cuenta.activo) continue;
+        const r = await _chequearInstanciaHealthcheck(u, uid, cuenta.slot);
+        if (r === 'reiniciado') reiniciados++;
+        else if (r === 'inactivo') marcadosInactivos++;
       }
-
-      // ── Sin worker: verificar que el usuario tenga sesión WA antes de reiniciar
-      // Si no tiene sesión, solo necesita escanear QR (no auto-reiniciar)
-      const tieneSesion = await WAAuth.exists({ _id: new RegExp(`^${uid}:creds$`) });
-      if (!tieneSesion) {
-        logger.info(`[BotMgr] Healthcheck: bot ${key} sin sesión WA — marcando inactivo (necesita QR)`);
-        await updateBotStatus(uid, 0, false, false).catch(() => {});
-        emitirAlUsuario(uid, 'bot:log', {
-          msg: '⚠️ Bot caído y sin sesión — iniciá el bot desde el panel para escanear un QR nuevo.',
-          ts: new Date().toLocaleTimeString('es-AR'),
-          slot: 0,
-        });
-        marcadosInactivos++;
-        continue;
-      }
-
-      // Bot debería estar corriendo pero no está — reiniciar
-      logger.warn(`[BotMgr] Healthcheck: bot ${key} no está en RAM pero botActivo=true — reiniciando`);
-      emitirAlUsuario(uid, 'bot:log', {
-        msg: '🔧 Healthcheck: bot detectado caído — reiniciando automáticamente...',
-        ts: new Date().toLocaleTimeString('es-AR'),
-        slot: 0,
-      });
-      Log.registrar({
-        userId: uid,
-        tipo: 'bot_healthcheck',
-        nivel: 'warn',
-        mensaje: `Healthcheck detectó bot caído — reiniciando automáticamente (slot 0)`,
-      }).catch(() => {});
-
-      reiniciados++;
-      startBot(uid, 0).catch(e => {
-        logger.error(`[BotMgr] Healthcheck: error reiniciando ${uid}: ${e.message}`);
-        Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: `Healthcheck: error al reiniciar bot: ${e.message}` }).catch(() => {});
-      });
     }
 
     if (reiniciados > 0 || marcadosInactivos > 0) {
@@ -898,8 +936,16 @@ async function ejecutarHealthcheck() {
   }
 }
 
-// Iniciar healthcheck — se llama desde restoreActiveBots() después del arranque inicial
+// Iniciar healthcheck — llamado UNA VEZ desde server.js al arrancar, sin
+// importar el modo (worker o cloud-direct). _chequearInstanciaHealthcheck ya
+// distingue internamente qué hacer según haya worker conectado o no.
+let _healthcheckIniciado = false;
 function iniciarHealthcheck() {
+  if (_healthcheckIniciado) {
+    logger.warn('[BotMgr] iniciarHealthcheck() llamado más de una vez — ignorado');
+    return;
+  }
+  _healthcheckIniciado = true;
   // Primer check a los 2 minutos de arranque (para que los bots restaurados terminen de iniciar)
   setTimeout(() => {
     ejecutarHealthcheck();
@@ -972,6 +1018,7 @@ module.exports = {
   getBotStatus,
   getActiveCount,
   getActiveUserIds,
+  iniciarHealthcheck,
   triggerCatalogSync,
   recargarCalendar,
   recargarConfig,

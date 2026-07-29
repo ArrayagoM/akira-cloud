@@ -21,10 +21,11 @@ const { EventEmitter } = require('events');
  * Crea un proxy Baileys para un bot dado.
  * @param {object} opts
  * @param {string} opts.userId - ID del usuario
+ * @param {number} [opts.slot=0] - slot de la cuenta de WhatsApp (plan Agencia)
  * @param {object} opts.workerSocket - Socket.io del worker (el que está conectado)
  * @param {function} opts.log - función de log del bot
  */
-function crearBaileysProxy({ userId, workerSocket, log }) {
+function crearBaileysProxy({ userId, slot = 0, workerSocket, log }) {
   const ev = new EventEmitter();
   ev.setMaxListeners(50);
 
@@ -38,7 +39,7 @@ function crearBaileysProxy({ userId, workerSocket, log }) {
         }
         // Usamos ack de socket.io con timeout
         const t = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 30000);
-        workerSocket.emit(evento, payload, (ack) => {
+        workerSocket.emit(evento, { ...payload, slot }, (ack) => {
           clearTimeout(t);
           resolve(ack || { ok: false, error: 'no_ack' });
         });
@@ -104,7 +105,7 @@ function crearBaileysProxy({ userId, workerSocket, log }) {
       if (silencioso) return;
       try {
         if (workerSocket?.connected) {
-          workerSocket.emit('worker:stop-bot', { userId });
+          workerSocket.emit('worker:stop-bot', { userId, slot });
         }
       } catch {}
     },
