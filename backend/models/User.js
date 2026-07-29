@@ -60,6 +60,12 @@ const UserSchema = new mongoose.Schema(
     trialExpira: { type: Date, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
     planExpira:  { type: Date },
 
+    // Cupo de mensajes/mes (ver config/planes.js + services/bot/quota.service.js).
+    // mesContadorMensajes en formato "YYYY-MM" — al cambiar de mes, el contador
+    // se resetea solo la primera vez que llega un mensaje ese mes nuevo.
+    mensajesMes:         { type: Number, default: 0 },
+    mesContadorMensajes: { type: String, default: '' },
+
     // Estado del bot (slot 0 — backward compat)
     botActivo:    { type: Boolean, default: false },
     botConectado: { type: Boolean, default: false },
