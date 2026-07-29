@@ -145,10 +145,11 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   })();
   let MODO_PAUSA = config.MODO_PAUSA === 'true';
   let CELULAR_NOTIFICACIONES = config.CELULAR_NOTIFICACIONES || '';
-  // Seteado en iniciar() SOLO si esta cuenta tiene rol==='admin' y tiene
-  // CELULAR_NOTIFICACIONES configurado — habilita los comandos "sistema ..."
-  // exclusivamente en ese chat puntual (ver handleBaileysMessage).
-  let jidCanalAdmin = null;
+  // El registro del canal de admin (qué JID puede usar "sistema ...") vive
+  // en system.bot.js (systemBot.registrarCanalAdmin/esCanalAdminActivo), no
+  // acá — así queda una sola fuente de verdad sin importar si el número
+  // cambió por el dashboard, por config:patch o por el comando "sistema
+  // numero". Ver actualizarCanalAdmin() más abajo.
   let CHATS_IGNORADOS = (() => {
     try {
       return JSON.parse(config.CHATS_IGNORADOS || '[]');
@@ -2722,7 +2723,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       // Gate triple: fromMe (imposible de falsificar) + jid === canal
       // registrado en iniciar() + esa cuenta ya se verificó rol==='admin'
       // en ese momento. Ningún cliente ni negocio normal puede llegar acá.
-      if (jidCanalAdmin && jid === jidCanalAdmin && systemBot.esComandoSistemaCandidato(texto)) {
+      if (systemBot.esCanalAdminActivo(USER_ID, jid) && systemBot.esComandoSistemaCandidato(texto)) {
         const manejado = await systemBot.manejarComandoSistema(texto, jid, USER_ID, enviarMensaje);
         if (manejado) return;
       }
@@ -3833,6 +3834,31 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     }
   }
 
+  // ── Canal de admin — recalcula y re-registra en system.bot.js cada vez
+  // que CELULAR_NOTIFICACIONES puede haber cambiado (arranque, patch directo
+  // desde worker, o reload desde el dashboard). Sin esto, cambiar el número
+  // desde afuera dejaba el canal de comandos "sistema ..." apuntando al
+  // número viejo hasta el próximo reinicio del bot.
+  async function actualizarCanalAdmin() {
+    try {
+      if (!CELULAR_NOTIFICACIONES) {
+        systemBot.desregistrarCanalAdmin(USER_ID);
+        return;
+      }
+      const User = require('../models/User');
+      const uDoc = await User.findById(USER_ID).select('rol').lean();
+      if (uDoc?.rol === 'admin') {
+        const nuevoJid = `${CELULAR_NOTIFICACIONES.replace(/\D/g, '')}@s.whatsapp.net`;
+        systemBot.registrarCanalAdmin(USER_ID, nuevoJid);
+        log(`[Sistema] Canal de admin habilitado en ${nuevoJid}`);
+      } else {
+        systemBot.desregistrarCanalAdmin(USER_ID);
+      }
+    } catch (e) {
+      log(`⚠️ [Sistema] No se pudo actualizar canal de admin: ${e.message}`);
+    }
+  }
+
   // ── Ciclo de vida ────────────────────────────────────────────
   async function iniciar() {
     // Cargar clientes existentes desde MongoDB (antes de procesar mensajes)
@@ -3909,19 +3935,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     // ── Canal de admin (comandos "sistema ...") — SOLO si esta cuenta es
     // rol==='admin' Y tiene un CELULAR_NOTIFICACIONES configurado. Ese
     // número es el único chat donde se habilitan los comandos de sistema.
-    try {
-      if (CELULAR_NOTIFICACIONES) {
-        const User = require('../models/User');
-        const uDoc = await User.findById(USER_ID).select('rol').lean();
-        if (uDoc?.rol === 'admin') {
-          jidCanalAdmin = `${CELULAR_NOTIFICACIONES.replace(/\D/g, '')}@s.whatsapp.net`;
-          systemBot.registrarCanalAdmin(USER_ID, jidCanalAdmin);
-          log(`[Sistema] Canal de admin habilitado en ${jidCanalAdmin}`);
-        }
-      }
-    } catch (e) {
-      log(`⚠️ [Sistema] No se pudo verificar rol de admin: ${e.message}`);
-    }
+    await actualizarCanalAdmin();
 
     // Reintento en background: si MongoDB se conecta despues, refrescar Config
     setTimeout(async () => {
@@ -3941,7 +3955,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     emitter.on('config:patch', (patch) => {
       if (!patch) return;
       if (typeof patch.modoPausa === 'boolean') MODO_PAUSA = patch.modoPausa;
-      if (patch.celularNotificaciones !== undefined) CELULAR_NOTIFICACIONES = patch.celularNotificaciones;
+      if (patch.celularNotificaciones !== undefined) {
+        CELULAR_NOTIFICACIONES = patch.celularNotificaciones;
+        actualizarCanalAdmin().catch(() => {});
+      }
       if (patch.promptPersonalizado   !== undefined) PROMPT_EXTRA = patch.promptPersonalizado;
       log(`[Config] 🔧 Patch directo aplicado: ${JSON.stringify(patch)}`);
     });
@@ -3955,7 +3972,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         HORARIOS_ATENCION = cfg.horariosAtencion || {};
         DIAS_BLOQUEADOS = cfg.diasBloqueados || [];
         MODO_PAUSA = cfg.modoPausa || false;
-        CELULAR_NOTIFICACIONES = cfg.celularNotificaciones || '';
+        if (cfg.celularNotificaciones !== CELULAR_NOTIFICACIONES) {
+          CELULAR_NOTIFICACIONES = cfg.celularNotificaciones || '';
+          await actualizarCanalAdmin();
+        }
         PROMPT_EXTRA = cfg.promptPersonalizado || '';
         SERVICIOS_LIST = (() => {
           try {

@@ -17,6 +17,8 @@
 
 const Log    = require('../models/Log');
 const Config = require('../models/Config');
+const { featuresDePlan } = require('../config/planes');
+const { mesActual } = require('./bot/quota.service');
 
 // ── Inyección de dependencias (evita require circular con bot.manager.js,
 // que a su vez requiere akira.bot.js) — server.js llama a esto una sola vez
@@ -31,6 +33,18 @@ function configurarBotManager(bm) {
 let adminChannel = null; // { userId, jid }
 function registrarCanalAdmin(userId, jid) {
   adminChannel = { userId: String(userId), jid };
+}
+// Solo borra si coincide el userId — evita que un bot que se está apagando
+// pise el registro de otro admin (previendo el día en que haya más de uno).
+function desregistrarCanalAdmin(userId) {
+  if (adminChannel && adminChannel.userId === String(userId)) adminChannel = null;
+}
+// Única fuente de verdad de "¿este mensaje viene del canal de control?".
+// akira.bot.js llama esto en vez de guardar su propia copia del JID, así
+// un cambio de número (dashboard, patch directo, o "sistema numero") se
+// refleja de inmediato sin esperar un reinicio del bot.
+function esCanalAdminActivo(userId, jid) {
+  return !!(adminChannel && adminChannel.userId === String(userId) && adminChannel.jid === jid);
 }
 function _soloParaTests_getAdminChannel() {
   return adminChannel;
@@ -61,6 +75,68 @@ function escaparRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// ── Funciones puras (sin Mongo, sin _botManager) — separadas para poder
+// testearlas sin una DB real, mismo criterio que quota.service.js.
+
+function validarNumeroContacto(numeroCrudo) {
+  const soloDigitos = String(numeroCrudo || '').replace(/\D/g, '');
+  if (soloDigitos.length < 8 || soloDigitos.length > 15) {
+    return {
+      ok: false,
+      digits: null,
+      error: `Número inválido: "${numeroCrudo}". Usá solo dígitos, con código de país (ej: 5493411234567).`,
+    };
+  }
+  return { ok: true, digits: soloDigitos, error: null };
+}
+
+// usuarios: [{ _id, plan, botActivo, botConectado, mensajesMes, mesContadorMensajes }]
+// negocioPorUid: { [userId]: nombreNegocio }
+function construirReporte({ usuarios, negocioPorUid, erroresCount, workerConectado, mesStr }) {
+  const activos = usuarios.filter((u) => u.botActivo);
+  const conectados = activos.filter((u) => u.botConectado);
+  const caidos = activos.filter((u) => !u.botConectado);
+
+  const porPlan = {};
+  usuarios.forEach((u) => {
+    const p = u.plan || 'trial';
+    porPlan[p] = (porPlan[p] || 0) + 1;
+  });
+  const lineaPlanes = Object.entries(porPlan).map(([p, n]) => `${p}: ${n}`).join(' · ') || 'Sin usuarios';
+
+  const cercaDelLimite = usuarios
+    .filter((u) => u.mesContadorMensajes === mesStr)
+    .map((u) => {
+      const { mensajesMes: limite } = featuresDePlan(u.plan);
+      if (limite === Infinity) return null;
+      const usados = u.mensajesMes || 0;
+      if (usados / limite < 0.8) return null;
+      return `${negocioPorUid[String(u._id)] || String(u._id).slice(-6)}: ${usados}/${limite}`;
+    })
+    .filter(Boolean);
+
+  return (
+    `*📊 Reporte del sistema*\n` +
+    `Negocios activos: ${activos.length} (🟢 ${conectados.length} conectados, 🔴 ${caidos.length} caídos)\n` +
+    `Worker: ${workerConectado ? '🟢 conectado' : '🔴 desconectado'}\n\n` +
+    `*Por plan:* ${lineaPlanes}\n\n` +
+    `*Cerca del límite de mensajes:*\n${cercaDelLimite.join('\n') || 'Ninguno.'}\n\n` +
+    `*Errores/críticos (24h):* ${erroresCount}`
+  );
+}
+
+// logs: [{ userId, tipo, nivel, mensaje, createdAt }]
+function formatearListaErrores(logs, negocioPorUid) {
+  if (!logs.length) return '✅ Sin errores registrados.';
+  const lineas = logs.map((l) => {
+    const negocio = l.userId ? (negocioPorUid[String(l.userId)] || String(l.userId).slice(-6)) : 'Sistema';
+    const fecha = new Date(l.createdAt).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });
+    const icono = l.nivel === 'critical' ? '🔴' : '🟠';
+    return `${icono} [${fecha}] ${negocio} — ${l.mensaje}`;
+  });
+  return `*Últimos ${logs.length} errores:*\n${lineas.join('\n')}`;
+}
+
 async function manejarComandoSistema(textoOriginal, jid, adminUserId, enviarMensajeFn) {
   limpiarSiExpiro();
   const texto = (textoOriginal || '').trim().toLowerCase();
@@ -68,7 +144,7 @@ async function manejarComandoSistema(textoOriginal, jid, adminUserId, enviarMens
   // ── Confirmar/cancelar acción pendiente ─────────────────────
   if (['si', 'sí', 'confirmar', 'confirmo'].includes(texto)) {
     if (!pendiente) return false; // nada pendiente — no comerse el mensaje
-    const { accion, targetUserId, targetSlot, negocio } = pendiente;
+    const { accion, targetUserId, targetSlot, negocio, numero } = pendiente;
     pendiente = null;
     if (accion === 'restart' && _botManager) {
       await Log.registrar({
@@ -85,14 +161,32 @@ async function manejarComandoSistema(textoOriginal, jid, adminUserId, enviarMens
           ? `✅ *${negocio}* reiniciado — esperando reconexión.`
           : `❌ No se pudo reiniciar *${negocio}*: ${res.msg}`,
       );
+    } else if (accion === 'set_numero') {
+      const nuevoJid = `${numero}@s.whatsapp.net`;
+      await Config.findOneAndUpdate(
+        { userId: adminUserId },
+        { $set: { celularNotificaciones: numero } },
+        { upsert: true },
+      );
+      registrarCanalAdmin(adminUserId, nuevoJid);
+      await Log.registrar({
+        userId: adminUserId, tipo: 'admin_action', nivel: 'info',
+        mensaje: `Admin actualizó el número de contacto del sistema a ${numero}`,
+      });
+      await enviarMensajeFn(
+        jid,
+        `✅ Número de contacto actualizado a *${numero}*.\n` +
+          `Las alertas y los comandos de sistema van a ese número a partir de ahora.`,
+      );
     }
     return true;
   }
   if (['no', 'cancelar'].includes(texto)) {
     if (!pendiente) return false;
-    const negocio = pendiente.negocio;
+    const { accion, negocio } = pendiente;
     pendiente = null;
-    await enviarMensajeFn(jid, `Cancelado. No se tocó *${negocio}*.`);
+    const detalle = accion === 'set_numero' ? 'el número de contacto' : `*${negocio}*`;
+    await enviarMensajeFn(jid, `Cancelado. No se tocó ${detalle}.`);
     return true;
   }
 
@@ -110,9 +204,91 @@ async function manejarComandoSistema(textoOriginal, jid, adminUserId, enviarMens
       `*Comandos de sistema:*\n` +
         `• *sistema estado* — resumen de todos los bots\n` +
         `• *sistema caidos* — solo los que están caídos\n` +
+        `• *sistema reporte* — analítica completa de la plataforma\n` +
+        `• *sistema errores [n]* — últimos errores/críticos (default 10)\n` +
+        `• *sistema numero <número>* — cambia a dónde llegan alertas y comandos\n` +
         `• *sistema reiniciar <negocio>* — reinicia un bot (pide confirmación)\n` +
         `• *sistema ayuda* — este mensaje`,
     );
+    return true;
+  }
+
+  if (resto === 'numero' || resto.startsWith('numero ')) {
+    const numeroCrudo = resto.replace(/^numero\s*/, '').trim();
+    if (!numeroCrudo) {
+      const actual = adminChannel?.jid ? adminChannel.jid.replace('@s.whatsapp.net', '') : '(sin configurar)';
+      await enviarMensajeFn(
+        jid,
+        `📱 Número de contacto actual: *${actual}*\n\nPara cambiarlo: *sistema numero <nuevo número>*`,
+      );
+      return true;
+    }
+    const validacion = validarNumeroContacto(numeroCrudo);
+    if (!validacion.ok) {
+      await enviarMensajeFn(jid, `❌ ${validacion.error}`);
+      return true;
+    }
+    const soloDigitos = validacion.digits;
+    pendiente = {
+      accion: 'set_numero',
+      numero: soloDigitos,
+      negocio: null,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + VENTANA_CONFIRMACION_MS,
+    };
+    await enviarMensajeFn(
+      jid,
+      `⚠️ ¿Confirmás cambiar el número de contacto del sistema a *${soloDigitos}*?\n` +
+        `Los comandos "sistema ..." y las alertas van a ir a ese número a partir de ahora.\n` +
+        `Respondé *SI* para confirmar o *NO* para cancelar. Vence en 5 min.`,
+    );
+    return true;
+  }
+
+  if (resto === 'reporte' || resto === 'resumen' || resto === 'analisis' || resto === 'análisis') {
+    const User = require('../models/User');
+    const usuarios = await User.find({ status: 'activo' })
+      .select('_id plan botActivo botConectado mensajesMes mesContadorMensajes').lean();
+    const configs = await Config.find({ userId: { $in: usuarios.map((u) => u._id) } })
+      .select('userId negocio').lean();
+    const negocioPorUid = {};
+    configs.forEach((c) => { negocioPorUid[String(c.userId)] = c.negocio || 'Sin nombre'; });
+
+    const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const erroresCount = await Log.countDocuments({
+      nivel: { $in: ['error', 'critical'] },
+      createdAt: { $gte: hace24h },
+    });
+
+    const workerInfo = _botManager.getWorkerInfo();
+
+    await enviarMensajeFn(
+      jid,
+      construirReporte({
+        usuarios,
+        negocioPorUid,
+        erroresCount,
+        workerConectado: !!workerInfo?.conectado,
+        mesStr: mesActual(),
+      }),
+    );
+    return true;
+  }
+
+  if (resto === 'errores' || resto.startsWith('errores ')) {
+    const argN = parseInt(resto.replace(/^errores\s*/, '').trim(), 10);
+    const n = Number.isFinite(argN) ? Math.min(Math.max(argN, 1), 25) : 10;
+
+    const logs = await Log.find({ nivel: { $in: ['error', 'critical'] } })
+      .sort({ createdAt: -1 }).limit(n)
+      .select('userId tipo nivel mensaje createdAt').lean();
+
+    const uids = [...new Set(logs.map((l) => String(l.userId)).filter(Boolean))];
+    const configs = await Config.find({ userId: { $in: uids } }).select('userId negocio').lean();
+    const negocioPorUid = {};
+    configs.forEach((c) => { negocioPorUid[String(c.userId)] = c.negocio || 'Sin nombre'; });
+
+    await enviarMensajeFn(jid, formatearListaErrores(logs, negocioPorUid));
     return true;
   }
 
@@ -218,8 +394,13 @@ Log.eventos.on('registrado', ({ userId, tipo, mensaje }) => {
 module.exports = {
   configurarBotManager,
   registrarCanalAdmin,
+  desregistrarCanalAdmin,
+  esCanalAdminActivo,
   esComandoSistemaCandidato,
   manejarComandoSistema,
+  validarNumeroContacto,
+  construirReporte,
+  formatearListaErrores,
   _soloParaTests_getAdminChannel,
   _soloParaTests_setPendiente,
   _soloParaTests_getPendiente,
