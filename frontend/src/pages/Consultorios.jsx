@@ -61,7 +61,7 @@ export default function Consultorios() {
         },
         {
           q: '¿El paciente sabe que está hablando con un bot?',
-          a: 'No necesariamente. La conversación es muy natural (LLaMA 3.3 70B vía Groq). El bot saluda por nombre, recuerda el historial del paciente y responde con tu propio estilo si lo configurás. Si el paciente pide hablar con un humano, el bot te avisa para que intervengas.',
+          a: 'No necesariamente. La conversación es muy natural (LLaMA 3.1 vía Groq). El bot saluda por nombre, recuerda el historial del paciente y responde con tu propio estilo si lo configurás. Si el paciente pide hablar con un humano, el bot te avisa para que intervengas.',
         },
       ]}
     />

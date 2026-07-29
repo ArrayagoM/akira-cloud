@@ -34,7 +34,7 @@ const POSTS = [
       { type: 'h2', text: 'Paso 3 — Conectar Google Calendar y MercadoPago' },
       { type: 'p', text: 'En 2 clics conectás tu Google Calendar (para que el bot lea horarios libres y agende turnos) y tu cuenta de MercadoPago (si querés cobrar la seña automáticamente al confirmar).' },
       { type: 'h2', text: 'Paso 4 — El bot empieza a atender solo' },
-      { type: 'p', text: 'Desde el momento que activás el bot, todos los mensajes nuevos los responde la IA (LLaMA 3.3 70B vía Groq). Ofrece horarios libres en tiempo real, cobra la seña, agenda en tu calendario y manda recordatorios. Vos podés intervenir cuando quieras.' },
+      { type: 'p', text: 'Desde el momento que activás el bot, todos los mensajes nuevos los responde la IA (LLaMA 3.1 vía Groq). Ofrece horarios libres en tiempo real, cobra la seña, agenda en tu calendario y manda recordatorios. Vos podés intervenir cuando quieras.' },
       { type: 'h2', text: 'Resultado típico al mes 1' },
       { type: 'list', items: [
         '3-4 horas/día recuperadas.',

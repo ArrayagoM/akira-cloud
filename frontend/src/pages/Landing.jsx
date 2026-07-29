@@ -1021,7 +1021,7 @@ const FEATURES = [
     icon: MessageSquare,
     color: '#00e87b',
     title: 'IA que entiende contexto',
-    desc: 'LLaMA 3.3 70B. Responde como una persona — entiende ironía, sarcasmo y mensajes confusos.',
+    desc: 'LLaMA 3.1. Responde como una persona — entiende ironía, sarcasmo y mensajes confusos.',
   },
   {
     icon: Calendar,
@@ -1405,7 +1405,7 @@ const FAQS = [
   },
   {
     q: '¿Mis clientes se dan cuenta que es un bot?',
-    a: 'En general no. Akira usa LLaMA 3.3 (uno de los modelos más avanzados del mundo), responde en tono natural, entiende contexto y se adapta a tu forma de hablar.',
+    a: 'En general no. Akira usa LLaMA 3.1 vía Groq, responde en tono natural, entiende contexto y se adapta a tu forma de hablar.',
   },
   {
     q: '¿Cómo cobra los turnos?',
@@ -1612,7 +1612,7 @@ const STACK_CREADOR = [
   },
   {
     categoria: 'IA & Bots',
-    items: ['LLaMA 3.3', 'Groq', 'Whisper', 'Rime AI', 'Baileys (WhatsApp)'],
+    items: ['LLaMA 3.1', 'Groq', 'Whisper', 'Rime AI', 'Baileys (WhatsApp)'],
   },
   {
     categoria: 'IoT & Hardware',

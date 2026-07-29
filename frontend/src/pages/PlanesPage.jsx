@@ -16,7 +16,7 @@ const PLANES_INFO = [
     icon: <Zap size={18} />,
     features: [
       { texto: '1 número de WhatsApp',     ok: true },
-      { texto: 'IA con LLaMA 3.3 70B',     ok: true },
+      { texto: 'IA con LLaMA 3.1',         ok: true },
       { texto: 'Hasta 500 mensajes/mes',    ok: true },
       { texto: 'Recordatorios automáticos', ok: true },
       { texto: 'Google Calendar',           ok: false },
@@ -34,7 +34,7 @@ const PLANES_INFO = [
     icon: <Star size={18} />,
     features: [
       { texto: '1 número de WhatsApp',     ok: true },
-      { texto: 'IA con LLaMA 3.3 70B',     ok: true },
+      { texto: 'IA con LLaMA 3.1',         ok: true },
       { texto: 'Mensajes ilimitados',       ok: true },
       { texto: 'Recordatorios automáticos', ok: true },
       { texto: 'Google Calendar',           ok: true },
@@ -326,7 +326,7 @@ export default function PlanesPage() {
                 {[
                   ['Mensajes/mes',         '100',    '500',    'Ilimitado', 'Ilimitado'],
                   ['Números WhatsApp',     '1',      '1',      '1',         'Hasta 5'],
-                  ['IA LLaMA 3.3 70B',    '✓',      '✓',      '✓',         '✓'],
+                  ['IA LLaMA 3.1',        '✓',      '✓',      '✓',         '✓'],
                   ['Recordatorios',        '✓',      '✓',      '✓',         '✓'],
                   ['Google Calendar',      '✗',      '✗',      '✓',         '✓'],
                   ['Cobros MercadoPago',   '✗',      '✗',      '✓',         '✓'],
