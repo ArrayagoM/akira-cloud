@@ -19,7 +19,12 @@ function toMPDateAR(date) {
 }
 
 function crearMPService({ accessToken, precioTurno, duracion, negocio, backendUrl, userId, log }) {
-  function crearPago(chatId, nombre, fecha, hora, horaFin) {
+  // opciones.montoTotal: cuando el precio NO se calcula por horas (servicios con
+  // precio propio, alojamiento por noches), el llamador ya calculó el total real
+  // y lo pasa acá explícito — se cobra ESE monto tal cual, sin recalcular a
+  // partir de hora/horaFin. Sin opciones.montoTotal el comportamiento es
+  // exactamente el de antes (turnos por hora), byte a byte.
+  function crearPago(chatId, nombre, fecha, hora, horaFin, opciones = {}) {
     return new Promise((res, rej) => {
       if (!accessToken) return rej(new Error('MP_ACCESS_TOKEN no configurado'));
       // El webhook va al backend público (Render). Sin ngrok.
@@ -28,12 +33,21 @@ function crearMPService({ accessToken, precioTurno, duracion, negocio, backendUr
       const webhookUrl = backendUrl && userId
         ? `${String(backendUrl).replace(/\/$/, '')}/api/bot/webhook-mp/${userId}`
         : '';
-      const hI   = parseInt(hora.split(':')[0]);
-      const hF   = horaFin ? parseInt(horaFin.split(':')[0]) : hI + duracion;
-      const cant  = Math.max(1, hF - hI);
-      const total = precioTurno * cant;
+      let cant, unitPrice, tituloItem;
+      if (opciones.montoTotal != null) {
+        cant = 1;
+        unitPrice = opciones.montoTotal;
+        tituloItem = opciones.titulo || `${negocio} — ${fecha} ${hora}`;
+      } else {
+        const hI = parseInt(hora.split(':')[0]);
+        const hF = horaFin ? parseInt(horaFin.split(':')[0]) : hI + duracion;
+        cant = Math.max(1, hF - hI);
+        unitPrice = precioTurno;
+        tituloItem = `Turno ${fecha} ${hora} — ${negocio}`;
+      }
+      const total = unitPrice * cant;
       const body  = JSON.stringify({
-        items: [{ title: `Turno ${fecha} ${hora} — ${negocio}`, quantity: cant, unit_price: precioTurno, currency_id: 'ARS' }],
+        items: [{ title: tituloItem, quantity: cant, unit_price: unitPrice, currency_id: 'ARS' }],
         payer: { name: nombre },
         external_reference: `${chatId}|${fecha}|${hora}|${horaFin || hora}`,
         notification_url: webhookUrl,

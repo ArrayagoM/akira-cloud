@@ -2,6 +2,14 @@
 'use strict';
 
 const mongoose = require('mongoose');
+const { EventEmitter } = require('events');
+
+// Emitido cada vez que se registra un log — usado por system.bot.js para
+// alertas proactivas al admin (ej: "se cayó el bot de tal negocio") sin
+// tener que tocar bot.manager.js/worker.handler.js, que ya llaman
+// Log.registrar() en cada evento de vida de un bot.
+const eventos = new EventEmitter();
+eventos.setMaxListeners(20);
 
 const LogSchema = new mongoose.Schema(
   {
@@ -23,6 +31,7 @@ const LogSchema = new mongoose.Schema(
         'bot_qr',
         'bot_connected',
         'bot_disconnected',
+        'bot_session_expired',
         'bot_message_in',
         'bot_message_out',
         'bot_reservation',
@@ -68,6 +77,9 @@ LogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60, parti
 
 // ── Helper estático para crear logs fácilmente ───────────────
 LogSchema.statics.registrar = async function ({ userId, tipo, nivel = 'info', mensaje, detalle, ip, userAgent }) {
+  // Emitido ANTES del intento de guardado — un alerta operativa (ej: "se cayó
+  // un bot") no debería depender de que la escritura en Mongo tenga éxito.
+  eventos.emit('registrado', { userId, tipo, nivel, mensaje, detalle });
   try {
     await this.create({ userId, tipo, nivel, mensaje, detalle, ip, userAgent });
   } catch (err) {
@@ -76,4 +88,6 @@ LogSchema.statics.registrar = async function ({ userId, tipo, nivel = 'info', me
   }
 };
 
-module.exports = mongoose.model('Log', LogSchema);
+const LogModel = mongoose.model('Log', LogSchema);
+LogModel.eventos = eventos;
+module.exports = LogModel;

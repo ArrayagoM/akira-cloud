@@ -55,6 +55,13 @@ const connectDB = require('./config/db');
 const logger = require('./config/logger');
 const botManager = require('./services/bot.manager');
 const workerHandler = require('./services/worker.handler');
+const systemBot = require('./services/system.bot');
+
+// Inyección de dependencia (evita require circular: bot.manager.js ya
+// requiere akira.bot.js, que a su vez requiere system.bot.js). Habilita
+// los comandos de sistema por WhatsApp para el admin (ver akira.bot.js
+// handleBaileysMessage + system.bot.js).
+systemBot.configurarBotManager(botManager);
 
 // ── Importar rutas ──────────────────────────────────────────
 const authRoutes = require('./routes/auth.routes');
@@ -109,9 +116,9 @@ workerHandler.onWorkerConnected((info) => {
 
 // Race condition: el worker puede auto-restaurar bots DESPUÉS de enviar worker:ready
 // (cuando botIds aún estaba vacío). Cuando llega bot-ready sin proxy, creamos el proxy ahora.
-workerHandler.onBotReadyWithoutProxy((userId) => {
-  logger.info(`[Server] onBotReadyWithoutProxy — creando proxy para ${String(userId).slice(-6)}`);
-  botManager.startBot(userId, 0).catch((e) =>
+workerHandler.onBotReadyWithoutProxy((userId, slot = 0) => {
+  logger.info(`[Server] onBotReadyWithoutProxy — creando proxy para ${String(userId).slice(-6)}${slot ? `:${slot}` : ''}`);
+  botManager.startBot(userId, slot).catch((e) =>
     logger.warn(`[Server] onBotReadyWithoutProxy startBot error: ${e.message}`)
   );
 });
@@ -274,6 +281,15 @@ connectDB()
         .restoreActiveBots()
         .catch((e) => logger.error('[Server] restoreActiveBots:', e.message));
     }
+
+    // ── Healthcheck global — SIEMPRE se arranca, sin importar el modo. ──────
+    // Bug encontrado: antes esto solo se disparaba desde adentro de
+    // restoreActiveBots(), pero esa función NUNCA se llama cuando hay
+    // WORKER_SECRET configurado (rama de arriba) — es decir, en el modo de
+    // producción real el healthcheck de 5 minutos jamás arrancaba y no había
+    // ningún mecanismo periódico de auto-reparación si un bot quedaba
+    // desincronizado entre la RAM del backend y Mongo.
+    botManager.iniciarHealthcheck();
   })
   .catch((err) => {
     logger.error('Error conectando a MongoDB:', err);

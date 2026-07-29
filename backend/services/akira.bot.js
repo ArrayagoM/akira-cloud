@@ -31,6 +31,62 @@ const WaitlistEntry = require('../models/WaitlistEntry');
 const crearAudioService = require('./bot/audio.service');
 const crearGroqService = require('./bot/groq.service');
 const crearWaitlistService = require('./bot/waitlist.service');
+const winstonLogger = require('../config/logger');
+const perfilClienteSvc = require('./bot/perfil-cliente.service');
+const systemBot = require('./system.bot');
+const { registrarMensajeYVerificarCupo } = require('./bot/quota.service');
+
+// Tools cuyo resultado es una lista concreta de opciones (horarios libres,
+// habitaciones/fechas disponibles, productos del catálogo) que el cliente
+// necesita ver completa. El modelo 8b a veces "resume" el tool result en vez
+// de listarlo (ej: responde "Disponemos de varias opciones, ¿cuál preferís?"
+// en vez de "Tenés libre las 9, 10 y 11 hs") — bug real reportado en
+// producción. Para estas tools reforzamos el prompt de la 2da llamada a Groq
+// (la que redacta la respuesta final) exigiendo que liste TODAS las opciones
+// tal cual vienen en el resultado, sin resumir, inventar ni omitir ninguna.
+const TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES = new Set([
+  'consultar_disponibilidad',
+  'consultar_disponibilidad_alojamiento',
+  'consultar_catalogo',
+]);
+
+// Arma el system prompt de la 2da llamada a Groq (la que redacta la
+// respuesta final en lenguaje natural usando el resultado de la/s tool/s
+// ejecutada/s en el turno). Función pura para poder testearla sin invocar
+// Groq de verdad.
+function construirSystemPromptRespuestaFinal(miNombre, nombreCliente, toolCallsLlamadas, linkMP) {
+  const llamoToolDeOpciones = Array.isArray(toolCallsLlamadas)
+    ? toolCallsLlamadas.some((t) => TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES.has(t?.function?.name))
+    : false;
+
+  let content = `Sos Akira de ${miNombre}. Natural, cálido, WhatsApp con ${nombreCliente}. Max 3 líneas.`;
+
+  if (llamoToolDeOpciones) {
+    content +=
+      ' 🚨 En el resultado de la herramienta tenés las opciones/horarios EXACTOS disponibles: LISTALOS TODOS tal cual vienen (ej: "Tenés libre las 9, 10 y 11 hs. ¿Cuál te queda mejor?"). NO los resumas ni digas cosas genéricas como "tenemos varias opciones" o "disponemos de distintos horarios" — el cliente necesita ver las opciones concretas. No inventes ninguna que no esté en el resultado ni omitas ninguna de las que sí están.';
+  }
+
+  if (linkMP) content += ' El link de pago se agrega automáticamente — NO lo menciones.';
+
+  return content;
+}
+
+// Detecta si una respuesta del LLM es, en esencia, solo el nombre de una tool
+// escrito como texto plano (ej: "Consultar_disponibilidad", "consultar disponibilidad")
+// en vez de una invocación real vía tool_calls. Pasa SOLO cuando el mensaje
+// completo (sin puntuación final) coincide con el nombre — a propósito estricto
+// para no marcar como falla respuestas legítimas que mencionan el tema de paso.
+function esRespuestaSoloNombreDeTool(texto, tools) {
+  if (!texto || !Array.isArray(tools) || !tools.length) return false;
+  const normalizado = texto.trim().toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
+  if (!normalizado) return false;
+  return tools.some((t) => {
+    const nombre = t?.function?.name;
+    if (!nombre) return false;
+    const n = nombre.toLowerCase();
+    return normalizado === n || normalizado === n.replace(/_/g, ' ');
+  });
+}
 
 function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   const emitter = new EventEmitter();
@@ -48,6 +104,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   // 70b-versatile y suficiente para tool calling de turnos (probado).
   const MODELO = 'llama-3.1-8b-instant';
   const MI_NOMBRE = config.MI_NOMBRE || 'Asistente';
+  const PLAN = config.PLAN || 'trial';
   const SERVICIOS = config.SERVICIOS || 'turnos y reservas';
   const NEGOCIO = config.NEGOCIO || `el negocio de ${MI_NOMBRE}`;
   const MP_ACCESS_TOKEN = config.MP_ACCESS_TOKEN || '';
@@ -88,6 +145,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   })();
   let MODO_PAUSA = config.MODO_PAUSA === 'true';
   let CELULAR_NOTIFICACIONES = config.CELULAR_NOTIFICACIONES || '';
+  // Seteado en iniciar() SOLO si esta cuenta tiene rol==='admin' y tiene
+  // CELULAR_NOTIFICACIONES configurado — habilita los comandos "sistema ..."
+  // exclusivamente en ese chat puntual (ver handleBaileysMessage).
+  let jidCanalAdmin = null;
   let CHATS_IGNORADOS = (() => {
     try {
       return JSON.parse(config.CHATS_IGNORADOS || '[]');
@@ -729,6 +790,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         (usuario.turnosConfirmados?.length
           ? `[INT] Servicios agendados: ${usuario.turnosConfirmados.map((t) => `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${t.fecha} ${t.hora}`).join(' | ')}\n`
           : '') +
+        perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
         `FLUJO OBLIGATORIO: 1.Preguntar qué servicio quiere → 2.Pedir datos del ítem (patente+modelo, nombre mascota, etc.) → 3.Consultar disponibilidad → 4.Cliente elige horario ("puede ser a las X?") → 5.PEDIR confirmación literal ("¿Te confirmo el [servicio] para el [fecha] a las [hora]? Decime 'dale' y te paso el link.") → 6.Cuando responda "sí/dale/confirmo" → llamar agendar_servicio. NUNCA saltear pasos. NUNCA llamar agendar_servicio si el cliente solo PREGUNTÓ.\n` +
         `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
         `Cancelar→cancelar_servicio, Cambiar→reagendar_servicio. Máx 4 líneas. Sin JSON ni código.\n` +
@@ -762,6 +824,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           (usuario.turnosConfirmados?.length
             ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map((t) => `${t.unidad ? t.unidad + ' ' : ''}${t.fecha}→${t.horaFin || ''}`).join(', ')}\n`
             : '') +
+          perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
           `FLUJO: 1.Cliente dice fechas [y nº huéspedes] → 2.consultar_disponibilidad_alojamiento → 3.Informar precio total + dirección → 4.PEDIR confirmación literal ("¿Te confirmo del [entrada] al [salida]? Decime 'dale' y te mando el link de pago.") → 5.Cuando responda "sí/dale/confirmo" → llamar agendar_alojamiento. NUNCA saltear pasos. NUNCA llamar agendar_alojamiento si el cliente solo preguntó.\n` +
           `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
           `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_alojamiento, Cambiar fechas→reagendar_alojamiento.\n` +
@@ -794,6 +857,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           (usuario.turnosConfirmados?.length
             ? `✅ Turnos ya confirmados de ${usuario.nombre}: ${usuario.turnosConfirmados.map((t) => `${t.fecha} ${t.hora}`).join(', ')}. No preguntes si pagó, ya pagó.\n`
             : '') +
+          perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
           `📋 FLUJO OBLIGATORIO (3 PASOS — NUNCA SALTEAR):\n` +
           `  1. Si pregunta por disponibilidad → llamar consultar_disponibilidad con la fecha\n` +
           `  2. Mostrar slots disponibles (ej: "Tenés libre las 9, 10 y 11 hs. ¿Cuál te queda mejor? 😊")\n` +
@@ -817,11 +881,35 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             : '') +
           (PROMPT_EXTRA ? `\n🔔 INSTRUCCIONES ESPECIALES DEL NEGOCIO:\n${PROMPT_EXTRA}\n` : '');
 
-    const sys = { role: 'system', content: sysContent };
+    const sys = {
+      role: 'system',
+      content:
+        sysContent +
+        '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
+    };
 
     // Sanitizar historial: eliminar tool_calls huérfanos (sin tool_result siguiente)
     // y mensajes tool sin assistant previo — causan que el LLM repita bookings viejos.
     const MAX_HIST = 30;
+
+    // ── Memoria de largo plazo (perfilResumen) ──────────────────────────
+    // NO se actualiza en cada mensaje (gastaría tokens de más). Solo quando
+    // el historial CRUDO está a punto de truncarse a MAX_HIST le pedimos al
+    // LLM una llamada corta y sin tools que actualice el resumen ANTES de
+    // descartar los mensajes viejos — así no se pierde el contexto que el
+    // recorte está a punto de tirar. El campo persiste en Mongo (BotCliente
+    // .perfilResumen) y nunca se resetea.
+    if (perfilClienteSvc.debeActualizarPerfil(usuario.historial, MAX_HIST)) {
+      usuario.perfilResumen = await perfilClienteSvc.actualizarPerfilResumen({
+        groqSvc,
+        perfilActual: usuario.perfilResumen,
+        historial: usuario.historial,
+        nombreCliente: usuario.nombre,
+        maxHist: MAX_HIST,
+        log,
+      });
+    }
+
     const histLimpio = (() => {
       const raw = usuario.historial.slice(-MAX_HIST);
       const clean = [];
@@ -843,6 +931,22 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     let resp = await groqSvc.llamarGroq([sys, ...histLimpio]);
     log(`[DBG] Groq OK → choices=${resp?.choices?.length}`);
     let msg = resp.choices[0].message;
+
+    // ── Guardia: el modelo a veces "alucina" el nombre de una tool como
+    // texto plano en vez de invocarla (ej: responde literalmente
+    // "consultar_disponibilidad") — eso le llega crudo a un cliente real de
+    // WhatsApp. Si detectamos que TODA la respuesta es solo el nombre de una
+    // tool conocida, reintentamos una vez antes de mandar cualquier cosa.
+    if (!msg.tool_calls?.length && esRespuestaSoloNombreDeTool(msg.content, groqSvc.herramientas())) {
+      log(`⚠️ Respuesta sin tool_calls pero es solo el nombre de una tool — reintentando: "${msg.content}"`);
+      try {
+        resp = await groqSvc.llamarGroq([sys, ...histLimpio]);
+        msg = resp.choices[0].message;
+      } catch (e) { /* seguimos con el fallback de abajo si el reintento también falla */ }
+      if (!msg.tool_calls?.length && esRespuestaSoloNombreDeTool(msg.content, groqSvc.herramientas())) {
+        msg = { role: 'assistant', content: 'Dejame confirmarte eso en un segundo 🙏 ¿me repetís la consulta?' };
+      }
+    }
 
     if (msg.tool_calls?.length > 0) {
       // Guardar posición antes de agregar mensajes de tools — para armar msgs2 limpio
@@ -894,9 +998,12 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       const msgs2 = [
         {
           role: 'system',
-          content:
-            `Sos Akira de ${MI_NOMBRE}. Natural, cálido, WhatsApp con ${usuario.nombre}. Max 3 líneas.` +
-            (linkMP ? ' El link de pago se agrega automáticamente — NO lo menciones.' : ''),
+          content: construirSystemPromptRespuestaFinal(
+            MI_NOMBRE,
+            usuario.nombre,
+            msg.tool_calls,
+            linkMP,
+          ),
         },
         ...histLimpio,
         ...newToolMsgs,
@@ -1033,7 +1140,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           if (!usuario.email) {
             cacheTemporal[jid] = {
               esperandoEmail: true,
-              reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hF },
+              reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hFn },
             };
             db.guardar(CACHE_PATH, cacheTemporal);
             push('Para reservar necesitamos el email del cliente. Pedíselo.');
@@ -1070,13 +1177,13 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             }
             throw e;
           }
-          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hF);
-          const rk = `${jid}|${args.fecha}|${args.hora}|${hF || args.hora}`;
+          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hFn);
+          const rk = `${jid}|${args.fecha}|${args.hora}|${hFn || args.hora}`;
           reservasPendientes[rk] = {
             chatId: jid,
             fecha: args.fecha,
             hora: args.hora,
-            horaFin: hF,
+            horaFin: hFn,
             nombre: usuario.nombre,
             email: usuario.email,
             cant,
@@ -1146,6 +1253,10 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
       } catch (e) {
         log('[Pago] ' + e.message);
+        // Este catch se llevaba puesto reservas enteras en silencio (solo iba al panel
+        // "Actividad en vivo", que nadie mira en el momento) — ahora también al log del
+        // servidor para poder diagnosticar sin depender de tener el dashboard abierto.
+        winstonLogger.error(`[Pago] user=${USER_ID} jid=${jid} fecha=${args?.fecha} hora=${args?.hora}: ${e.stack || e.message}`);
         push(`Error al procesar la reserva: ${e.message}.`);
       } finally {
         slotsEnProceso.delete(sk);
@@ -1328,12 +1439,49 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             push('Necesitamos el email del cliente para el pago. Pedíselo.');
             return;
           }
+          const tel = usuario.numeroReal || extraerNumero(jid);
+          // Pre-reservar en MongoDB ANTES de generar el link — sin esto, dos
+          // clientes podían confirmar la misma unidad/fechas mientras ambos
+          // pagos estaban en curso (ventana de hasta 30 min sin ningún bloqueo
+          // real), a diferencia de agendar_turno/agendar_servicio que sí
+          // pre-reservan. Mismo patrón que esos dos.
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: nombreEvento,
+              descripcion: `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${tel}${unidad ? ' | Unidad: ' + unidad.nombre : ''}`,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: tel,
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Aloj] Fechas ya tomadas: ${fecha_entrada}–${fecha_salida}`);
+              push('SLOT_OCUPADO: Otro cliente reservó esas fechas. Llamá a consultar_disponibilidad_alojamiento y pedile que elija otras.');
+              return;
+            }
+            throw e;
+          }
+          // 🚨 BUG ANTERIOR: se llamaba mp.crearPago(jid, nombre, fecha_entrada,
+          // CHECK_IN_HORA, CHECK_OUT_HORA) — la función interpretaba esos dos
+          // últimos como hora/horaFin de un turno por HORA (hF-hI), así que
+          // cobraba PRECIO_TURNO × 1 en vez de precioPorNoche × noches. El
+          // cliente veía el total correcto en el mensaje, pero MercadoPago
+          // cobraba un monto distinto (y menor) en el checkout real.
           const pref = await mp.crearPago(
             jid,
             usuario.nombre,
             fecha_entrada,
             CHECK_IN_HORA,
             CHECK_OUT_HORA,
+            { montoTotal: total, titulo: nombreEvento },
           );
           const rk = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
           reservasPendientes[rk] = {
@@ -1345,7 +1493,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             nombre: usuario.nombre,
             email: usuario.email,
             cant: noches,
+            total,
             totalPrecio: total,
+            turnoId: turnoPendiente._id.toString(),
             expiresAt: Date.now() + 30 * 60000,
           };
           db.guardar(RESERVAS_PATH, reservasPendientes);
@@ -1394,6 +1544,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
       } catch (e) {
         log('[Aloj] ' + e.message);
+        winstonLogger.error(`[Aloj] user=${USER_ID} jid=${jid}: ${e.stack || e.message}`);
         push(`Error al procesar la reserva: ${e.message}.`);
       } finally {
         slotsEnProceso.delete(sk);
@@ -1636,7 +1787,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
             }
             throw e;
           }
-          const pref = await mp.crearPreferencia(usuario.nombre, args.fecha, args.hora, total, jid);
+          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hFnStr, { montoTotal: total, titulo: tituloEvento });
           if (pref?.init_point) {
             const rk = `${jid}|${args.fecha}|${args.hora}|${hFnStr}`;
             reservasPendientes[rk] = {
@@ -1711,6 +1862,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
         }
       } catch (e) {
         log('[Servicios] ' + e.message);
+        winstonLogger.error(`[Servicios] user=${USER_ID} jid=${jid}: ${e.stack || e.message}`);
         push('Error al procesar el servicio: ' + e.message);
       } finally {
         slotsEnProceso.delete(sk);
@@ -2197,7 +2349,49 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       const total  = precioPorNoche * noches;
 
       try {
-        const pref = await mp.crearPago(jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA);
+        const nombreEvento = unidad
+          ? `Reserva ${unidad.nombre} — ${usuario.nombre}`
+          : `Reserva — ${usuario.nombre}`;
+        const [ye, me, de] = fecha_entrada.split('-').map(Number);
+        const [ys, ms, ds] = fecha_salida.split('-').map(Number);
+        const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
+        const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+        const ini = calendar.crearFecha(ye, me, de, hCI);
+        const fin = calendar.crearFecha(ys, ms, ds, hCO);
+        const tel = usuario.numeroReal || extraerNumero(jid);
+
+        // Mismo fix que en agendar_alojamiento: pre-reservar en Mongo antes
+        // del link (cierra la ventana de doble-venta) y cobrar el monto
+        // EXPLÍCITO calculado (precioPorNoche × noches), no el cálculo por
+        // hora que interpretaba mal CHECK_IN_HORA/CHECK_OUT_HORA.
+        const Turno = require('../models/Turno');
+        let turnoPendiente;
+        try {
+          turnoPendiente = await Turno.create({
+            userId: USER_ID,
+            calendarId: CALENDAR_ID || 'principal',
+            resumen: nombreEvento,
+            descripcion: `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${tel}${unidad ? ' | Unidad: ' + unidad.nombre : ''} | Email: ${usuario.email}`,
+            fechaInicio: ini,
+            fechaFin: fin,
+            clienteNombre: usuario.nombre,
+            clienteTelefono: tel,
+            clienteEmail: usuario.email,
+            estado: 'pendiente',
+            pago: { monto: total, metodo: 'mercadopago' },
+          });
+        } catch (e) {
+          if (e.code === 11000) {
+            await enviarMensaje(jid, '¡Ups! Esas fechas acaban de ser reservadas por otro cliente. ¿Te sirven otras?');
+            return;
+          }
+          throw e;
+        }
+
+        const pref = await mp.crearPago(
+          jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA,
+          { montoTotal: total, titulo: nombreEvento },
+        );
         const rk = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
         reservasPendientes[rk] = {
           chatId:      jid,
@@ -2208,7 +2402,9 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
           nombre:      usuario.nombre,
           email:       usuario.email,
           cant:        noches,
+          total,
           totalPrecio: total,
+          turnoId:     turnoPendiente._id.toString(),
           expiresAt:   Date.now() + 30 * 60000,
         };
         db.guardar(RESERVAS_PATH, reservasPendientes);
@@ -2521,6 +2717,16 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     // Mensajes propios (comandos del dueño)
     if (msg.key.fromMe) {
       const texto = getTexto(msg).toLowerCase().trim();
+
+      // ── Comandos de sistema — SOLO admin, SOLO en su canal dedicado ──
+      // Gate triple: fromMe (imposible de falsificar) + jid === canal
+      // registrado en iniciar() + esa cuenta ya se verificó rol==='admin'
+      // en ese momento. Ningún cliente ni negocio normal puede llegar acá.
+      if (jidCanalAdmin && jid === jidCanalAdmin && systemBot.esComandoSistemaCandidato(texto)) {
+        const manejado = await systemBot.manejarComandoSistema(texto, jid, USER_ID, enviarMensaje);
+        if (manejado) return;
+      }
+
       if (texto.startsWith('akira '))
         await manejarComando(texto, jid, clientesSvc.cargarMemoria(jid));
       // Si el dueño responde manualmente en un chat silenciado → reactivar el bot automáticamente
@@ -2788,7 +2994,19 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       usuario.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
       usuario.historial = recortarHistorial(usuario.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
 
-      const respuesta = await procesarConIA(jid, usuario);
+      // ── Cupo de mensajes/mes (ver config/planes.js) ─────────────
+      // Antes de este chequeo, un Trial/Básico podía mandar mensajes
+      // ilimitados — la tabla de precios prometía un límite que el código
+      // nunca hacía cumplir. Se corta ANTES de llamar a Groq (ahorra costo).
+      const cupo = await registrarMensajeYVerificarCupo(USER_ID, PLAN);
+      let respuesta;
+      if (!cupo.permitido) {
+        respuesta = `¡Gracias por escribir! 🙏 ${MI_NOMBRE} llegó al límite de mensajes de este mes. Va a poder seguir atendiéndote muy pronto — mientras tanto contactá a ${MI_NOMBRE} directamente.`;
+        log(`⚠️ [Cupo] user=${USER_ID} plan=${PLAN} superó el límite mensual (${cupo.usados}/${cupo.limite}) — no se llamó a Groq`);
+        notificarDueno(`🚨 *Límite de mensajes alcanzado este mes* (${cupo.usados}/${cupo.limite}). Los clientes nuevos no reciben respuesta de IA hasta que actualices tu plan o empiece el próximo mes.`);
+      } else {
+        respuesta = await procesarConIA(jid, usuario);
+      }
       usuario.historial.push({ role: 'assistant', content: respuesta });
       clientesSvc.guardarMemoria(jid, usuario);
 
@@ -2974,10 +3192,23 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       // Sincronizar manualmente a GCal si veníamos del path findOneAndUpdate
       // (en ese caso, el calendar.service no se invocó así que no hay GCal sync).
       if (res2.turnoId && turnoConfirmado && !turnoConfirmado.googleEventId) {
-        // Pre-reservado tipo 'pendiente' → ahora hay que sincronizar a GCal
-        calendar.syncTurnoToGCal?.(turnoConfirmado._id).catch?.((e) =>
-          log(`[Webhook] sync GCal post-confirm: ${e?.message || e}`),
-        );
+        // Pre-reservado tipo 'pendiente' → ahora hay que sincronizar a GCal.
+        // 🚨 BUG ANTERIOR: syncTurnoToGCal() puede resolver con {ok:false, error}
+        // en vez de rechazar la promesa (ej: token de Google vencido, gcal no
+        // conectado) — el .catch() de antes NUNCA se disparaba en ese caso, así
+        // que un turno pagado y confirmado en Mongo podía quedar para siempre
+        // sin evento real en el Google Calendar del negocio, sin ningún aviso.
+        calendar.syncTurnoToGCal(turnoConfirmado._id)
+          .then((r) => {
+            if (!r?.ok) {
+              log(`⚠️ [Webhook] Sync GCal post-confirm falló: ${r?.error || 'desconocido'} — turno ${turnoConfirmado._id} confirmado en Mongo pero SIN evento real en Calendar`);
+              winstonLogger.warn(`[Webhook] syncTurnoToGCal falló turno=${turnoConfirmado._id} user=${USER_ID}: ${r?.error || 'desconocido'}`);
+            }
+          })
+          .catch((e) => {
+            log(`⚠️ [Webhook] Sync GCal post-confirm excepción: ${e?.message || e}`);
+            winstonLogger.error(`[Webhook] syncTurnoToGCal excepción turno=${turnoConfirmado._id} user=${USER_ID}: ${e?.stack || e?.message || e}`);
+          });
       }
 
       delete reservasPendientes[rk];
@@ -3674,6 +3905,24 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       MODO_PAUSA = false;
       log(`[Config] ⚠️ MongoDB no respondio al arrancar (${e.message}) — bot asume ACTIVO por seguridad. Si querias pausa, activala desde el dashboard.`);
     }
+
+    // ── Canal de admin (comandos "sistema ...") — SOLO si esta cuenta es
+    // rol==='admin' Y tiene un CELULAR_NOTIFICACIONES configurado. Ese
+    // número es el único chat donde se habilitan los comandos de sistema.
+    try {
+      if (CELULAR_NOTIFICACIONES) {
+        const User = require('../models/User');
+        const uDoc = await User.findById(USER_ID).select('rol').lean();
+        if (uDoc?.rol === 'admin') {
+          jidCanalAdmin = `${CELULAR_NOTIFICACIONES.replace(/\D/g, '')}@s.whatsapp.net`;
+          systemBot.registrarCanalAdmin(USER_ID, jidCanalAdmin);
+          log(`[Sistema] Canal de admin habilitado en ${jidCanalAdmin}`);
+        }
+      }
+    } catch (e) {
+      log(`⚠️ [Sistema] No se pudo verificar rol de admin: ${e.message}`);
+    }
+
     // Reintento en background: si MongoDB se conecta despues, refrescar Config
     setTimeout(async () => {
       try {
@@ -3789,4 +4038,6 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   emitter.procesarWebhookMP = procesarWebhookMP;
   return emitter;
 }
+crearAkiraBot.esRespuestaSoloNombreDeTool = esRespuestaSoloNombreDeTool;
+crearAkiraBot.construirSystemPromptRespuestaFinal = construirSystemPromptRespuestaFinal;
 module.exports = crearAkiraBot;
