@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
@@ -309,6 +309,10 @@ export default function ConfigPage() {
   const [mostrarFormProd,   setMostrarFormProd]   = useState(false);
   const [savingCatalogo,    setSavingCatalogo]    = useState(false);
   const [syncingCatalogo,   setSyncingCatalogo]   = useState(false);
+  // Guarda de re-entrancia sincrónica: evita que un doble click dispare dos
+  // requests de sync antes de que React re-renderice el botón con disabled=true
+  // (ver syncCatalogo más abajo).
+  const syncingCatalogoRef = useRef(false);
   const [catalogoSyncInfo,  setCatalogoSyncInfo]  = useState(null); // { count, ts }
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
@@ -450,6 +454,7 @@ export default function ConfigPage() {
 
     // Socket: catálogo sincronizado desde WA Business
     const offSynced = on('catalog:synced', ({ count, total }) => {
+      syncingCatalogoRef.current = false;
       setSyncingCatalogo(false);
       setCatalogoSyncInfo({ ts: new Date().toISOString(), count: total ?? count });
       toast.success(`✅ Catálogo sincronizado — ${count} producto(s) desde WA`);
@@ -461,6 +466,7 @@ export default function ConfigPage() {
 
     // Socket: cuenta no es WA Business o sync falló — detener spinner y avisar
     const offNotBusiness = on('catalog:not_business', () => {
+      syncingCatalogoRef.current = false;
       setSyncingCatalogo(false);
       toast('ℹ️ Esta cuenta no es WhatsApp Business o el catálogo no está habilitado.\nPodés cargar productos manualmente desde esta sección.', {
         duration: 7000, icon: 'ℹ️',
@@ -574,6 +580,10 @@ export default function ConfigPage() {
   };
 
   const syncCatalogo = async () => {
+    // Guarda sincrónica: si ya hay un sync en curso (p. ej. doble click antes de
+    // que React re-renderice el botón con disabled=true), ignorar el segundo disparo.
+    if (syncingCatalogoRef.current) return;
+    syncingCatalogoRef.current = true;
     setSyncingCatalogo(true);
     const toastId = toast.loading('🔄 Contactando WA Business...', { duration: 20000 });
     try {
@@ -593,6 +603,7 @@ export default function ConfigPage() {
             setCatalogo(nuevos);
             setCatalogoSyncInfo({ ts: new Date().toISOString(), count: nuevos.filter(p => p.fuente === 'wa_catalog').length });
             toast.success(`✅ ${nuevos.filter(p => p.fuente === 'wa_catalog').length} producto(s) importados desde WA Business`, { id: toastId });
+            syncingCatalogoRef.current = false;
             setSyncingCatalogo(false);
             clearInterval(poll);
           } else if (intentos >= 6) {
@@ -604,6 +615,7 @@ export default function ConfigPage() {
             } else {
               toast('⚠️ Sync completado pero no se encontraron productos en el catálogo de WA Business.\n¿El catálogo está publicado en la cuenta?', { id: toastId, duration: 6000, icon: '⚠️' });
             }
+            syncingCatalogoRef.current = false;
             setSyncingCatalogo(false);
             clearInterval(poll);
           }
@@ -617,6 +629,7 @@ export default function ConfigPage() {
       } else {
         toast.error(data.error || 'Error al sincronizar — iniciá el bot desde el Dashboard primero.', { id: toastId });
       }
+      syncingCatalogoRef.current = false;
       setSyncingCatalogo(false);
     }
   };

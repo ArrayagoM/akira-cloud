@@ -221,8 +221,13 @@ router.get('/agenda', async (req, res) => {
     // Argentina es UTC-3 fijo (sin cambio horario)
     const arISO = (d, part) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(...part === 'date' ? [0, 10] : [11, 16]);
 
-    // Mapear Turnos MongoDB al formato esperado por el frontend
-    const confirmadas = turnos.map(t => ({
+    // Mapear Turnos MongoDB al formato esperado por el frontend.
+    // 🚨 BUG ANTERIOR: acá se mandaban TODOS los turnos no-cancelados
+    // (pendientes DE PAGO incluidos) dentro de "confirmadas", y el frontend
+    // encima forzaba _estado:'confirmado' para todo ese array sin mirar el
+    // campo real — un turno sin pagar se mostraba con el badge verde
+    // "Confirmado". Ahora se separan por el estado real de Mongo.
+    const mapTurno = (t) => ({
       nombre:    t.clienteNombre   || 'Sin nombre',
       telefono:  t.clienteTelefono || '',
       email:     t.clienteEmail    || '',
@@ -231,12 +236,28 @@ router.get('/agenda', async (req, res) => {
       horaFin:   arISO(t.fechaFin,   'time'),
       unidad:    t.calendarId !== 'principal' ? t.calendarId : '',
       totalPrecio: t.pago?.monto || 0,
+      total:       t.pago?.monto || 0, // alias — algunas vistas de pendientes esperan "total"
       estado:    t.estado,
+      turnoId:   t._id.toString(),
       _id:       t._id.toString(),
-    }));
+    });
+
+    const confirmadas = turnos.filter(t => t.estado === 'confirmado').map(mapTurno);
+
+    // Pendientes: el archivo _reservas.json es la fuente "rica" (tiene chatId,
+    // expiresAt para el countdown), pero puede perderse en un restart. Los
+    // turnos 'pendiente' de Mongo son la fuente atómica/persistente — los
+    // sumamos evitando duplicar los que YA están representados en el archivo
+    // (matcheando por turnoId).
+    const turnoIdsEnArchivo = new Set(
+      Object.values(reservasPendientes).map(r => r.turnoId).filter(Boolean)
+    );
+    const pendientesMongo = turnos
+      .filter(t => t.estado === 'pendiente' && !turnoIdsEnArchivo.has(t._id.toString()))
+      .map(mapTurno);
 
     res.json({
-      pendientes:          Object.values(reservasPendientes),
+      pendientes:          [...Object.values(reservasPendientes), ...pendientesMongo],
       logs:                turnosLogs,
       confirmadas,
       tipoNegocio:         config?.tipoNegocio         || 'turnos',

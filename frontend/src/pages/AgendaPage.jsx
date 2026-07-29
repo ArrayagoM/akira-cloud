@@ -477,8 +477,11 @@ export default function AgendaPage() {
       map[dateStr].push(event);
     };
 
-    confirmadas.forEach(r => add(r.fecha, { ...r, _estado: 'confirmado' }));
-    pendientes.forEach(r  => add(r.fecha, { ...r, _estado: 'pendiente'  }));
+    // Se confía en el campo "estado" real que manda el backend (con default
+    // razonable) en vez de forzarlo a ciegas — así un dato mal clasificado en
+    // el array equivocado no se muestra con la etiqueta incorrecta.
+    confirmadas.forEach(r => add(r.fecha, { ...r, _estado: r.estado || 'confirmado' }));
+    pendientes.forEach(r  => add(r.fecha, { ...r, _estado: r.estado || 'pendiente'  }));
 
     // Alojamiento: también marcar días de estadía en el calendario
     if (tipoNegocio === 'alojamiento') {
