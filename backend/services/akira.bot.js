@@ -85,6 +85,12 @@ function esRespuestaSoloNombreDeTool(texto, tools) {
   // aparecer en cualquier parte, así que se detecta aparte y siempre cuenta
   // como alucinación, sin importar el resto del texto.
   if (/<function[\s=]/i.test(texto) || /<\/function>/i.test(texto)) return true;
+  // Otra variante: ni el nombre pelado ni una etiqueta — directamente deja
+  // un bloque JSON de argumentos suelto en medio de una oración normal
+  // (ej: '...Busca horarios libres {"fecha": "2026-08-14"}'). Un negocio
+  // real de WhatsApp nunca manda JSON crudo, así que cualquier bloque
+  // {"clave": ...} en el texto es siempre señal de alucinación.
+  if (/\{\s*"[\w]+"\s*:/.test(texto)) return true;
   // Además del nombre "pelado", el modelo a veces pega el JSON de argumentos
   // sin espacio (ej: 'consultar_disponibilidad{"fecha":"2026-08-14"}') — hay
   // que descartar ese bloque antes de comparar, si no la alucinación pasa.

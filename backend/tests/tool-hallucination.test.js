@@ -75,6 +75,14 @@ assert(
   esRespuestaSoloNombreDeTool('<function name="agendar_turno">{"fecha":"2026-08-14","hora":"10:00"}</function>', tools) === true,
   'detecta variante de etiqueta <function name="...">'
 );
+assert(
+  esRespuestaSoloNombreDeTool('mi sistema me puede ayudar a saber si hay disponibilidad. Pongamos a verificar. Busca horarios libres {"fecha": "2026-08-14"}', tools) === true,
+  'detecta un bloque JSON de argumentos suelto en medio de una oración normal, sin nombre de tool ni etiqueta (bug real visto en el demo)'
+);
+assert(
+  esRespuestaSoloNombreDeTool('Tenemos combos {corte + barba} a buen precio, te interesa?', tools) === false,
+  'llaves usadas como texto suelto (sin comillas de clave + dos puntos, no es JSON) no disparan'
+);
 
 // ── Casos que NO deben dispararse (evitar falsos positivos) ─────
 assert(

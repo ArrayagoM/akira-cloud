@@ -86,6 +86,10 @@ function esRespuestaSoloNombreDeTool(texto, tools) {
   // '...te averiguo. <function=consultar_disponibilidad>{"fecha":"..."}</function>')
   // — nunca es válida, sin importar el resto del texto.
   if (/<function[\s=]/i.test(texto) || /<\/function>/i.test(texto)) return true;
+  // Bloque JSON de argumentos suelto en medio de una oración normal (ej:
+  // '...Busca horarios libres {"fecha": "2026-08-14"}') — un negocio real
+  // nunca manda JSON crudo por WhatsApp, así que esto es siempre alucinación.
+  if (/\{\s*"[\w]+"\s*:/.test(texto)) return true;
   const sinArgs = texto.trim().replace(/\{[\s\S]*\}\s*$/, '').trim();
   const normalizado = sinArgs.toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
   if (!normalizado) return false;
