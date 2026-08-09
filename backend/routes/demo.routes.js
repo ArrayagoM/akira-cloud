@@ -74,6 +74,25 @@ function slotsFalsos(fechaStr) {
   return [...new Set(picks)].sort();
 }
 
+// El modelo a veces "alucina" el nombre de una tool como texto plano en vez
+// de invocarla de verdad (ej: responde literalmente "consultar_disponibilidad
+// {...}") — ya pasó en producción con el bot real (ver akira.bot.js) y acá
+// se replica la misma guardia: si TODA la respuesta es solo el nombre de una
+// tool conocida (con o sin el JSON de argumentos pegado), no se la mandamos
+// al visitante tal cual.
+function esRespuestaSoloNombreDeTool(texto, tools) {
+  if (!texto || !Array.isArray(tools) || !tools.length) return false;
+  const sinArgs = texto.trim().replace(/\{[\s\S]*\}\s*$/, '').trim();
+  const normalizado = sinArgs.toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
+  if (!normalizado) return false;
+  return tools.some((t) => {
+    const nombre = t?.function?.name;
+    if (!nombre) return false;
+    const n = nombre.toLowerCase();
+    return normalizado === n || normalizado === n.replace(/_/g, ' ');
+  });
+}
+
 async function ejecutarToolDemo(tool) {
   let args = {};
   try { args = JSON.parse(tool.function.arguments || '{}'); } catch {}
@@ -110,9 +129,19 @@ router.post('/chat', demoLimiter, async (req, res) => {
 
     const msgs = [{ role: 'system', content: sysPromptInicial() }, ...histLimpio, { role: 'user', content: mensaje }];
 
-    const resp1 = await groqSvc.llamarGroq(msgs, true);
-    const choice = resp1.choices?.[0]?.message;
+    let resp1 = await groqSvc.llamarGroq(msgs, true);
+    let choice = resp1.choices?.[0]?.message;
     if (!choice) throw new Error('Respuesta vacía de Groq');
+
+    if (!choice.tool_calls?.length && esRespuestaSoloNombreDeTool(choice.content, groqSvc.herramientas())) {
+      try {
+        resp1 = await groqSvc.llamarGroq(msgs, true);
+        choice = resp1.choices?.[0]?.message || choice;
+      } catch {}
+      if (!choice.tool_calls?.length && esRespuestaSoloNombreDeTool(choice.content, groqSvc.herramientas())) {
+        choice = { role: 'assistant', content: 'Dejame confirmarte eso en un segundo 🙏 ¿me repetís la consulta?' };
+      }
+    }
 
     if (choice.tool_calls?.length) {
       const toolCalls = choice.tool_calls.slice(0, 3);

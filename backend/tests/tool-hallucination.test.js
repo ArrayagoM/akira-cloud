@@ -52,6 +52,18 @@ assert(
   esRespuestaSoloNombreDeTool('CANCELAR_TURNO', tools) === true,
   'es case-insensitive'
 );
+assert(
+  esRespuestaSoloNombreDeTool('consultar_disponibilidad{"fecha": "2026-08-14"}', tools) === true,
+  'detecta el nombre con el JSON de argumentos pegado sin espacio (bug real visto en el demo)'
+);
+assert(
+  esRespuestaSoloNombreDeTool('agendar_turno{"fecha":"2026-08-14","hora":"10:00"}', tools) === true,
+  'detecta con JSON pegado y sin espacios internos'
+);
+assert(
+  esRespuestaSoloNombreDeTool('  Consultar_disponibilidad {"fecha": "2026-08-14"}  ', tools) === true,
+  'detecta con espacio entre el nombre y el JSON, más espacios extra alrededor'
+);
 
 // ── Casos que NO deben dispararse (evitar falsos positivos) ─────
 assert(

@@ -78,7 +78,11 @@ function construirSystemPromptRespuestaFinal(miNombre, nombreCliente, toolCallsL
 // para no marcar como falla respuestas legítimas que mencionan el tema de paso.
 function esRespuestaSoloNombreDeTool(texto, tools) {
   if (!texto || !Array.isArray(tools) || !tools.length) return false;
-  const normalizado = texto.trim().toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
+  // Además del nombre "pelado", el modelo a veces pega el JSON de argumentos
+  // sin espacio (ej: 'consultar_disponibilidad{"fecha":"2026-08-14"}') — hay
+  // que descartar ese bloque antes de comparar, si no la alucinación pasa.
+  const sinArgs = texto.trim().replace(/\{[\s\S]*\}\s*$/, '').trim();
+  const normalizado = sinArgs.toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
   if (!normalizado) return false;
   return tools.some((t) => {
     const nombre = t?.function?.name;
