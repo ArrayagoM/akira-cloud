@@ -156,9 +156,9 @@ function ChatDemo({ compact = false }) {
         }}
       />
 
-      {/* Señalador — deja claro que es interactivo de verdad, no una animación */}
+      {/* Señalador — apunta al input real, deja claro que es interactivo de verdad */}
       <div
-        className="absolute -top-3 right-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap select-none"
+        className="absolute bottom-20 left-1 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap select-none"
         style={{
           background: '#00e87b',
           color: '#02170d',
