@@ -189,9 +189,14 @@ const authLimiter = rateLimit({
   skip: (req) => /\/(google|facebook)/.test(req.path),
 });
 
-// CORS — acepta Vercel en prod y localhost en dev
+// CORS — acepta el dominio real de producción, Vercel y localhost en dev.
+// FRONTEND_URL en el .env del server quedó apuntando a *.vercel.app; el
+// dominio real (akiracloud.lat) se hardcodea acá para no depender de que
+// alguien recuerde actualizar esa env var cada vez que cambia el dominio.
 const allowedOrigins = [
   process.env.FRONTEND_URL,
+  'https://akiracloud.lat',
+  'https://www.akiracloud.lat',
   'http://localhost:3000',
   'http://localhost:5173',
 ].filter(Boolean);
