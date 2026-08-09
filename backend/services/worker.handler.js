@@ -49,6 +49,15 @@ const pendingContactsUpsert = new Map(); // instKey -> contacts[]
 const pendingMsgIncoming = new Map(); // instKey -> msg[]
 const MAX_PENDING_MSGS = 200;
 
+// Decide si una conexión entrante es un worker "duplicado" desplazando a uno
+// que el backend todavía cree activo (split-brain: dos procesos worker
+// conectados, o un reconnect con socket nuevo antes de que el viejo avise su
+// desconexión). Pura — sin tocar el estado del módulo — para poder testear
+// la condición exacta sin levantar Socket.io real.
+function esConexionDuplicada(workerSocketActual, nuevoSocketId) {
+  return !!(workerSocketActual && workerSocketActual.id !== nuevoSocketId);
+}
+
 // Listeners externos: bot.manager se suscribe acá para reaccionar
 // cuando el worker (re)conecta y para arrancar/detener bots.
 const externalListeners = {
@@ -77,8 +86,64 @@ function inicializarWorkerHandler(io) {
     next();
   });
 
+  // Cierra todos los proxies activos y notifica a los usuarios afectados.
+  // Se usa tanto en 'disconnect' normal como cuando una conexión nueva
+  // desplaza a una vieja que seguía "viva" (ver comentario en 'connection'
+  // más abajo) — en ese caso NO hay que esperar a que la vieja dispare su
+  // propio evento disconnect, porque para entonces `workerSocket` ya apunta
+  // a la nueva y la guarda `workerSocket?.id === socket.id` lo saltearía,
+  // dejando el estado de esos usuarios "fantasma" (dashboard dice conectado,
+  // pero nada le llega nunca al worker viejo).
+  async function limpiarProxiesDelWorker(motivo) {
+    const keys = Array.from(proxies.keys());
+    for (const k of keys) {
+      const { uid, slot } = parseInstKey(k);
+      try {
+        const p = proxies.get(k);
+        if (p) {
+          p.inyectarEvento('connection.update', {
+            connection: 'close',
+            lastDisconnect: { error: new Error(motivo) },
+          });
+        }
+        await updateBotStatus(uid, slot, true, false);
+        _emitirAlUsuario(io, uid, 'bot:disconnected', { slot, reason: 'Worker desconectado — tu PC se desconectó del servidor' });
+        _emitirAlUsuario(io, uid, 'bot:log', {
+          slot,
+          msg: '⚠️ Tu PC perdió conexión con el servidor. El bot se reconectará automáticamente cuando tu PC vuelva a estar online.',
+          ts: new Date().toLocaleTimeString('es-AR'),
+        });
+        Log.registrar({ userId: uid, tipo: 'worker_disconnected', nivel: 'warn', mensaje: `Slot ${slot}: Worker desconectado: ${motivo}` }).catch(() => {});
+      } catch (e) {
+        logger.error(`[WorkerHandler] Error al cerrar bot ${k}: ${e.message}`);
+      }
+    }
+    // No los borramos del map — cuando el worker reconecta, los bot.engines
+    // van a re-registrar sus proxies o el manager los va a recrear.
+    pendingChatsSet.clear();
+    pendingContactsUpsert.clear();
+    externalListeners.onWorkerDisconnected?.();
+  }
+
   workerNS.on('connection', (socket) => {
     logger.info(`[WorkerHandler] ✅ Worker conectado (id: ${socket.id})`);
+
+    // Guarda contra split-brain: si llega una conexión nueva mientras la
+    // anterior sigue marcada como conectada (reconexión con socket nuevo
+    // antes de que el viejo haya notificado su desconexión, dos deploys
+    // solapados, etc.), no dejar el estado de los usuarios del worker viejo
+    // huérfano — limpiarlo ahora mismo en vez de confiar en que su evento
+    // 'disconnect' llegue después (para entonces `workerSocket` ya no lo
+    // identifica y la limpieza normal lo saltearía).
+    if (esConexionDuplicada(workerSocket, socket.id)) {
+      logger.warn(`[WorkerHandler] ⚠️ Nueva conexión (${socket.id}) reemplaza a una activa (${workerSocket.id}) — limpiando estado del worker anterior.`);
+      const socketViejo = workerSocket;
+      limpiarProxiesDelWorker('worker_replaced_by_new_connection').catch(
+        (e) => logger.error(`[WorkerHandler] Error limpiando worker reemplazado: ${e.message}`)
+      );
+      try { socketViejo.disconnect(true); } catch {}
+    }
+
     workerSocket = socket;
 
     socket.on('worker:ready', async (info) => {
@@ -290,45 +355,18 @@ function inicializarWorkerHandler(io) {
     // ── Desconexión del worker ─────────────────────────────
     socket.on('disconnect', async (reason) => {
       logger.warn(`[WorkerHandler] ⚠️ Worker desconectado: ${reason}`);
+      // Si `workerSocket` ya no es este socket, es porque una conexión nueva
+      // lo reemplazó y ya limpió su estado (ver 'connection' más arriba) —
+      // no hay nada más que hacer acá, evita doble limpieza/doble aviso.
       if (workerSocket?.id === socket.id) {
-        const keys = Array.from(proxies.keys());
         workerSocket = null;
         workerInfo   = {};
-
-        // Cerrar todos los proxies (de TODOS los usuarios y TODOS sus slots)
-        // y notificar a los bot.engines.
-        for (const k of keys) {
-          const { uid, slot } = parseInstKey(k);
-          try {
-            const p = proxies.get(k);
-            if (p) {
-              p.inyectarEvento('connection.update', {
-                connection: 'close',
-                lastDisconnect: { error: new Error('worker_disconnected') },
-              });
-            }
-            await updateBotStatus(uid, slot, true, false);
-            _emitirAlUsuario(io, uid, 'bot:disconnected', { slot, reason: 'Worker desconectado — tu PC se desconectó del servidor' });
-            _emitirAlUsuario(io, uid, 'bot:log', {
-              slot,
-              msg: '⚠️ Tu PC perdió conexión con el servidor. El bot se reconectará automáticamente cuando tu PC vuelva a estar online.',
-              ts: new Date().toLocaleTimeString('es-AR'),
-            });
-            Log.registrar({ userId: uid, tipo: 'worker_disconnected', nivel: 'warn', mensaje: `Slot ${slot}: Worker desconectado: ${reason}` }).catch(() => {});
-          } catch (e) {
-            logger.error(`[WorkerHandler] Error al cerrar bot ${k}: ${e.message}`);
-          }
-        }
-        // No los borramos del map — cuando el worker reconecta, los bot.engines
-        // van a re-registrar sus proxies o el manager los va a recrear.
-        // Limpiar buffers pendientes — datos del worker desconectado ya no sirven
-        pendingChatsSet.clear();
-        pendingContactsUpsert.clear();
-        // Los msg-incoming pendientes SÍ los preservamos: socket.io del worker
-        // bufferea sus emits durante la desconexión y los reenvía al reconectar.
-        // Si limpiamos acá, perderíamos los mensajes que llegaron al WhatsApp
+        // Los msg-incoming pendientes SÍ los preservamos (no los toca
+        // limpiarProxiesDelWorker): socket.io del worker bufferea sus emits
+        // durante la desconexión y los reenvía al reconectar. Si los
+        // limpiáramos acá, perderíamos mensajes que llegaron al WhatsApp
         // del usuario justo en el instante de la desconexión backend↔worker.
-        externalListeners.onWorkerDisconnected?.();
+        await limpiarProxiesDelWorker(`worker_disconnected: ${reason}`);
       }
     });
   });
@@ -451,6 +489,7 @@ function _emitirAlUsuario(io, userId, evento, datos) {
 
 module.exports = {
   inicializarWorkerHandler,
+  esConexionDuplicada,
   isWorkerAvailable,
   getWorkerSocket,
   sendToWorker,

@@ -252,18 +252,21 @@ async function startBot(userId, slot = 0) {
 
     bot.on('qr', async (qr) => {
       logger.info(`[BotMgr] QR generado para user ${uid} slot ${slot}`);
-      // Guardar QR en memoria (60s) para que el admin pueda verlo y ayudar al usuario
+      // Guardar QR en memoria (60s) para que el admin pueda verlo y ayudar al usuario.
+      // Indexado por "key" (uid:slot), NO por uid solo — con el plan Agencia dos slots
+      // del mismo usuario pueden generar QR casi al mismo tiempo, y con uid solo el
+      // segundo pisaba (o el 'ready' de uno borraba) el QR pendiente del otro.
       const qrTs = Date.now();
-      qrPendientes.set(uid, { qr, slot, ts: qrTs });
+      qrPendientes.set(key, { qr, slot, ts: qrTs });
       // Solo borrar si el QR no fue reemplazado por uno más nuevo
-      setTimeout(() => { if (qrPendientes.get(uid)?.ts === qrTs) qrPendientes.delete(uid); }, 60_000);
+      setTimeout(() => { if (qrPendientes.get(key)?.ts === qrTs) qrPendientes.delete(key); }, 60_000);
       emitirAlUsuario(uid, 'bot:qr', { qr, slot });
       await Log.registrar({ userId: uid, tipo: 'bot_qr', mensaje: `Slot ${slot}: QR generado — esperando escaneo` });
     });
 
     bot.on('ready', async () => {
       logger.info(`[BotMgr] Bot listo para user ${uid} slot ${slot}`);
-      qrPendientes.delete(uid); // QR escaneado — limpiar
+      qrPendientes.delete(key); // QR escaneado — limpiar (solo el de ESTE slot)
       await updateBotStatus(uid, slot, true, true);
       emitirAlUsuario(uid, 'bot:ready', { slot });
       await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: `Slot ${slot}: WhatsApp conectado y listo` });
@@ -974,11 +977,12 @@ async function enviarMensajeExterno(userId, jid, texto) {
   return false;
 }
 
-function getQRPendiente(uid) {
-  const entry = qrPendientes.get(String(uid));
+function getQRPendiente(uid, slot = 0) {
+  const key = botKey(uid, slot);
+  const entry = qrPendientes.get(key);
   if (!entry) return null;
   // Si expiró (>60s), limpiar y retornar null
-  if (Date.now() - entry.ts > 60_000) { qrPendientes.delete(String(uid)); return null; }
+  if (Date.now() - entry.ts > 60_000) { qrPendientes.delete(key); return null; }
   return entry;
 }
 

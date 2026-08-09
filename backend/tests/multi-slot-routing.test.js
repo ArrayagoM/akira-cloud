@@ -97,4 +97,34 @@ function crearRegistroProxies() {
   assert(pares[2].uid === 'negocio2' && pares[2].slot === 0, 'tercer par: negocio2 slot 0');
 }
 
+// ── qrPendientes (bot.manager.js): mismo bug, pero para códigos QR ─────
+// Bug encontrado en auditoría: el Map de QR pendientes estaba indexado por
+// uid solo (no por instKey), así que con el plan Agencia, arrancar dos
+// slots casi al mismo tiempo hacía que el segundo QR pisara al primero, o
+// que el 'ready' de un slot borrara el QR pendiente del OTRO slot que
+// todavía no fue escaneado.
+{
+  const qrViejo = new Map(); // esquema viejo: clave = uid
+  const uid = 'negocio3';
+
+  qrViejo.set(uid, { qr: 'QR-SLOT-0', slot: 0 });
+  qrViejo.set(uid, { qr: 'QR-SLOT-1', slot: 1 }); // pisa al de slot 0 — bug
+
+  assert(qrViejo.size === 1, 'con la clave vieja (solo uid), los QR de ambos slots colapsan en una sola entrada');
+  assert(qrViejo.get(uid).qr === 'QR-SLOT-1', 'con la clave vieja, el QR del slot 0 se pierde — el usuario no puede escanearlo');
+
+  const qrNuevo = new Map(); // esquema nuevo: clave = instKey(uid, slot)
+  qrNuevo.set(instKey(uid, 0), { qr: 'QR-SLOT-0', slot: 0 });
+  qrNuevo.set(instKey(uid, 1), { qr: 'QR-SLOT-1', slot: 1 });
+
+  assert(qrNuevo.size === 2, 'con instKey, cada slot tiene su propia entrada de QR');
+  assert(qrNuevo.get(instKey(uid, 0)).qr === 'QR-SLOT-0', 'el QR de slot 0 sigue disponible tras generarse el de slot 1');
+  assert(qrNuevo.get(instKey(uid, 1)).qr === 'QR-SLOT-1', 'el QR de slot 1 es independiente del de slot 0');
+
+  // 'ready' en un slot solo debe borrar el QR de ESE slot, no el del otro
+  qrNuevo.delete(instKey(uid, 0)); // slot 0 escaneado y conectado
+  assert(!qrNuevo.has(instKey(uid, 0)), 'el QR de slot 0 se limpia tras conectar');
+  assert(qrNuevo.has(instKey(uid, 1)), 'el QR de slot 1 sigue pendiente — no lo borró el ready de slot 0');
+}
+
 console.log('\n✅ Todos los tests de multi-slot-routing pasaron.\n');
