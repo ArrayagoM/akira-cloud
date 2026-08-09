@@ -78,6 +78,13 @@ function construirSystemPromptRespuestaFinal(miNombre, nombreCliente, toolCallsL
 // para no marcar como falla respuestas legítimas que mencionan el tema de paso.
 function esRespuestaSoloNombreDeTool(texto, tools) {
   if (!texto || !Array.isArray(tools) || !tools.length) return false;
+  // Variante vista en producción: el modelo mete una etiqueta estilo XML de
+  // "function call" en medio de una oración normal (ej: '...te averiguo.
+  // <function=consultar_disponibilidad>{"fecha":"2026-08-14"}</function>').
+  // Acá NO alcanza con comparar el mensaje completo — la etiqueta puede
+  // aparecer en cualquier parte, así que se detecta aparte y siempre cuenta
+  // como alucinación, sin importar el resto del texto.
+  if (/<function[\s=]/i.test(texto) || /<\/function>/i.test(texto)) return true;
   // Además del nombre "pelado", el modelo a veces pega el JSON de argumentos
   // sin espacio (ej: 'consultar_disponibilidad{"fecha":"2026-08-14"}') — hay
   // que descartar ese bloque antes de comparar, si no la alucinación pasa.

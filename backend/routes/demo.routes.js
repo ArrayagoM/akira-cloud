@@ -82,6 +82,10 @@ function slotsFalsos(fechaStr) {
 // al visitante tal cual.
 function esRespuestaSoloNombreDeTool(texto, tools) {
   if (!texto || !Array.isArray(tools) || !tools.length) return false;
+  // Etiqueta estilo XML de "function call" en medio de una oración (ej:
+  // '...te averiguo. <function=consultar_disponibilidad>{"fecha":"..."}</function>')
+  // — nunca es válida, sin importar el resto del texto.
+  if (/<function[\s=]/i.test(texto) || /<\/function>/i.test(texto)) return true;
   const sinArgs = texto.trim().replace(/\{[\s\S]*\}\s*$/, '').trim();
   const normalizado = sinArgs.toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
   if (!normalizado) return false;

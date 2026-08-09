@@ -64,6 +64,17 @@ assert(
   esRespuestaSoloNombreDeTool('  Consultar_disponibilidad {"fecha": "2026-08-14"}  ', tools) === true,
   'detecta con espacio entre el nombre y el JSON, más espacios extra alrededor'
 );
+assert(
+  esRespuestaSoloNombreDeTool(
+    'lo siento, no puedo consultar turnos directamente. pero puedo buscar horarios libres para ti si gustas. ¿en qué fecha estás pensando? <function=consultar_disponibilidad>{"fecha": "2026-08-14"}</function>',
+    tools
+  ) === true,
+  'detecta una etiqueta <function=...> pegada al final de una oración normal (bug real visto en el demo)'
+);
+assert(
+  esRespuestaSoloNombreDeTool('<function name="agendar_turno">{"fecha":"2026-08-14","hora":"10:00"}</function>', tools) === true,
+  'detecta variante de etiqueta <function name="...">'
+);
 
 // ── Casos que NO deben dispararse (evitar falsos positivos) ─────
 assert(
