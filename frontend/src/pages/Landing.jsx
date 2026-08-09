@@ -156,6 +156,19 @@ function ChatDemo({ compact = false }) {
         }}
       />
 
+      {/* Señalador — deja claro que es interactivo de verdad, no una animación */}
+      <div
+        className="absolute -top-3 right-2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap select-none"
+        style={{
+          background: '#00e87b',
+          color: '#02170d',
+          boxShadow: '0 4px 18px rgba(0,232,123,0.4)',
+          animation: 'pointHint 1.8s ease-in-out infinite',
+        }}
+      >
+        👇 Es real, escribime algo
+      </div>
+
       {/* Marco de teléfono */}
       <div
         className="relative mx-auto rounded-[36px] p-2 shadow-2xl"
@@ -304,6 +317,10 @@ function ChatDemo({ compact = false }) {
         @keyframes msgIn {
           from { opacity: 0; transform: translateY(8px) scale(0.96); }
           to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes pointHint {
+          0%, 100% { transform: translateY(0); }
+          50%      { transform: translateY(4px); }
         }
       `}</style>
     </div>
