@@ -36,7 +36,9 @@ import {
   MapPin,
   GraduationCap,
   Heart,
+  Send,
 } from 'lucide-react';
+import api from '../services/api';
 
 /* ═══════════════════════════════════════════════════════════════
    AKIRA CLOUD — LANDING
@@ -90,77 +92,58 @@ function useCountdown(target) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// COMPONENTE: Chat de WhatsApp con animación de mensajes
+// COMPONENTE: Chat de WhatsApp interactivo — habla con la IA real
+// (mismo modelo/flujo que el producto) contra un negocio de demo.
+// Nada de lo que se escribe acá se guarda ni afecta a ningún
+// negocio real — ver backend/routes/demo.routes.js.
 // ─────────────────────────────────────────────────────────────
-const CONVERSACION = [
-  { from: 'cli', text: 'Hola, querría reservar un corte para el sábado' },
-  {
-    from: 'bot',
-    text: '¡Hola Sofi! 👋 Tengo turnos a las 11:00, 14:30 y 17:00 el sábado. ¿Cuál te queda mejor?',
-  },
-  { from: 'cli', text: '14:30 me viene bárbaro' },
-  {
-    from: 'bot',
-    text: 'Listo. Te dejo el link de pago para confirmar:\nhttps://mp.la/akira-2847',
-    extra: 'pago',
-  },
-  { from: 'cli', text: '✅ pagado' },
-  {
-    from: 'bot',
-    text: '¡Perfecto Sofi! 🎉 Turno confirmado: *Sábado 14:30 — Corte*. Te recordamos 4 hs antes.',
-    extra: 'turno',
-  },
-];
+const SALUDO_INICIAL = {
+  from: 'bot',
+  text: '¡Hola! 👋 Soy Sofía, la asistente de Estudio Bella. Esto es una demo — probá escribirme como le escribirías a cualquier negocio (ej: "¿tenés turno para el sábado?").',
+};
+
+const SUGERENCIAS = ['¿Tenés turno para mañana?', '¿Cuánto sale una coloración?'];
 
 function ChatDemo({ compact = false }) {
-  const [visibles, setVisibles] = useState(0);
+  const [mensajes, setMensajes] = useState([SALUDO_INICIAL]);
+  const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
+  const [error, setError] = useState('');
   const containerRef = useRef(null);
-
-  useEffect(() => {
-    let cancel = false;
-    let i = 0;
-    const tick = () => {
-      if (cancel) return;
-      if (i >= CONVERSACION.length) {
-        // Reiniciar después de un rato
-        setTimeout(() => {
-          if (!cancel) {
-            setVisibles(0);
-            i = 0;
-            tick();
-          }
-        }, 4500);
-        return;
-      }
-      const msg = CONVERSACION[i];
-      if (msg.from === 'bot') {
-        setTyping(true);
-        setTimeout(() => {
-          if (cancel) return;
-          setTyping(false);
-          setVisibles((v) => v + 1);
-          i++;
-          setTimeout(tick, 1200);
-        }, 1100);
-      } else {
-        setVisibles((v) => v + 1);
-        i++;
-        setTimeout(tick, 900);
-      }
-    };
-    setTimeout(tick, 600);
-    return () => {
-      cancel = true;
-    };
-  }, []);
 
   // Auto-scroll al fondo
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [visibles, typing]);
+  }, [mensajes, typing]);
+
+  async function enviar(texto) {
+    const limpio = texto.trim();
+    if (!limpio || typing) return;
+    setError('');
+    setInput('');
+    const historialParaApi = mensajes
+      .filter((m) => m !== SALUDO_INICIAL)
+      .map((m) => ({ role: m.from === 'cli' ? 'user' : 'assistant', content: m.text }));
+    setMensajes((prev) => [...prev, { from: 'cli', text: limpio }]);
+    setTyping(true);
+    try {
+      const { data } = await api.post('/demo/chat', { mensaje: limpio, historial: historialParaApi });
+      setMensajes((prev) => [...prev, { from: 'bot', text: data.respuesta }]);
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Uy, tuve un problema para responder. Probá de nuevo en un momento.';
+      setError(msg);
+      setMensajes((prev) => [...prev, { from: 'bot', text: msg }]);
+    } finally {
+      setTyping(false);
+    }
+  }
+
+  function onSubmit(e) {
+    e.preventDefault();
+    enviar(input);
+  }
 
   return (
     <div className="relative">
@@ -199,10 +182,10 @@ function ChatDemo({ compact = false }) {
               AK
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">Akira Bot</p>
+              <p className="text-sm font-semibold text-white truncate">Sofía · Estudio Bella</p>
               <p className="text-[10px] text-green-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                en línea
+                demo en vivo — respondé algo
               </p>
             </div>
             <MoreVertical size={16} className="text-gray-500" />
@@ -219,7 +202,7 @@ function ChatDemo({ compact = false }) {
               backgroundSize: '12px 12px',
             }}
           >
-            {CONVERSACION.slice(0, visibles).map((m, i) => (
+            {mensajes.map((m, i) => (
               <div
                 key={i}
                 className={`flex ${m.from === 'cli' ? 'justify-end' : 'justify-start'}`}
@@ -235,39 +218,33 @@ function ChatDemo({ compact = false }) {
                   }}
                 >
                   <p className="whitespace-pre-line">{m.text}</p>
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
-                    <span className="text-[9px] text-gray-400">14:2{i}</span>
-                    {m.from === 'cli' && <CheckCheck size={11} className="text-sky-400" />}
-                  </div>
-                  {m.extra === 'pago' && (
-                    <div
-                      className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg"
-                      style={{
-                        background: 'rgba(0,232,123,0.12)',
-                        border: '1px solid rgba(0,232,123,0.25)',
-                      }}
-                    >
-                      <CreditCard size={11} className="text-[#00e87b]" />
-                      <span className="text-[10px] text-[#7df3b6]">MercadoPago · $3.500</span>
-                    </div>
-                  )}
-                  {m.extra === 'turno' && (
-                    <div
-                      className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded-lg"
-                      style={{
-                        background: 'rgba(99,102,241,0.10)',
-                        border: '1px solid rgba(99,102,241,0.25)',
-                      }}
-                    >
-                      <Calendar size={11} className="text-indigo-400" />
-                      <span className="text-[10px] text-indigo-300">
-                        Agregado a Google Calendar
-                      </span>
+                  {m.from === 'cli' && (
+                    <div className="flex items-center justify-end gap-1 mt-0.5">
+                      <CheckCheck size={11} className="text-sky-400" />
                     </div>
                   )}
                 </div>
               </div>
             ))}
+
+            {!typing && mensajes.length === 1 && (
+              <div className="flex flex-wrap gap-1.5 justify-end pt-1">
+                {SUGERENCIAS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => enviar(s)}
+                    className="text-[11px] px-2.5 py-1 rounded-full transition-colors"
+                    style={{
+                      background: 'rgba(0,232,123,0.10)',
+                      border: '1px solid rgba(0,232,123,0.25)',
+                      color: '#7df3b6',
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {typing && (
               <div className="flex justify-start" style={{ animation: 'msgIn 0.2s ease-out' }}>
@@ -292,26 +269,36 @@ function ChatDemo({ compact = false }) {
             )}
           </div>
 
-          {/* Input fake */}
-          <div
+          {/* Input real — conectado a /api/demo/chat */}
+          <form
+            onSubmit={onSubmit}
             className="flex items-center gap-2 px-3 py-2"
             style={{ background: '#1f2c33', borderTop: '1px solid rgba(255,255,255,0.04)' }}
           >
-            <div
-              className="flex-1 px-3 py-1.5 rounded-full text-xs text-gray-500"
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Escribí un mensaje..."
+              maxLength={300}
+              disabled={typing}
+              className="flex-1 px-3 py-1.5 rounded-full text-xs text-white placeholder-gray-500 outline-none disabled:opacity-60"
               style={{ background: '#2a3942' }}
-            >
-              Escribe un mensaje
-            </div>
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center"
+            />
+            <button
+              type="submit"
+              disabled={typing || !input.trim()}
+              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-50 transition-opacity"
               style={{ background: '#00a884' }}
             >
-              <Mic size={13} className="text-white" />
-            </div>
-          </div>
+              <Send size={13} className="text-white" />
+            </button>
+          </form>
         </div>
       </div>
+      <p className="text-center mt-2 text-[10px]" style={{ color: 'var(--muted, #6b7280)' }}>
+        Demo real con IA — no se guarda ningún dato.
+      </p>
 
       <style>{`
         @keyframes msgIn {
