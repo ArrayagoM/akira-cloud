@@ -2216,6 +2216,11 @@ function Footer() {
             </p>
             <ul className="space-y-2 text-xs" style={{ color: 'var(--text2)' }}>
               <li>
+                <Link to="/documentacion" className="hover:text-white transition-colors">
+                  Documentación
+                </Link>
+              </li>
+              <li>
                 <Link to="/terminos" className="hover:text-white transition-colors">
                   Términos
                 </Link>

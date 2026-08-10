@@ -16,6 +16,7 @@ import PlanesPage        from './pages/PlanesPage';
 import NotFound          from './pages/NotFound';
 import Privacidad        from './pages/Privacidad';
 import Terminos          from './pages/Terminos';
+import Documentacion     from './pages/Documentacion';
 import ForgotPassword    from './pages/ForgotPassword';
 import ResetPassword     from './pages/ResetPassword';
 import SugerenciasPage   from './pages/SugerenciasPage';
@@ -108,6 +109,7 @@ export default function App() {
 
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/terminos"   element={<Terminos />} />
+        <Route path="/documentacion" element={<Documentacion />} />
 
         {/* ── Páginas verticales por nicho (SEO) ── */}
         <Route path="/peluquerias"  element={<Peluquerias />} />

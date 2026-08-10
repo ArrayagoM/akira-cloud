@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
+  BookOpen,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
@@ -96,6 +97,16 @@ export default function Layout({ children }) {
               </Link>
             );
           })}
+
+          {/* Documentación — separada del resto: es consulta ocasional, no
+              uso diario, así que no le saca lugar al bottom-nav en mobile
+              (que renderiza navItems solo, sin esta). */}
+          <Link to="/documentacion"
+            className="flex items-center gap-3 px-3 py-2.5 mt-2 rounded-lg text-sm font-medium transition-all duration-200"
+            style={{ color: 'var(--text2)', borderTop: '1px solid var(--border)', paddingTop: '0.875rem' }}>
+            <BookOpen size={17} />
+            Documentación
+          </Link>
         </nav>
 
         {/* User + logout */}
