@@ -224,6 +224,12 @@ export default function PlanesPage() {
               const precioMostrar = anual ? precioAnual : precioMensual;
               const esPlanActual  = planActual === p.key && suscripcion?.planVigente;
               const isPro = p.key === 'pro';
+              // Descuento de referido: fijo $5.000, se usa una sola vez (el
+              // backend lo consume automáticamente en la primera confirmación
+              // de pago — ver subscription.routes.js). Si sigue > 0 acá es
+              // porque todavía no lo usaste.
+              const descuentoReferido  = user?.descuentoReferido > 0 ? user.descuentoReferido : 0;
+              const precioConDescuento = Math.max(0, precioMostrar - descuentoReferido);
 
               return (
                 <div key={p.key}
@@ -263,13 +269,21 @@ export default function PlanesPage() {
                       </div>
                       <span className="font-semibold text-white">{p.nombre}</span>
                     </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-extrabold text-white">${formatPrecio(precioMostrar)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                      {descuentoReferido > 0 && (
+                        <span className="text-sm line-through" style={{ color: 'var(--muted)' }}>${formatPrecio(precioMostrar)}</span>
+                      )}
+                      <span className="text-3xl font-extrabold text-white">${formatPrecio(precioConDescuento)}</span>
                       <span className="text-xs" style={{ color: 'var(--muted)' }}>ARS/{anual ? 'año' : 'mes'}</span>
                     </div>
                     {anual && (
                       <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>
                         = ${formatPrecio(Math.round(precioAnual/12))}/mes · Ahorrás ${formatPrecio(Math.round(p.mensual*12*DESCUENTO))}
+                      </p>
+                    )}
+                    {descuentoReferido > 0 && (
+                      <p className="text-xs mt-1 font-medium" style={{ color: 'var(--accent)' }}>
+                        🎉 -${formatPrecio(descuentoReferido)} por tu código de referido (solo en tu primer pago)
                       </p>
                     )}
                   </div>

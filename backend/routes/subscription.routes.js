@@ -4,7 +4,8 @@
 const router  = require('express').Router();
 const https   = require('https');
 const crypto  = require('crypto');
-const User    = require('../models/User');
+const User     = require('../models/User');
+const Referido = require('../models/Referido');
 const Log     = require('../models/Log');
 const { requireAuth } = require('../middleware/auth');
 const logger  = require('../config/logger');
@@ -93,6 +94,98 @@ router.get('/mi-suscripcion', requireAuth, async(req,res)=>{
   }catch(err){ res.status(500).json({ error:err.message }); }
 });
 
+// ── Funciones puras del sistema de referidos — separadas para poder
+// testearlas sin Mongo real (mismo criterio que quota.service.js).
+
+// Calcula cuánto se cobra realmente en el checkout aplicando el
+// descuento de referido disponible. Clamp defensivo: nunca deja el
+// precio en $0 o negativo, aunque el descuento configurado fuera mayor
+// al precio del plan.
+function calcularPrecioConDescuento(precioLista, descuentoDisponible) {
+  const descuentoAplicado = Math.max(0, Math.min(descuentoDisponible || 0, precioLista - 1));
+  return { descuentoAplicado, precioFinal: precioLista - descuentoAplicado };
+}
+
+// Parsea el external_reference armado en /checkout:
+// "userId|planKey|periodo|descuentoAplicado"
+function parsearExternalReference(ref) {
+  const parts = String(ref || '').split('|');
+  return {
+    userId: parts[0] || '',
+    planKey: parts[1] || '',
+    periodo: parts[2] || 'mensual',
+    descuentoAplicado: parseInt(parts[3], 10) || 0,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Activa el plan pago y, si corresponde, procesa el referido:
+//  acredita al referente y consume el descuento del referido.
+//  Se llama desde los 3 caminos de confirmación de pago (/return,
+//  /verificar-pago, /webhook) para no triplicar esta lógica.
+//
+//  IMPORTANTE: el descuento/crédito de referidos es UNA SOLA VEZ —
+//  se aplica en el primer pago del referido, nunca en renovaciones.
+//  Por eso "descuentoAplicado" viaja en el external_reference (lo que
+//  MP realmente cobró), no se vuelve a leer de User en este punto: si
+//  lo leyéramos de nuevo acá, una renovación posterior (con
+//  descuentoReferido ya en 0) simplemente no aplicaría nada — pero
+//  preferimos confiar en lo que se cobró de verdad en esa transacción
+//  puntual antes que en el estado actual del usuario.
+// ─────────────────────────────────────────────────────────────
+async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago }) {
+  const expira = new Date();
+  expira.setMonth(expira.getMonth() + planInfo.meses);
+
+  await User.findByIdAndUpdate(userId, {
+    plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
+  });
+
+  await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
+    mensaje: `Plan ${planKey} activado | MP ID:${pago.id} | $${pago.transaction_amount} ARS${descuentoAplicado ? ` (con $${descuentoAplicado} de descuento por referido)` : ''}` });
+
+  if (global.io) {
+    global.io.to(`user:${userId}`).emit('suscripcion:activada', {
+      plan: planKey, planBase: planKey, expira,
+      mensaje: `¡Plan ${planInfo.nombre} activado!`,
+    });
+  }
+
+  // ── Referido: acreditar al referente SOLO si hubo descuento real
+  // cobrado en esta transacción y todavía no se procesó (idempotente
+  // ante reintentos del webhook o doble confirmación return+webhook).
+  if (descuentoAplicado > 0) {
+    try {
+      // El descuento es de un solo uso: se consume acá pase lo que pase
+      // con el Referido de abajo, para que una renovación futura de
+      // este mismo usuario jamás vuelva a aplicarlo.
+      await User.findByIdAndUpdate(userId, { descuentoReferido: 0 });
+
+      const ref = await Referido.findOne({ referido: userId, estado: 'pendiente' });
+      if (ref) {
+        ref.estado = 'activo';
+        ref.pagoMpId = String(pago.id);
+        await ref.save();
+
+        await User.findByIdAndUpdate(ref.referente, {
+          $inc: { creditoReferidos: ref.comisionPendiente || 0 },
+        });
+
+        await Log.registrar({
+          userId: ref.referente, tipo: 'config_update', nivel: 'info',
+          mensaje: `Crédito de $${ref.comisionPendiente} acreditado por referido (${userId} pagó su primer plan) | MP ID:${pago.id}`,
+        });
+
+        logger.info(`[SUB] ✅ Referido acreditado: referente ${ref.referente} +$${ref.comisionPendiente} por pago de ${userId}`);
+      }
+    } catch (e) {
+      // Un fallo acá NUNCA debe tumbar la activación del plan, que ya
+      // se hizo arriba — solo lo logueamos para revisarlo a mano.
+      logger.error(`[SUB] Error procesando crédito de referido para ${userId}: ${e.message}`);
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 //  POST /api/subscriptions/checkout
 // ─────────────────────────────────────────────────────────────
@@ -110,6 +203,14 @@ router.post('/checkout', requireAuth, async(req,res)=>{
     if(!process.env.MP_PLATFORM_ACCESS_TOKEN) return res.status(503).json({ error:'Credenciales de MercadoPago no configuradas. Agregá MP_PLATFORM_ACCESS_TOKEN en .env' });
 
     const plan = PLANES[planId];
+
+    // ── Descuento por referido — de un solo uso, se consume recién
+    // cuando el pago se confirma (ver activarPlanYProcesarReferido).
+    // Acá solo lo leemos para armar el precio del checkout.
+    const { descuentoAplicado: descuentoReferido, precioFinal } = calcularPrecioConDescuento(plan.precio, req.user.descuentoReferido);
+    if (descuentoReferido > 0) {
+      logger.info(`[SUB] Aplicando descuento por referido: $${descuentoReferido} | precio final: $${precioFinal}`);
+    }
 
     // ── Construir y validar URLs ───────────────────────────────
     const backendUrl  = (process.env.BACKEND_URL||'').trim().replace(/\/+$/,'');  // quitar / final
@@ -156,19 +257,24 @@ router.post('/checkout', requireAuth, async(req,res)=>{
     }
 
     // ── Crear preferencia de pago en MP ────────────────────────
-    logger.info(`[SUB] Creando preferencia MP para plan ${planId} | precio $${plan.precio}`);
+    logger.info(`[SUB] Creando preferencia MP para plan ${planId} | precio $${precioFinal}${descuentoReferido ? ` (con descuento de $${descuentoReferido})` : ''}`);
 
     const pref = await mpRequest('/checkout/preferences','POST',{
       items:[{
         id:          planId,
-        title:       `Akira Cloud — Plan ${plan.nombre} ${plan.periodo}`,
+        title:       descuentoReferido
+          ? `Akira Cloud — Plan ${plan.nombre} ${plan.periodo} (con $${descuentoReferido} de descuento por referido)`
+          : `Akira Cloud — Plan ${plan.nombre} ${plan.periodo}`,
         quantity:    1,
-        unit_price:  plan.precio,
+        unit_price:  precioFinal,
         currency_id: 'ARS',
         description: `Suscripción ${plan.periodo} — Akira Cloud`,
       }],
       payer:              { email:req.user.email, name:req.user.nombre||req.user.email },
-      external_reference: `${req.user._id}|${plan.key}|${plan.periodo}`,
+      // 4to campo = descuento de referido REALMENTE cobrado en esta
+      // transacción puntual — se usa para acreditar al referente al
+      // confirmar el pago, sin depender del estado actual del usuario.
+      external_reference: `${req.user._id}|${plan.key}|${plan.periodo}|${descuentoReferido}`,
       back_urls:{
         success: successUrl,
         failure: failureUrl,
@@ -184,7 +290,7 @@ router.post('/checkout', requireAuth, async(req,res)=>{
     logger.info(`[SUB] ✅ Preferencia creada | id:${pref.id} | init_point:${pref.init_point?.slice(0,60)}...`);
     await Log.registrar({ userId:req.user._id, tipo:'config_update', mensaje:`Checkout iniciado: ${planId} | $${plan.precio}` });
 
-    res.json({ ok:true, init_point:pref.init_point, planId, precio:plan.precio });
+    res.json({ ok:true, init_point:pref.init_point, planId, precio:precioFinal, precioLista:plan.precio, descuentoReferido });
 
   }catch(err){
     logger.error(`[SUB] ❌ Error checkout: ${err.message}`);
@@ -219,35 +325,13 @@ router.get('/return', async (req, res) => {
       logger.info(`[SUB Return] Pago ${pago.id} | status:${pago.status} | monto:$${pago.transaction_amount}`);
 
       if (pago.status === 'approved') {
-        const parts    = (pago.external_reference || '').split('|');
-        const userId   = parts[0];
-        const planKey  = parts[1];
-        const periodo  = parts[2] || 'mensual';
+        const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
         const fullId   = `${planKey}_${periodo}`;
         const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
 
         if (userId && planKey && planInfo) {
-          const expira = new Date();
-          expira.setMonth(expira.getMonth() + planInfo.meses);
-
-          await User.findByIdAndUpdate(userId, {
-            plan:        planKey,
-            planPeriodo: periodo,
-            planExpira:  expira,
-            status:      'activo',
-          });
-
-          await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
-            mensaje: `Plan ${planKey} activado vía /return | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });
-
-          logger.info(`[SUB Return] ✅ Plan ${planKey} activado para ${userId} — expira ${expira.toLocaleDateString('es-AR')}`);
-
-          if (global.io) {
-            global.io.to(`user:${userId}`).emit('suscripcion:activada', {
-              plan: planKey, planBase: planKey, expira,
-              mensaje: `¡Plan ${planInfo.nombre} activado!`,
-            });
-          }
+          await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+          logger.info(`[SUB Return] ✅ Plan ${planKey} activado para ${userId}`);
         }
       }
     } catch (e) {
@@ -284,10 +368,7 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
       return res.json({ ok: false, msg: `Pago no aprobado: ${pago.status}` });
     }
 
-    const parts   = (pago.external_reference || '').split('|');
-    const userId  = parts[0];
-    const planKey = parts[1];
-    const periodo = parts[2] || 'mensual';
+    const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
 
     // Verificar que el pago pertenece al usuario autenticado
     if (String(userId) !== String(req.user._id)) {
@@ -298,16 +379,10 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
     const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
     if (!planInfo) return res.status(400).json({ error: `Plan desconocido: ${planKey}` });
 
+    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+
     const expira = new Date();
     expira.setMonth(expira.getMonth() + planInfo.meses);
-
-    const user = await User.findByIdAndUpdate(userId, {
-      plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
-    }, { new: true });
-
-    await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
-      mensaje: `Plan ${planKey} activado vía verificación manual | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });
-
     logger.info(`[SUB Verificar] ✅ Plan ${planKey} activado para ${userId}`);
     res.json({ ok: true, plan: planKey, expira, msg: `Plan ${planInfo.nombre} activado` });
   } catch(err) {
@@ -374,39 +449,23 @@ router.post('/webhook', async(req,res)=>{
 
     if(pago.status!=='approved') return;
 
-    const parts=(pago.external_reference||'').split('|');
-    const userId=parts[0], planKey=parts[1], periodo=parts[2];
+    const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
     if(!userId||!planKey) return;
 
-    const fullPlanId=`${planKey}_${periodo||'mensual'}`;
+    const fullPlanId=`${planKey}_${periodo}`;
     const planInfo=PLANES[fullPlanId]||PLANES[`${planKey}_mensual`];
     if(!planInfo){ logger.warn('[SUB Webhook] Plan no encontrado:',fullPlanId); return; }
 
-    const expira=new Date();
-    expira.setMonth(expira.getMonth()+planInfo.meses);
+    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
 
-    // Guardamos planKey limpio ('pro') + periodo por separado ('mensual'/'anual')
-    await User.findByIdAndUpdate(userId,{
-      plan:        planKey,          // 'pro', 'basico', 'agencia' — NO 'pro_mensual'
-      planPeriodo: periodo||'mensual',
-      planExpira:  expira,
-      status:      'activo',
-    });
-
-    await Log.registrar({ userId, tipo:'bot_payment', nivel:'info',
-      mensaje:`Plan ${fullPlanId} activado | MP ID:${pago.id} | $${pago.transaction_amount} ARS` });
-
-    logger.info(`[SUB] ✅ Plan ${fullPlanId} activado para ${userId} — expira ${expira.toLocaleDateString('es-AR')}`);
-
-    if(global.io){
-      global.io.to(`user:${userId}`).emit('suscripcion:activada',{
-        plan:fullPlanId, planBase:planKey, expira,
-        mensaje:`¡Plan ${planInfo.nombre} activado!`,
-      });
-    }
+    logger.info(`[SUB] ✅ Plan ${fullPlanId} activado para ${userId}`);
   }catch(err){
     logger.error('[SUB Webhook] Error:',err.message);
   }
 });
+
+// Funciones puras expuestas solo para tests (ver tests/referidos.test.js)
+router.calcularPrecioConDescuento = calcularPrecioConDescuento;
+router.parsearExternalReference   = parsearExternalReference;
 
 module.exports = router;

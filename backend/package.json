@@ -18,7 +18,7 @@
     "seed:admin": "node scripts/seedAdmin.js",
     "clean:sessions": "node scripts/limpiarSesiones.js",
     "gen:vercel": "node ../scripts/generar-vercel-json.js",
-    "test": "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js && node tests/instkey.util.test.js && node tests/multi-slot-routing.test.js && node tests/worker-handler-split-brain.test.js && node tests/tool-hallucination.test.js && node tests/respuesta-final-listar-opciones.test.js && node tests/perfil-cliente.service.test.js && node tests/system-bot.test.js && node tests/planes.test.js && node tests/quota.service.test.js"
+    "test": "node tests/crypto.service.test.js && node tests/persistence.service.test.js && node tests/env.validator.test.js && node tests/instkey.util.test.js && node tests/multi-slot-routing.test.js && node tests/worker-handler-split-brain.test.js && node tests/tool-hallucination.test.js && node tests/respuesta-final-listar-opciones.test.js && node tests/perfil-cliente.service.test.js && node tests/system-bot.test.js && node tests/planes.test.js && node tests/quota.service.test.js && node tests/referidos.test.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.23",
