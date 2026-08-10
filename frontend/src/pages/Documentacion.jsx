@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, Rocket, Settings, Plug, Bot, LayoutDashboard, Users2,
   CreditCard, ShieldCheck, HelpCircle, Mail, Menu, X,
@@ -196,8 +197,27 @@ export default function Documentacion() {
   const [activeId, setActiveId] = useState('crear-cuenta');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const contentRef = useRef(null);
+  const { user } = useAuth();
+  const location  = useLocation();
+  const navigate  = useNavigate();
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
+
+  // "Volver" tiene que respetar de dónde vino el usuario — si entró
+  // desde el dashboard (usuario logueado navegando dentro de la app),
+  // antes esto lo mandaba siempre a la landing pública, perdiendo la
+  // sesión de navegación. location.key === 'default' es la forma que
+  // da react-router de saber si hay una entrada anterior en el
+  // historial DENTRO de esta pestaña; si no la hay (entró por URL
+  // directa/bookmark), caemos a un destino razonable según si está
+  // logueado o no.
+  function volver() {
+    if (location.key !== 'default') {
+      navigate(-1);
+    } else {
+      navigate(user ? '/dashboard' : '/');
+    }
+  }
 
   // Scrollspy simple: resalta en el índice la subsección visible
   useEffect(() => {
@@ -231,10 +251,10 @@ export default function Documentacion() {
           >
             {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', textDecoration: 'none', fontSize: 14 }}>
+          <button onClick={volver} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0 }}>
             <ArrowLeft size={16} />
             Volver
-          </Link>
+          </button>
           <span style={{ color: 'var(--border)' }}>·</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(0,232,123,0.12)', border: '1px solid rgba(0,232,123,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

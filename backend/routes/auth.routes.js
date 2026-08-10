@@ -120,11 +120,7 @@ router.post('/register', registerValidations, async (req, res) => {
     }
 
     // Generar código de referido único para el nuevo usuario
-    let codigoPropio = User.generarCodigoReferido(nombre);
-    // Garantizar unicidad
-    while (await User.exists({ codigoReferido: codigoPropio })) {
-      codigoPropio = User.generarCodigoReferido(nombre);
-    }
+    const codigoPropio = await User.generarCodigoUnico(nombre);
 
     // Crear usuario
     const user = await User.create({
@@ -318,11 +314,7 @@ router.post('/generar-codigo', requireAuth, async (req, res) => {
       return res.json({ codigoReferido: req.user.codigoReferido });
     }
 
-    let codigo = User.generarCodigoReferido(req.user.nombre);
-    while (await User.exists({ codigoReferido: codigo })) {
-      codigo = User.generarCodigoReferido(req.user.nombre);
-    }
-
+    const codigo = await User.generarCodigoUnico(req.user.nombre);
     await User.findByIdAndUpdate(req.user._id, { codigoReferido: codigo });
     logger.info(`[Auth] Código referido generado para ${req.user.email}: ${codigo}`);
     res.json({ codigoReferido: codigo });

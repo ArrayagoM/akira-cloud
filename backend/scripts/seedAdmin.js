@@ -48,6 +48,7 @@ async function seed() {
       rol:           'admin',
       plan:          'admin',
       status:        'activo',
+      codigoReferido: await User.generarCodigoUnico(nombre),
     });
     console.log(`\x1b[32m✅ Admin creado: ${email}\x1b[0m`);
   }

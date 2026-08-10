@@ -72,8 +72,9 @@ module.exports = (passport) => {
           let user = await User.findOne({ email });
 
           if (!user) {
+            const nombreGoogle = profile.name?.givenName || 'Usuario';
             user = await User.create({
-              nombre:        profile.name?.givenName  || 'Usuario',
+              nombre:        nombreGoogle,
               apellido:      profile.name?.familyName || '',
               email,
               auth_provider: 'google',
@@ -81,6 +82,7 @@ module.exports = (passport) => {
               avatar:        profile.photos?.[0]?.value,
               status:        'activo',
               rol:           'user',
+              codigoReferido: await User.generarCodigoUnico(nombreGoogle),
             });
             logger.info(`[Auth] Nuevo usuario Google: ${email}`);
           } else if (!user.googleId) {
@@ -115,8 +117,9 @@ module.exports = (passport) => {
           let user = await User.findOne({ email });
 
           if (!user) {
+            const nombreFacebook = profile.name?.givenName || 'Usuario';
             user = await User.create({
-              nombre:        profile.name?.givenName  || 'Usuario',
+              nombre:        nombreFacebook,
               apellido:      profile.name?.familyName || '',
               email,
               auth_provider: 'facebook',
@@ -124,6 +127,7 @@ module.exports = (passport) => {
               avatar:        profile.photos?.[0]?.value,
               status:        'activo',
               rol:           'user',
+              codigoReferido: await User.generarCodigoUnico(nombreFacebook),
             });
             logger.info(`[Auth] Nuevo usuario Facebook: ${email}`);
           } else if (!user.facebookId) {

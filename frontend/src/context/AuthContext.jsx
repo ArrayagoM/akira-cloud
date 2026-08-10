@@ -49,6 +49,19 @@ export function AuthProvider({ children }) {
     setUser(r.data.user);
   }, []);
 
+  // Auto-genera el código de referido si la cuenta no tiene uno — cubre
+  // cuentas creadas antes de que existiera esta función, o por caminos
+  // que no lo generaban (admin seedeado por script, alta por Google/
+  // Facebook). Corre solo, en segundo plano, para cualquier usuario
+  // logueado sin código; si falla no molesta — simplemente reintenta
+  // la próxima vez que cargue la sesión.
+  useEffect(() => {
+    if (!user || user.codigoReferido) return;
+    api.post('/auth/generar-codigo')
+      .then(({ data }) => setUser((u) => (u ? { ...u, codigoReferido: data.codigoReferido } : u)))
+      .catch(() => {});
+  }, [user]);
+
   return (
     <AuthContext.Provider value={{ user, loading, login, register, logout, loginConToken, refreshUser }}>
       {children}

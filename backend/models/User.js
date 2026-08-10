@@ -148,9 +148,22 @@ UserSchema.virtual('nombreCompleto').get(function () {
 });
 
 UserSchema.statics.generarCodigoReferido = function (nombre) {
-  const base = nombre.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5) || 'USER';
+  const base = (nombre || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5) || 'USER';
   const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `${base}-${rand}`;
+};
+
+// Genera un codigoReferido garantizado único (reintenta ante colisión).
+// Fuente única para los 5 lugares donde se crea o completa una cuenta:
+// /register, /generar-codigo, OAuth Google, OAuth Facebook y
+// scripts/seedAdmin.js — antes cada uno repetía su propio loop, y dos
+// de ellos (OAuth, seedAdmin) directamente no lo generaban.
+UserSchema.statics.generarCodigoUnico = async function (nombre) {
+  let codigo = this.generarCodigoReferido(nombre);
+  while (await this.exists({ codigoReferido: codigo })) {
+    codigo = this.generarCodigoReferido(nombre);
+  }
+  return codigo;
 };
 
 module.exports = mongoose.model('User', UserSchema);
