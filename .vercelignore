@@ -1,0 +1,13 @@
+.claude
+desktop
+backend
+backend-desktop
+worker
+sessions
+logs
+scripts
+node_modules
+**/node_modules
+**/dist
+*.bat
+
