@@ -1,0 +1,471 @@
+// routes/subscription.routes.js
+'use strict';
+
+const router  = require('express').Router();
+const https   = require('https');
+const crypto  = require('crypto');
+const User     = require('../models/User');
+const Referido = require('../models/Referido');
+const Log     = require('../models/Log');
+const { requireAuth } = require('../middleware/auth');
+const logger  = require('../config/logger');
+
+// ── Planes ────────────────────────────────────────────────────
+const PLANES = {
+  basico_mensual:  { key:'basico', nombre:'Básico',  periodo:'mensual', precio:15000, meses:1  },
+  basico_anual:    { key:'basico', nombre:'Básico',  periodo:'anual',   precio:144000,meses:12 },
+  pro_mensual:     { key:'pro',    nombre:'Pro',     periodo:'mensual', precio:35000, meses:1  },
+  pro_anual:       { key:'pro',    nombre:'Pro',     periodo:'anual',   precio:336000,meses:12 },
+  agencia_mensual: { key:'agencia',nombre:'Agencia', periodo:'mensual', precio:80000, meses:1  },
+  agencia_anual:   { key:'agencia',nombre:'Agencia', periodo:'anual',   precio:768000,meses:12 },
+};
+
+const LIMITES = {
+  trial:   { mensajes:100,      bots:1,  calendar:false, mp:false, audio:false },
+  basico:  { mensajes:500,      bots:1,  calendar:false, mp:false, audio:false },
+  pro:     { mensajes:Infinity, bots:1,  calendar:true,  mp:true,  audio:true  },
+  agencia: { mensajes:Infinity, bots:5,  calendar:true,  mp:true,  audio:true  },
+  admin:   { mensajes:Infinity, bots:99, calendar:true,  mp:true,  audio:true  },
+};
+
+// ── Helper MP ─────────────────────────────────────────────────
+function mpRequest(path, method='GET', body=null){
+  const token = process.env.MP_PLATFORM_ACCESS_TOKEN;
+  if(!token) throw new Error('MP_PLATFORM_ACCESS_TOKEN no configurado en .env');
+  return new Promise((resolve, reject)=>{
+    const req = https.request({
+      hostname:'api.mercadopago.com', path, method,
+      headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+    },(res)=>{
+      let data='';
+      res.on('data',c=>data+=c);
+      res.on('end',()=>{
+        try{
+          const p=JSON.parse(data);
+          if(res.statusCode>=400){
+            const e=new Error(p.message||p.error||`MP ${res.statusCode}`);
+            e.mpResponse=p; e.status=res.statusCode; return reject(e);
+          }
+          resolve(p);
+        }catch(e){ reject(new Error('MP parse error: '+data.slice(0,200))); }
+      });
+    });
+    req.on('error',reject);
+    if(body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/subscriptions/planes
+// ─────────────────────────────────────────────────────────────
+router.get('/planes',(_req,res)=>res.json({ planes:PLANES, limites:LIMITES }));
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/subscriptions/limites
+// ─────────────────────────────────────────────────────────────
+router.get('/limites', requireAuth, (req,res)=>{
+  const base = (req.user.plan||'trial').replace(/_mensual|_anual/g,'');
+  res.json({ plan:req.user.plan, planBase:base, limites:LIMITES[base]||LIMITES.trial });
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/subscriptions/mi-suscripcion
+// ─────────────────────────────────────────────────────────────
+router.get('/mi-suscripcion', requireAuth, async(req,res)=>{
+  try{
+    const user    = await User.findById(req.user._id).lean();
+    const base    = (user.plan||'trial').replace(/_mensual|_anual/g,'');
+    const limites = LIMITES[base]||LIMITES.trial;
+    const esAdmin = user.rol==='admin'||user.plan==='admin';
+    const vigente = esAdmin ? true
+      : base==='trial' ? new Date(user.trialExpira)>new Date()
+      : user.planExpira ? new Date(user.planExpira)>new Date() : false;
+
+    res.json({
+      plan:user.plan, planBase:base, status:user.status,
+      trialExpira:user.trialExpira, planExpira:user.planExpira,
+      planVigente:vigente, limites, esAdmin,
+      diasRestantes: esAdmin ? 99999 : (() => {
+        const exp = base==='trial' ? new Date(user.trialExpira) : new Date(user.planExpira||0);
+        return Math.max(0,Math.ceil((exp-new Date())/86400000));
+      })(),
+    });
+  }catch(err){ res.status(500).json({ error:err.message }); }
+});
+
+// ── Funciones puras del sistema de referidos — separadas para poder
+// testearlas sin Mongo real (mismo criterio que quota.service.js).
+
+// Calcula cuánto se cobra realmente en el checkout aplicando el
+// descuento de referido disponible. Clamp defensivo: nunca deja el
+// precio en $0 o negativo, aunque el descuento configurado fuera mayor
+// al precio del plan.
+function calcularPrecioConDescuento(precioLista, descuentoDisponible) {
+  const descuentoAplicado = Math.max(0, Math.min(descuentoDisponible || 0, precioLista - 1));
+  return { descuentoAplicado, precioFinal: precioLista - descuentoAplicado };
+}
+
+// Parsea el external_reference armado en /checkout:
+// "userId|planKey|periodo|descuentoAplicado"
+function parsearExternalReference(ref) {
+  const parts = String(ref || '').split('|');
+  return {
+    userId: parts[0] || '',
+    planKey: parts[1] || '',
+    periodo: parts[2] || 'mensual',
+    descuentoAplicado: parseInt(parts[3], 10) || 0,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Activa el plan pago y, si corresponde, procesa el referido:
+//  acredita al referente y consume el descuento del referido.
+//  Se llama desde los 3 caminos de confirmación de pago (/return,
+//  /verificar-pago, /webhook) para no triplicar esta lógica.
+//
+//  IMPORTANTE: el descuento/crédito de referidos es UNA SOLA VEZ —
+//  se aplica en el primer pago del referido, nunca en renovaciones.
+//  Por eso "descuentoAplicado" viaja en el external_reference (lo que
+//  MP realmente cobró), no se vuelve a leer de User en este punto: si
+//  lo leyéramos de nuevo acá, una renovación posterior (con
+//  descuentoReferido ya en 0) simplemente no aplicaría nada — pero
+//  preferimos confiar en lo que se cobró de verdad en esa transacción
+//  puntual antes que en el estado actual del usuario.
+// ─────────────────────────────────────────────────────────────
+async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago }) {
+  const expira = new Date();
+  expira.setMonth(expira.getMonth() + planInfo.meses);
+
+  await User.findByIdAndUpdate(userId, {
+    plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
+  });
+
+  await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
+    mensaje: `Plan ${planKey} activado | MP ID:${pago.id} | $${pago.transaction_amount} ARS${descuentoAplicado ? ` (con $${descuentoAplicado} de descuento por referido)` : ''}` });
+
+  if (global.io) {
+    global.io.to(`user:${userId}`).emit('suscripcion:activada', {
+      plan: planKey, planBase: planKey, expira,
+      mensaje: `¡Plan ${planInfo.nombre} activado!`,
+    });
+  }
+
+  // ── Referido: acreditar al referente SOLO si hubo descuento real
+  // cobrado en esta transacción y todavía no se procesó (idempotente
+  // ante reintentos del webhook o doble confirmación return+webhook).
+  if (descuentoAplicado > 0) {
+    try {
+      // El descuento es de un solo uso: se consume acá pase lo que pase
+      // con el Referido de abajo, para que una renovación futura de
+      // este mismo usuario jamás vuelva a aplicarlo.
+      await User.findByIdAndUpdate(userId, { descuentoReferido: 0 });
+
+      const ref = await Referido.findOne({ referido: userId, estado: 'pendiente' });
+      if (ref) {
+        ref.estado = 'activo';
+        ref.pagoMpId = String(pago.id);
+        await ref.save();
+
+        await User.findByIdAndUpdate(ref.referente, {
+          $inc: { creditoReferidos: ref.comisionPendiente || 0 },
+        });
+
+        await Log.registrar({
+          userId: ref.referente, tipo: 'config_update', nivel: 'info',
+          mensaje: `Crédito de $${ref.comisionPendiente} acreditado por referido (${userId} pagó su primer plan) | MP ID:${pago.id}`,
+        });
+
+        logger.info(`[SUB] ✅ Referido acreditado: referente ${ref.referente} +$${ref.comisionPendiente} por pago de ${userId}`);
+      }
+    } catch (e) {
+      // Un fallo acá NUNCA debe tumbar la activación del plan, que ya
+      // se hizo arriba — solo lo logueamos para revisarlo a mano.
+      logger.error(`[SUB] Error procesando crédito de referido para ${userId}: ${e.message}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/checkout
+// ─────────────────────────────────────────────────────────────
+router.post('/checkout', requireAuth, async(req,res)=>{
+  try{
+    const planId = req.body.plan || req.body.planId;
+
+    // ── Log de diagnóstico ─────────────────────────────────────
+    logger.info(`[SUB] Checkout request | user:${req.user.email} | planId:${planId}`);
+    logger.info(`[SUB] ENV | BACKEND_URL="${process.env.BACKEND_URL}" | FRONTEND_URL="${process.env.FRONTEND_URL}"`);
+    logger.info(`[SUB] ENV | MP_TOKEN=${process.env.MP_PLATFORM_ACCESS_TOKEN ? 'OK ('+process.env.MP_PLATFORM_ACCESS_TOKEN.slice(0,20)+'...)' : 'FALTA'}`);
+
+    if(!planId)          return res.status(400).json({ error:'Falta el campo plan' });
+    if(!PLANES[planId])  return res.status(400).json({ error:`Plan inválido. Opciones: ${Object.keys(PLANES).join(', ')}` });
+    if(!process.env.MP_PLATFORM_ACCESS_TOKEN) return res.status(503).json({ error:'Credenciales de MercadoPago no configuradas. Agregá MP_PLATFORM_ACCESS_TOKEN en .env' });
+
+    const plan = PLANES[planId];
+
+    // ── Descuento por referido — de un solo uso, se consume recién
+    // cuando el pago se confirma (ver activarPlanYProcesarReferido).
+    // Acá solo lo leemos para armar el precio del checkout.
+    const { descuentoAplicado: descuentoReferido, precioFinal } = calcularPrecioConDescuento(plan.precio, req.user.descuentoReferido);
+    if (descuentoReferido > 0) {
+      logger.info(`[SUB] Aplicando descuento por referido: $${descuentoReferido} | precio final: $${precioFinal}`);
+    }
+
+    // ── Construir y validar URLs ───────────────────────────────
+    const backendUrl  = (process.env.BACKEND_URL||'').trim().replace(/\/+$/,'');  // quitar / final
+    const frontendUrl = (process.env.FRONTEND_URL||'http://localhost:3000').trim().replace(/\/+$/,'');
+
+    logger.info(`[SUB] URLs | backend="${backendUrl}" | frontend="${frontendUrl}"`);
+
+    // Verificar que BACKEND_URL sea pública (HTTPS, no localhost)
+    const backendOk = backendUrl &&
+      backendUrl.startsWith('https://') &&
+      !backendUrl.includes('localhost') &&
+      !backendUrl.includes('127.0.0.1');
+
+    if(!backendOk){
+      logger.error(`[SUB] BACKEND_URL inválida: "${backendUrl}"`);
+      return res.status(503).json({
+        error: `BACKEND_URL inválida ("${backendUrl}"). ` +
+               'Debe ser una URL pública HTTPS de ngrok. ' +
+               'Ejemplo: BACKEND_URL=https://abc123.ngrok-free.app',
+      });
+    }
+
+    // SIEMPRE usamos el endpoint /return del backend como intermediario.
+    // Esto garantiza que el plan se active sincrónicamente al volver del pago,
+    // sin importar si el frontend es localhost o producción.
+    // /return verifica el pago con MP, activa el plan en DB y redirige al frontend.
+    const successUrl = `${backendUrl}/api/subscriptions/return`;
+    const failureUrl = `${backendUrl}/api/subscriptions/return?status=failed`;
+    const pendingUrl = `${backendUrl}/api/subscriptions/return?status=pending`;
+
+    const webhookUrl = `${backendUrl}/api/subscriptions/webhook`;
+
+    logger.info(`[SUB] Back URLs | success="${successUrl}"`);
+    logger.info(`[SUB] Back URLs | failure="${failureUrl}"`);
+    logger.info(`[SUB] Webhook   | url="${webhookUrl}"`);
+
+    // Validar que todas las URLs sean absolutas y válidas
+    for(const [nombre, url] of [['success',successUrl],['failure',failureUrl],['pending',pendingUrl],['webhook',webhookUrl]]){
+      try{ new URL(url); }
+      catch(e){
+        logger.error(`[SUB] URL inválida para ${nombre}: "${url}"`);
+        return res.status(500).json({ error:`URL inválida para ${nombre}: "${url}". Verificá BACKEND_URL en .env` });
+      }
+    }
+
+    // ── Crear preferencia de pago en MP ────────────────────────
+    logger.info(`[SUB] Creando preferencia MP para plan ${planId} | precio $${precioFinal}${descuentoReferido ? ` (con descuento de $${descuentoReferido})` : ''}`);
+
+    const pref = await mpRequest('/checkout/preferences','POST',{
+      items:[{
+        id:          planId,
+        title:       descuentoReferido
+          ? `Akira Cloud — Plan ${plan.nombre} ${plan.periodo} (con $${descuentoReferido} de descuento por referido)`
+          : `Akira Cloud — Plan ${plan.nombre} ${plan.periodo}`,
+        quantity:    1,
+        unit_price:  precioFinal,
+        currency_id: 'ARS',
+        description: `Suscripción ${plan.periodo} — Akira Cloud`,
+      }],
+      payer:              { email:req.user.email, name:req.user.nombre||req.user.email },
+      // 4to campo = descuento de referido REALMENTE cobrado en esta
+      // transacción puntual — se usa para acreditar al referente al
+      // confirmar el pago, sin depender del estado actual del usuario.
+      external_reference: `${req.user._id}|${plan.key}|${plan.periodo}|${descuentoReferido}`,
+      back_urls:{
+        success: successUrl,
+        failure: failureUrl,
+        pending: pendingUrl,
+      },
+      auto_return:        'approved',
+      notification_url:   webhookUrl,
+      expires:            true,
+      expiration_date_to: new Date(Date.now()+60*60*1000).toISOString(),
+      statement_descriptor: 'AKIRACLOUD',
+    });
+
+    logger.info(`[SUB] ✅ Preferencia creada | id:${pref.id} | init_point:${pref.init_point?.slice(0,60)}...`);
+    await Log.registrar({ userId:req.user._id, tipo:'config_update', mensaje:`Checkout iniciado: ${planId} | $${plan.precio}` });
+
+    res.json({ ok:true, init_point:pref.init_point, planId, precio:precioFinal, precioLista:plan.precio, descuentoReferido });
+
+  }catch(err){
+    logger.error(`[SUB] ❌ Error checkout: ${err.message}`);
+    if(err.mpResponse) logger.error('[SUB] MP Response:', JSON.stringify(err.mpResponse));
+    res.status(500).json({
+      error: process.env.NODE_ENV==='production'
+        ? 'Error al generar el pago. Intentá de nuevo.'
+        : err.message,
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/subscriptions/return
+//  MP redirige aquí tras el pago.
+//  Verificamos el pago AHORA (no esperamos el webhook) para activar
+//  el plan en el mismo instante en que el usuario regresa al sitio.
+// ─────────────────────────────────────────────────────────────
+router.get('/return', async (req, res) => {
+  const status    = req.query.status || req.query.collection_status || 'ok';
+  const paymentId = req.query.payment_id || req.query.collection_id || '';
+  const extRef    = req.query.external_reference || '';
+  const frontend  = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
+  logger.info(`[SUB Return] status=${status} | paymentId=${paymentId} | extRef=${extRef}`);
+
+  // Si el pago fue aprobado, verificar y activar el plan inmediatamente
+  // (el webhook puede llegar tarde o fallar; esto garantiza la activación)
+  if ((status === 'approved' || status === 'ok') && paymentId && extRef) {
+    try {
+      const pago = await mpRequest(`/v1/payments/${paymentId}`);
+      logger.info(`[SUB Return] Pago ${pago.id} | status:${pago.status} | monto:$${pago.transaction_amount}`);
+
+      if (pago.status === 'approved') {
+        const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
+        const fullId   = `${planKey}_${periodo}`;
+        const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
+
+        if (userId && planKey && planInfo) {
+          await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+          logger.info(`[SUB Return] ✅ Plan ${planKey} activado para ${userId}`);
+        }
+      }
+    } catch (e) {
+      logger.error('[SUB Return] Error verificando pago:', e.message);
+      // No bloqueamos la redirección aunque falle — el webhook es el backup
+    }
+  }
+
+  const planParam = extRef ? (extRef.split('|')[1] || '') : (req.query.plan || '');
+  const destinos  = {
+    approved: `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`,
+    ok:       `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`,
+    failed:   '/planes?error=pago_fallido',
+    rejected: '/planes?error=pago_fallido',
+    pending:  '/planes?status=pendiente',
+  };
+  const destino = frontend + (destinos[status] || `/planes?suscripcion=ok${planParam ? '&plan=' + planParam : ''}`);
+  logger.info(`[SUB Return] → Redirigiendo a ${destino}`);
+  res.redirect(302, destino);
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/verificar-pago
+//  Fallback: el frontend llama a este endpoint con payment_id
+//  para activar el plan si el /return falló por algún motivo.
+// ─────────────────────────────────────────────────────────────
+router.post('/verificar-pago', requireAuth, async(req,res)=>{
+  try {
+    const paymentId = req.body.payment_id || req.body.collection_id || '';
+    if (!paymentId) return res.status(400).json({ error: 'Falta payment_id' });
+
+    const pago = await mpRequest(`/v1/payments/${paymentId}`);
+    if (pago.status !== 'approved') {
+      return res.json({ ok: false, msg: `Pago no aprobado: ${pago.status}` });
+    }
+
+    const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
+
+    // Verificar que el pago pertenece al usuario autenticado
+    if (String(userId) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'El pago no pertenece a tu cuenta' });
+    }
+
+    const fullId   = `${planKey}_${periodo}`;
+    const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
+    if (!planInfo) return res.status(400).json({ error: `Plan desconocido: ${planKey}` });
+
+    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+
+    const expira = new Date();
+    expira.setMonth(expira.getMonth() + planInfo.meses);
+    logger.info(`[SUB Verificar] ✅ Plan ${planKey} activado para ${userId}`);
+    res.json({ ok: true, plan: planKey, expira, msg: `Plan ${planInfo.nombre} activado` });
+  } catch(err) {
+    logger.error('[SUB Verificar] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/webhook/:userId — webhook por usuario
+//  MercadoPago llama a esta URL cuando el cliente del negocio paga
+//  con el bot como intermediario. El userId identifica qué bot procesa.
+// ─────────────────────────────────────────────────────────────
+router.post('/webhook/:userId', async(req,res)=>{
+  // Reutilizar la misma lógica que el webhook genérico — el userId está en params
+  // pero en las notificaciones de bot-client el external_reference ya incluye el userId.
+  // Respondemos 200 inmediatamente (requisito de MP) y procesamos en background.
+  res.sendStatus(200);
+  const payload = req.body;
+  const ownerId = req.params.userId; // userId del negocio dueño del bot
+  logger.info(`[SUB Webhook/:userId] ownerId=${ownerId} type:${payload.type} | data:${JSON.stringify(payload.data)}`);
+  // Por ahora, forward al flujo estándar — el bot-engine de ese usuario
+  // puede suscribirse en el futuro para procesar pagos de sus clientes.
+  if (global.io && payload.type === 'payment' && payload.data?.id) {
+    global.io.to(`user:${ownerId}`).emit('mp:payment-notification', {
+      paymentId: payload.data.id,
+      type: payload.type,
+    });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/subscriptions/webhook — notificaciones de MP (plataforma Akira)
+// ─────────────────────────────────────────────────────────────
+router.post('/webhook', async(req,res)=>{
+  // Verificar firma
+  if(process.env.MP_PLATFORM_WEBHOOK_SECRET){
+    try{
+      const xSig=req.headers['x-signature']||'';
+      const xId=req.headers['x-request-id']||'';
+      const dId=req.query?.['data.id']||req.body?.data?.id||'';
+      const p=Object.fromEntries(xSig.split(',').map(x=>x.split('=')));
+      const ts=p['ts']||'',v1r=p['v1']||'';
+      if(v1r){
+        const m=`id:${dId};request-id:${xId};ts:${ts};`;
+        const v1c=crypto.createHmac('sha256',process.env.MP_PLATFORM_WEBHOOK_SECRET).update(m).digest('hex');
+        if(v1c.length===v1r.length&&!crypto.timingSafeEqual(Buffer.from(v1c),Buffer.from(v1r))){
+          logger.warn('[SUB Webhook] Firma inválida');
+          return res.sendStatus(401);
+        }
+      }
+    }catch(e){ logger.warn('[SUB Webhook] Error firma:',e.message); }
+  }
+
+  res.sendStatus(200);
+  const payload=req.body;
+  logger.info(`[SUB Webhook] type:${payload.type} | data:${JSON.stringify(payload.data)}`);
+
+  if(payload.type!=='payment'||!payload.data?.id) return;
+
+  try{
+    const pago=await mpRequest(`/v1/payments/${payload.data.id}`);
+    logger.info(`[SUB Webhook] Pago ${pago.id} | status:${pago.status} | ref:${pago.external_reference} | monto:$${pago.transaction_amount}`);
+
+    if(pago.status!=='approved') return;
+
+    const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
+    if(!userId||!planKey) return;
+
+    const fullPlanId=`${planKey}_${periodo}`;
+    const planInfo=PLANES[fullPlanId]||PLANES[`${planKey}_mensual`];
+    if(!planInfo){ logger.warn('[SUB Webhook] Plan no encontrado:',fullPlanId); return; }
+
+    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+
+    logger.info(`[SUB] ✅ Plan ${fullPlanId} activado para ${userId}`);
+  }catch(err){
+    logger.error('[SUB Webhook] Error:',err.message);
+  }
+});
+
+// Funciones puras expuestas solo para tests (ver tests/referidos.test.js)
+router.calcularPrecioConDescuento = calcularPrecioConDescuento;
+router.parsearExternalReference   = parsearExternalReference;
+
+module.exports = router;
