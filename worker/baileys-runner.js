@@ -56,7 +56,21 @@ async function useAtomicMultiFileAuthState(folder) {
     } catch {}
 
     // 3) rename atómico — el .tmp pasa a ser el archivo bueno.
-    await fsp.rename(tmpPath, filePath);
+    // En Windows con OneDrive, el archivo puede estar bloqueado por el proceso
+    // de sincronización → EPERM/EBUSY. Fallback: writeFile directo (no atómico
+    // pero funciona; el .tmp ya tiene el contenido correcto y el .bak protege
+    // contra cortes de luz en la escritura directa).
+    try {
+      await fsp.rename(tmpPath, filePath);
+    } catch (renameErr) {
+      if (renameErr.code === 'EPERM' || renameErr.code === 'EBUSY') {
+        // OneDrive/antivirus tiene bloqueado el destino — escribir directo
+        await fsp.writeFile(filePath, json, 'utf-8');
+        try { await fsp.unlink(tmpPath); } catch {}
+      } else {
+        throw renameErr; // otro error inesperado — propagar
+      }
+    }
   };
 
   const readData = async (file) => {

@@ -1,20 +1,28 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
-  BookOpen,
+  BookOpen, Download, FileText,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
+import DesktopSync from './DesktopSync';
+import LicenciaAviso from './LicenciaAviso';
+
+// Versión de escritorio (Electron): sin Ideas/soporte, que dependen de la plataforma en la nube. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
+const DESKTOP = !!import.meta.env.VITE_DESKTOP;
 
 const NAV_ITEMS_BASE = [
   { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/agenda',      icon: CalendarDays,    label: 'Agenda'     },
   { to: '/clientes',    icon: Users,           label: 'Clientes'   },
   { to: '/chats',       icon: MessageSquare,   label: 'Chats'      },
+  { to: '/documentos',  icon: FileText,        label: 'Documentos' },
   { to: '/config',      icon: Settings,        label: 'Config'     },
+  { to: '/descargar',   icon: Download,        label: 'App'        },
   { to: '/planes',      icon: CreditCard,      label: 'Planes'     },
   { to: '/sugerencias', icon: Lightbulb,       label: 'Ideas'      },
 ];
@@ -33,8 +41,21 @@ export default function Layout({ children }) {
   const [dropOpen, setDropOpen] = useState(false);
   const dropRef = useRef(null);
 
+  // Documentos por revisar (solo escritorio): se consulta cada 30 s y al navegar.
+  const [docsNuevos, setDocsNuevos] = useState(0);
+  useEffect(() => {
+    if (!DESKTOP || !user) return undefined;
+    let vivo = true;
+    const consultar = () => api.get('/bot/documentos?estado=nuevo').then((r) => vivo && setDocsNuevos(r.data.nuevos || 0)).catch(() => {});
+    consultar();
+    const iv = setInterval(consultar, 30000);
+    return () => { vivo = false; clearInterval(iv); };
+  }, [user, location.pathname]);
+
   const navItems = [
-    ...NAV_ITEMS_BASE,
+    ...NAV_ITEMS_BASE.filter((i) => (DESKTOP
+      ? !(i.to === '/sugerencias' || i.to === '/descargar')
+      : !['/agenda', '/clientes', '/chats', '/config', '/documentos'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
     ...(user?.rol === 'admin' ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];
 
@@ -94,6 +115,9 @@ export default function Layout({ children }) {
                 )}
                 <Icon size={17} />
                 {item.label}
+                {item.to === '/documentos' && docsNuevos > 0 && (
+                  <span className="ml-auto text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: '#000' }}>{docsNuevos}</span>
+                )}
               </Link>
             );
           })}
@@ -219,6 +243,8 @@ export default function Layout({ children }) {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-7 mobile-safe-bottom">
+          {DESKTOP && <LicenciaAviso />}
+          {DESKTOP && <DesktopSync />}
           {children}
         </main>
       </div>
@@ -240,7 +266,7 @@ export default function Layout({ children }) {
         })}
       </nav>
 
-      <AkiraSupport />
+      {!DESKTOP && <AkiraSupport />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff,
          Clock, AlertCircle, PauseCircle, PlayCircle, Plus, Trash2, Phone, Edit3, Check, X } from 'lucide-react';
 import OnboardingChecklist from '../components/OnboardingChecklist';
+import InstalarApp from '../components/InstalarApp';
 import ReferralCard from '../components/ReferralCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
@@ -205,6 +206,7 @@ export default function Dashboard() {
   // ── Estado por slot activo ──────────────────────────────────
   const [activeSlot, setActiveSlot]   = useState(0);
   const [accounts,   setAccounts]     = useState([]);
+  const [maxSlots,   setMaxSlots]     = useState(5);
 
   // Estado del bot actual (del slot activo)
   const [botStatus, setBotStatus] = useState({ activo: user?.botActivo, conectado: user?.botConectado });
@@ -228,6 +230,7 @@ export default function Dashboard() {
     try {
       const r = await api.get('/bot/accounts');
       setAccounts(r.data.accounts || []);
+      if (r.data.maxSlots) setMaxSlots(r.data.maxSlots);
     } catch {}
   }, []);
 
@@ -248,6 +251,16 @@ export default function Dashboard() {
     api.get('/config').then(r => setModoPausa(!!r.data.config?.modoPausa)).catch(() => {});
     if (isAgencia) loadAccounts();
   }, [activeSlot, isAgencia, loadAccounts]);
+
+  // Contadores en vivo: se refrescan al llegar/enviarse un mensaje y cada 20 s
+  // (reservas y cobros también cambian por pagos que llegan sin mensaje).
+  useEffect(() => {
+    let t = null;
+    const refrescar = () => { clearTimeout(t); t = setTimeout(() => api.get('/bot/stats').then(r => setStats(r.data)).catch(() => {}), 400); };
+    const off = on('stats:update', refrescar);
+    const iv = setInterval(refrescar, 20000);
+    return () => { off && off(); clearInterval(iv); clearTimeout(t); };
+  }, [on]);
 
   // Resetear QR al cambiar de slot
   useEffect(() => { setQrData(null); }, [activeSlot]);
@@ -329,8 +342,10 @@ export default function Dashboard() {
   };
 
   const addAccount = async () => {
-    const nextSlot = accounts.length;
-    if (nextSlot >= 5) return;
+    // Primer cupo libre (puede haber huecos si se eliminó una cuenta del medio)
+    const usados = new Set(accounts.map(a => a.slot));
+    let nextSlot = 0; while (usados.has(nextSlot)) nextSlot++;
+    if (nextSlot >= maxSlots) return;
     try {
       await api.post('/bot/accounts', { slot: nextSlot, nombre: `Cuenta ${nextSlot + 1}` });
       await loadAccounts();
@@ -391,6 +406,9 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto space-y-5 animate-page-in">
+
+        {/* Guía de instalación de la app (solo web; se oculta cuando ya está instalada) */}
+        {!import.meta.env.VITE_DESKTOP && <InstalarApp compacto />}
 
         {/* Checklist de onboarding */}
         <OnboardingChecklist user={user} botStatus={botStatus} />
@@ -465,10 +483,10 @@ export default function Dashboard() {
                 Cuentas WhatsApp
                 <span className="text-xs px-2 py-0.5 rounded-full font-normal"
                   style={{ background: 'rgba(0,232,123,0.1)', color: 'var(--accent)' }}>
-                  {accounts.length}/5
+                  {accounts.length}/{maxSlots}
                 </span>
               </h2>
-              {accounts.length < 5 && (
+              {accounts.length < maxSlots && (
                 <button onClick={addAccount}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
                   style={{ background: 'rgba(0,232,123,0.1)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.2)' }}>

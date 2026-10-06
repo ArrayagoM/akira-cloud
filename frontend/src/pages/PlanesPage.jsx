@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
+import InstalarApp from '../components/InstalarApp';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSearchParams } from 'react-router-dom';
@@ -150,6 +151,14 @@ export default function PlanesPage() {
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text2)' }}>Elegí el plan que mejor se adapta a tu negocio.</p>
         </div>
+
+        {/* Después de pagar: el paso que sigue (instalar la app) */}
+        {new URLSearchParams(window.location.search).get('suscripcion') === 'ok' && !import.meta.env.VITE_DESKTOP && (
+          <div className="animate-fade-up">
+            <p className="text-sm mb-3 font-semibold" style={{ color: '#00e87b' }}>¡Pago confirmado! Último paso: instalá Akira en tu PC.</p>
+            <InstalarApp compacto />
+          </div>
+        )}
 
         {/* Estado actual */}
         {suscripcion && !esAdmin && (

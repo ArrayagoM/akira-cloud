@@ -467,13 +467,13 @@ export default function AdminPanel() {
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2 sm:gap-3">
           <AdminStat icon={<Users size={11}/>}         label="Total usuarios"   value={stats?.totalUsuarios} />
           <AdminStat icon={<Activity size={11}/>}      label="Activos"          value={stats?.activos}            color="text-green-400" />
-          <AdminStat icon={<Bot size={11}/>}           label="Bots en RAM"      value={stats?.activeInMemory}     color="text-blue-400" />
-          <AdminStat icon={<Wifi size={11}/>}          label="WA conectados"    value={stats?.botsConectadosDB}   color="text-green-400" />
+          <AdminStat icon={<Bot size={11}/>}           label="Equipos en línea"      value={stats?.botsActivos ?? stats?.activeInMemory}     color="text-blue-400" />
+          <AdminStat icon={<Wifi size={11}/>}          label="Equipos registrados"    value={stats?.botsConectadosDB}   color="text-green-400" />
           <AdminStat
             icon={<WifiOff size={11}/>}
-            label="Caídos (DB≠RAM)"
-            value={stats?.discrepancias ?? 0}
-            color={stats?.discrepancias > 0 ? 'text-red-400' : 'text-gray-600'}
+            label="Equipos sin señal"
+            value={stats?.sinSenal ?? 0}
+            color="text-gray-500"
           />
           <AdminStat icon={<AlertTriangle size={11}/>} label="Errores hoy"      value={stats?.erroresHoy}         color={stats?.erroresHoy > 0 ? 'text-red-400' : 'text-gray-600'} />
           <AdminStat icon={<AlertTriangle size={11}/>} label="Warnings hoy"     value={stats?.warningsHoy}        color={stats?.warningsHoy > 5 ? 'text-yellow-400' : 'text-gray-600'} />

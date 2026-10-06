@@ -22,6 +22,9 @@ import ResetPassword     from './pages/ResetPassword';
 import SugerenciasPage   from './pages/SugerenciasPage';
 import ChatsPage         from './pages/ChatsPage';
 import ClientesPage      from './pages/ClientesPage';
+import DocumentosPage    from './pages/DocumentosPage';
+import Descargar         from './pages/Descargar';
+import CuentaPanel       from './pages/CuentaPanel';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
 // ── Páginas verticales por nicho (SEO) ─────────────────────
 import Peluquerias       from './pages/Peluquerias';
@@ -31,6 +34,9 @@ import Alquileres        from './pages/Alquileres';
 import Restaurantes      from './pages/Restaurantes';
 // ── Blog ───────────────────────────────────────────────────
 import Blog              from './pages/Blog';
+
+// Versión de escritorio (build con VITE_DESKTOP=1)
+const DESKTOP = !!import.meta.env.VITE_DESKTOP;
 
 // ── Loading spinner ────────────────────────────────────────
 function GlobalLoader() {
@@ -55,7 +61,7 @@ function GlobalLoader() {
 // ── ¿Debe ver la pantalla de pre-lanzamiento? ──────────────
 // Sí: usuario normal (no admin, no tester) y la fecha de lanzamiento no llegó aún.
 function estaEnPreLanzamiento(user) {
-  if (!user) return false;
+  if (!user || DESKTOP) return false;
   if (user.rol === 'admin' || user.plan === 'admin') return false;
   if (user.esTester) return false;
   return Date.now() < LAUNCH_DATE.getTime();
@@ -85,7 +91,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         {/* Públicas */}
-        <Route path="/"               element={<Landing />} />
+        <Route path="/"               element={DESKTOP ? <Navigate to="/dashboard" replace /> : <Landing />} />
         <Route path="/login"          element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/register"       element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/oauth-callback" element={<OAuthCallback />} />
@@ -93,13 +99,14 @@ export default function App() {
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
 
         {/* Usuario autenticado */}
-        <Route path="/dashboard"   element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/agenda"      element={<ProtectedRoute><AgendaPage /></ProtectedRoute>} />
-        <Route path="/config"      element={<ProtectedRoute><ConfigPage /></ProtectedRoute>} />
+        <Route path="/dashboard"   element={<ProtectedRoute>{DESKTOP ? <Dashboard /> : <CuentaPanel />}</ProtectedRoute>} />
+        <Route path="/agenda"      element={DESKTOP ? <ProtectedRoute><AgendaPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/config"      element={DESKTOP ? <ProtectedRoute><ConfigPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/planes"      element={<ProtectedRoute><PlanesPage /></ProtectedRoute>} />
         <Route path="/sugerencias" element={<ProtectedRoute><SugerenciasPage /></ProtectedRoute>} />
-        <Route path="/chats"       element={<ProtectedRoute><ChatsPage /></ProtectedRoute>} />
-        <Route path="/clientes"    element={<ProtectedRoute><ClientesPage /></ProtectedRoute>} />
+        <Route path="/chats"       element={DESKTOP ? <ProtectedRoute><ChatsPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/clientes"    element={DESKTOP ? <ProtectedRoute><ClientesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/documentos" element={DESKTOP ? <ProtectedRoute><DocumentosPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />
@@ -107,6 +114,7 @@ export default function App() {
         {/* Pre-lanzamiento — visible para todos, pero relevante para usuarios normales */}
         <Route path="/pre-lanzamiento" element={<PreLanzamiento />} />
 
+        <Route path="/descargar" element={<Descargar />} />
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/terminos"   element={<Terminos />} />
         <Route path="/documentacion" element={<Documentacion />} />
@@ -126,8 +134,8 @@ export default function App() {
       </Routes>
       {/* Vercel Analytics & Speed Insights — solo registran en producción.
           En dev son no-op, no contaminan datos. */}
-      <Analytics />
-      <SpeedInsights />
+      {!DESKTOP && <Analytics />}
+      {!DESKTOP && <SpeedInsights />}
     </AuthProvider>
   );
 }
