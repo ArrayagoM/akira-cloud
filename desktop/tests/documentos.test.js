@@ -43,6 +43,10 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   assert(path.resolve(r1.doc.ruta).startsWith(path.resolve(dir, 'documentos') + path.sep), 'el nombre del archivo no puede escapar de la carpeta');
   assert(r1.doc.estado === 'nuevo' && r1.doc.tipo === 'sin_clasificar' && !r1.turno, 'sin turno pendiente queda "nuevo / sin clasificar"');
 
+  // ── Comprobante en PDF real: se lee solo el monto y la fecha ──
+  const pdfComp = await svc.guardarRecibido({ jid: 'c@s.whatsapp.net', numero: '5492245555555', nombreCliente: 'Luis', buffer: fs.readFileSync(path.join(__dirname, 'fixtures', 'comprobante.pdf')), mimetype: 'application/pdf', nombreOriginal: 'comp.pdf' });
+  assert(pdfComp.ok && pdfComp.doc.montoSugerido === 15000 && pdfComp.doc.fechaSugerida === '2026-10-05' && pdfComp.doc.tipo === 'comprobante', 'un comprobante en PDF real: detecta monto $15.000, fecha y tipo');
+
   // ── Con turno pendiente: se asocia y se sugiere "comprobante" ──
   const t = await Turno.create({ userId: USER, calendarId: 'principal', fechaInicio: new Date(Date.now() + 864e5), fechaFin: new Date(Date.now() + 864e5 + 36e5), clienteNombre: 'Ana', clienteTelefono: '5492241111111', estado: 'pendiente', pago: { monto: 1000, metodo: 'mercadopago' } });
   const r2 = await svc.guardarRecibido({ jid: 'a@s.whatsapp.net', numero: '5492241111111', nombreCliente: 'Ana', buffer: png, mimetype: 'image/jpeg', nombreOriginal: 'IMG-1.jpg' });
@@ -51,7 +55,7 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
 
   const otro = await svc.guardarRecibido({ jid: 'b@s.whatsapp.net', numero: '5492249999999', buffer: png, mimetype: 'image/png' });
   assert(otro.ok && !otro.doc.turnoId, 'otro cliente sin turno no queda asociado al turno ajeno');
-  assert((await Documento.find({ userId: USER }).lean()).length === 3, 'quedan 3 documentos registrados');
+  assert((await Documento.find({ userId: USER }).lean()).length === 4, 'quedan 4 documentos registrados');
 
   // ── Lectura de texto de fotos (OCR simulado) ──
   const { ocr } = require('../main/bot-engine/services/bot/documentos.service');

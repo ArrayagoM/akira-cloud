@@ -29,6 +29,9 @@ async function obtenerWorker() {
         cachePath: DIR_IDIOMAS,
         cacheMethod: 'readOnly',
         gzip: false,
+        // Sin esto, un error interno del motor (imagen corrupta o diminuta) se lanza
+        // sin captura en el proceso principal y podría tumbar todo el bot.
+        errorHandler: () => { /* el error ya llega por la promesa de recognize() */ },
       });
     })().catch((e) => { workerPromesa = null; throw e; });
   }
@@ -46,7 +49,9 @@ function leerTexto(buffer) {
       ]);
       return String(r?.data?.text || '').replace(/[ \t]+\n/g, '\n').trim().slice(0, 20000);
     } catch (e) {
-      if (e.message === 'OCR_TIMEOUT') { try { (await workerPromesa)?.terminate(); } catch {} workerPromesa = null; }
+      // Ante cualquier fallo se descarta el motor: la próxima foto arranca uno limpio.
+      try { const w = workerPromesa && await workerPromesa.catch(() => null); if (w) await w.terminate(); } catch { /* nada */ }
+      workerPromesa = null;
       return '';
     }
   });

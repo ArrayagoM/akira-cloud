@@ -71,11 +71,7 @@ function sugerirTipo(texto) {
 const nombreSeguro = (n) => String(n || 'archivo').replace(/[^\w.\- ]+/g, '_').replace(/\.{2,}/g, '.').slice(0, 80);
 
 async function textoDePdf(buffer) {
-  try {
-    const pdfParse = require('pdf-parse/lib/pdf-parse.js');
-    const r = await pdfParse(buffer, { max: 3 }); // alcanza con las primeras hojas
-    return String(r.text || '').slice(0, 20000);
-  } catch { return ''; }
+  try { return (await require('../../../gestion/pdf-texto').textoDePdf(buffer, { maxPaginas: 3 })).slice(0, 20000); } catch { return ''; }
 }
 
 function crearDocumentosService({ userId, dirBase, log }) {

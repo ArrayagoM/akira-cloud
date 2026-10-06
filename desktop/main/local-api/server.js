@@ -97,7 +97,9 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
     next();
   });
 
-  app.use(express.json({ limit: '2mb' }));
+  // /gestion/analizar recibe archivos (base64) y trae su propio límite mayor
+  const jsonGeneral = express.json({ limit: '2mb' });
+  app.use((req, res, next) => (req.path === '/api/gestion/analizar' ? next() : jsonGeneral(req, res, next)));
 
   // ── Login social: el navegador del sistema vuelve acá (loopback) ─
   for (const proveedor of ['google', 'facebook']) {
@@ -125,6 +127,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/config', require('./routes/config.routes')(deps));
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
+  app.use('/api/gestion', require('./routes/gestion.routes')(deps));
   app.use('/api/sync', require('./routes/sync.routes')(deps));
   app.get('/api/license/estado', (_req, res) => res.json({ ...guardian.estado(), activacion: sesion.estado().errorActivacion }));
   // "Usar este equipo": desactiva el otro y activa este (el usuario ya confirmó en pantalla).
