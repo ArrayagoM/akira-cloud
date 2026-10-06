@@ -1,0 +1,4171 @@
+// services/akira.bot.js — Akira Bot v4.0 — Baileys edition
+// Sin Chrome/Puppeteer. Usa WebSocket directo (~30MB RAM vs ~400MB antes).
+'use strict';
+
+const { EventEmitter } = require('events');
+const {
+  default: makeWASocket,
+  makeCacheableSignalKeyStore,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  downloadMediaMessage,
+  isJidGroup,
+  isJidStatusBroadcast,
+  useMultiFileAuthState,
+} = require('@whiskeysockets/baileys');
+// useMongoAuthState removido — ahora usamos useMultiFileAuthState (filesystem local)
+// para eliminar a MongoDB del camino crítico del arranque de bots.
+// const { useMongoAuthState } = require('./bot/mongo-auth.service');
+const pino = require('pino');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const express = require('express');
+
+const crearPersistencia = require('./bot/persistence.service');
+const crearMongoClientesService = require('./bot/mongo-clientes.service');
+const crearCalendarService = require('./bot/calendar.service');
+const crearMPService = require('./bot/mercadopago.service');
+const Config = require('../models/Config');
+const WaitlistEntry = require('../models/WaitlistEntry');
+const crearAudioService = require('./bot/audio.service');
+const crearGroqService = require('./bot/groq.service');
+const { crearDocumentosService } = require('./bot/documentos.service');
+const crearWaitlistService = require('./bot/waitlist.service');
+const winstonLogger = require('../config/logger');
+const perfilClienteSvc = require('./bot/perfil-cliente.service');
+const systemBot = require('./system.bot');
+const { registrarMensajeYVerificarCupo } = require('./bot/quota.service');
+
+// Tools cuyo resultado es una lista concreta de opciones (horarios libres,
+// habitaciones/fechas disponibles, productos del catálogo) que el cliente
+// necesita ver completa. El modelo 8b a veces "resume" el tool result en vez
+// de listarlo (ej: responde "Disponemos de varias opciones, ¿cuál preferís?"
+// en vez de "Tenés libre las 9, 10 y 11 hs") — bug real reportado en
+// producción. Para estas tools reforzamos el prompt de la 2da llamada a Groq
+// (la que redacta la respuesta final) exigiendo que liste TODAS las opciones
+// tal cual vienen en el resultado, sin resumir, inventar ni omitir ninguna.
+const TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES = new Set([
+  'consultar_disponibilidad',
+  'consultar_disponibilidad_alojamiento',
+  'consultar_catalogo',
+]);
+
+// Arma el system prompt de la 2da llamada a Groq (la que redacta la
+// respuesta final en lenguaje natural usando el resultado de la/s tool/s
+// ejecutada/s en el turno). Función pura para poder testearla sin invocar
+// Groq de verdad.
+function construirSystemPromptRespuestaFinal(miNombre, nombreCliente, toolCallsLlamadas, linkMP) {
+  const llamoToolDeOpciones = Array.isArray(toolCallsLlamadas)
+    ? toolCallsLlamadas.some((t) => TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES.has(t?.function?.name))
+    : false;
+
+  let content = `Sos Akira de ${miNombre}. Natural, cálido, WhatsApp con ${nombreCliente}. Max 3 líneas.`;
+
+  if (llamoToolDeOpciones) {
+    content +=
+      ' 🚨 En el resultado de la herramienta tenés las opciones/horarios EXACTOS disponibles: LISTALOS TODOS tal cual vienen (ej: "Tenés libre las 9, 10 y 11 hs. ¿Cuál te queda mejor?"). NO los resumas ni digas cosas genéricas como "tenemos varias opciones" o "disponemos de distintos horarios" — el cliente necesita ver las opciones concretas. No inventes ninguna que no esté en el resultado ni omitas ninguna de las que sí están.';
+  }
+
+  if (linkMP) content += ' El link de pago se agrega automáticamente — NO lo menciones.';
+
+  return content;
+}
+
+// Detecta si una respuesta del LLM es, en esencia, solo el nombre de una tool
+// escrito como texto plano (ej: "Consultar_disponibilidad", "consultar disponibilidad")
+// en vez de una invocación real vía tool_calls. Pasa SOLO cuando el mensaje
+// completo (sin puntuación final) coincide con el nombre — a propósito estricto
+// para no marcar como falla respuestas legítimas que mencionan el tema de paso.
+function esRespuestaSoloNombreDeTool(texto, tools) {
+  if (!texto || !Array.isArray(tools) || !tools.length) return false;
+  // Variante vista en producción: el modelo mete una etiqueta estilo XML de
+  // "function call" en medio de una oración normal (ej: '...te averiguo.
+  // <function=consultar_disponibilidad>{"fecha":"2026-08-14"}</function>').
+  // Acá NO alcanza con comparar el mensaje completo — la etiqueta puede
+  // aparecer en cualquier parte, así que se detecta aparte y siempre cuenta
+  // como alucinación, sin importar el resto del texto.
+  if (/<function[\s=]/i.test(texto) || /<\/function>/i.test(texto)) return true;
+  // Otra variante: ni el nombre pelado ni una etiqueta — directamente deja
+  // un bloque JSON de argumentos suelto en medio de una oración normal
+  // (ej: '...Busca horarios libres {"fecha": "2026-08-14"}'). Un negocio
+  // real de WhatsApp nunca manda JSON crudo, así que cualquier bloque
+  // {"clave": ...} en el texto es siempre señal de alucinación.
+  if (/\{\s*"[\w]+"\s*:/.test(texto)) return true;
+  // Además del nombre "pelado", el modelo a veces pega el JSON de argumentos
+  // sin espacio (ej: 'consultar_disponibilidad{"fecha":"2026-08-14"}') — hay
+  // que descartar ese bloque antes de comparar, si no la alucinación pasa.
+  const sinArgs = texto.trim().replace(/\{[\s\S]*\}\s*$/, '').trim();
+  const normalizado = sinArgs.toLowerCase().replace(/[.,!?¡¿'"´`]+$/g, '').trim();
+  if (!normalizado) return false;
+  return tools.some((t) => {
+    const nombre = t?.function?.name;
+    if (!nombre) return false;
+    const n = nombre.toLowerCase();
+    return normalizado === n || normalizado === n.replace(/_/g, ' ');
+  });
+}
+
+function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
+  const emitter = new EventEmitter();
+
+  // ── MODO PROXY: el "sock" Baileys vive en el worker (PC del usuario)
+  // y este bot lo accede via Socket.io. En este modo NO creamos socket
+  // propio, NO tocamos filesystem para sesión y NO ejecutamos watchdog
+  // (todo eso lo maneja el worker). Solo nos enchufamos a los eventos.
+  const externalSock = options.externalSock || null;
+  const usandoProxy  = !!externalSock;
+
+  // ── Config ─────────────────────────────────────────────────
+  const GROQ_API_KEY = config.GROQ_API_KEY || '';
+  // Modelo Groq: gpt-oss-20b es rápido y maneja tool calling. Si Groq lo retira,
+  // groq.service.js elige solo otro disponible (ver PREFERIDOS ahí).
+  const MODELO = 'openai/gpt-oss-20b';
+  const MI_NOMBRE = config.MI_NOMBRE || 'Asistente';
+  const PLAN = config.PLAN || 'trial';
+  const SERVICIOS = config.SERVICIOS || 'turnos y reservas';
+  const NEGOCIO = config.NEGOCIO || `el negocio de ${MI_NOMBRE}`;
+  const MP_ACCESS_TOKEN = config.MP_ACCESS_TOKEN || '';
+  const PRECIO_TURNO = parseFloat(config.PRECIO_TURNO || '1000');
+  const NGROK_DOMAIN = config.NGROK_DOMAIN || '';
+  const NGROK_AUTH_TOKEN = config.NGROK_AUTH_TOKEN || '';
+  const RIME_API_KEY = config.RIME_API_KEY || '';
+  const HORAS_MINIMAS_CANCELACION = parseInt(config.HORAS_MINIMAS_CANCELACION || '24');
+  const CALENDAR_ID = config.CALENDAR_ID || 'primary';
+  let PROMPT_EXTRA = config.PROMPT_PERSONALIZADO || '';
+  const ALIAS_TRANSFERENCIA = config.ALIAS_TRANSFERENCIA || '';
+  const CBU_TRANSFERENCIA = config.CBU_TRANSFERENCIA || '';
+  const BANCO_TRANSFERENCIA = config.BANCO_TRANSFERENCIA || '';
+  let SERVICIOS_LIST = (() => {
+    try {
+      return JSON.parse(config.SERVICIOS_LIST || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const DURACION_RESERVA_HORAS = 1;
+  const HORA_INICIO_DIA = 9;
+  const HORA_FIN_DIA = 18;
+  const ZONA_HORARIA = 'America/Argentina/Buenos_Aires';
+  let HORARIOS_ATENCION = (() => {
+    try {
+      return JSON.parse(config.HORARIOS_ATENCION || '{}');
+    } catch {
+      return {};
+    }
+  })();
+  let DIAS_BLOQUEADOS = (() => {
+    try {
+      return JSON.parse(config.DIAS_BLOQUEADOS || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  let MODO_PAUSA = config.MODO_PAUSA === 'true';
+  let CELULAR_NOTIFICACIONES = config.CELULAR_NOTIFICACIONES || '';
+  // El registro del canal de admin (qué JID puede usar "sistema ...") vive
+  // en system.bot.js (systemBot.registrarCanalAdmin/esCanalAdminActivo), no
+  // acá — así queda una sola fuente de verdad sin importar si el número
+  // cambió por el dashboard, por config:patch o por el comando "sistema
+  // numero". Ver actualizarCanalAdmin() más abajo.
+  let CHATS_IGNORADOS = (() => {
+    try {
+      return JSON.parse(config.CHATS_IGNORADOS || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const GOOGLE_CALENDAR_TOKENS = (() => {
+    try {
+      return JSON.parse(config.GOOGLE_CALENDAR_TOKENS || '');
+    } catch {
+      return null;
+    }
+  })();
+  const TIPO_NEGOCIO = config.TIPO_NEGOCIO || 'turnos';
+  const CHECK_IN_HORA = config.CHECK_IN_HORA || '14:00';
+  const CHECK_OUT_HORA = config.CHECK_OUT_HORA || '10:00';
+  const MINIMA_ESTADIA = parseInt(config.MINIMA_ESTADIA || '1');
+  const UNIDADES_ALOJAMIENTO = (() => {
+    try {
+      return JSON.parse(config.UNIDADES_ALOJAMIENTO || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const DIRECCION_PROPIEDAD = config.DIRECCION_PROPIEDAD || '';
+  const LINK_UBICACION = config.LINK_UBICACION || '';
+  let CATALOGO = (() => {
+    try {
+      return JSON.parse(config.CATALOGO || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const PUERTO = parseInt(config.PORT || '3100');
+
+  function getDuracionServicio(nombreServicio) {
+    if (!SERVICIOS_LIST.length || !nombreServicio) return DURACION_RESERVA_HORAS * 60;
+    const s = SERVICIOS_LIST.find((s) =>
+      s.nombre.toLowerCase().includes(nombreServicio.toLowerCase()),
+    );
+    return s ? s.duracion : DURACION_RESERVA_HORAS * 60;
+  }
+
+  const CACHE_PATH = path.join(dataDir, '_cache.json');
+  const RESERVAS_PATH = path.join(dataDir, '_reservas.json');
+  const RECORDATORIOS_PATH = path.join(dataDir, '_recordatorios.json');
+  const CREDENTIALS_PATH = path.join(dataDir, 'credentials.json');
+  const RESENAS_PATH = path.join(dataDir, '_resenas.json');
+  const WAITLIST_OFRS_PATH = path.join(dataDir, '_waitlist_ofrs.json');
+
+  function log(msg) {
+    emitter.emit('log', msg);
+  }
+
+  // ── Servicios ───────────────────────────────────────────────
+  // userId del dueño del bot — preferir el parámetro explícito; fallback al path
+  const USER_ID = userId ? String(userId) : path.basename(sessionDir);
+  const db = crearPersistencia(dataDir, log);
+  // Memoria de clientes en MongoDB (reemplaza db.cargarMemoria/guardarMemoria)
+  const clientesSvc = crearMongoClientesService(USER_ID, log);
+
+  // Helper: crea/recrea el calendar service con la config actual
+  // (se llama al iniciar y cada vez que el usuario guarda cambios en el dashboard)
+  function _crearCalendar() {
+    return crearCalendarService({
+      userId:         USER_ID,
+      calendarId:     CALENDAR_ID || 'principal',
+      horaInicio:     HORA_INICIO_DIA,
+      horaFin:        HORA_FIN_DIA,
+      duracion:       DURACION_RESERVA_HORAS,
+      zonaHoraria:    ZONA_HORARIA,
+      horarios:       HORARIOS_ATENCION,
+      diasBloqueados: DIAS_BLOQUEADOS,
+      log,
+      // Google Calendar OAuth — si el usuario conectó su cuenta
+      googleTokens:   GOOGLE_CALENDAR_TOKENS,
+      googleCalId:    CALENDAR_ID && CALENDAR_ID.includes('@') ? CALENDAR_ID : 'primary',
+      onTokenRefresh: async (newTokens) => {
+        // Persistir los tokens refrescados en la DB para no perder acceso
+        try {
+          const Config = require('../models/Config');
+          const cfg = await Config.findOne({ userId: USER_ID });
+          if (cfg) {
+            cfg.setKey('googleCalendarTokens', JSON.stringify(newTokens));
+            await cfg.save();
+            log('[Calendar] Tokens Google Calendar actualizados en DB');
+          }
+        } catch (e) {
+          log(`[Calendar] ⚠️ No se pudieron guardar tokens refrescados: ${e.message}`);
+        }
+      },
+    });
+  }
+  let calendar = _crearCalendar();
+  const mp = crearMPService({
+    accessToken: MP_ACCESS_TOKEN,
+    precioTurno: PRECIO_TURNO,
+    duracion: DURACION_RESERVA_HORAS,
+    negocio: NEGOCIO,
+    // Webhook va al backend público (Render). Reemplaza ngrok.
+    backendUrl: process.env.BACKEND_URL || '',
+    userId: USER_ID,
+    log,
+  });
+  const groqSvc = crearGroqService({
+    apiKey: GROQ_API_KEY,
+    modelo: MODELO,
+    log,
+    tipoNegocio: TIPO_NEGOCIO,
+    catalogo: CATALOGO,
+  });
+  const waitlistSvc = crearWaitlistService({ userId: USER_ID, calendarId: CALENDAR_ID, log });
+
+  // ── Estado ──────────────────────────────────────────────────
+  const cacheTemporal = db.cargar(CACHE_PATH);
+  const reservasPendientes = db.cargar(RESERVAS_PATH);
+  const recordatoriosActivos = db.cargar(RECORDATORIOS_PATH);
+  const resenasPendientes = db.cargar(RESENAS_PATH);
+  const waitlistOfertas = db.cargar(WAITLIST_OFRS_PATH);
+  const timeoutsResenas = {};
+  const timeoutsWaitlist = {};
+  const slotsEnProceso = new Set();
+  const lidCache = new Map(); // LID → JID real (cache para mensajes sin senderPn)
+  // Cache para reintentos de mensajes con crypto error (Signal Protocol)
+  const msgRetryCounterCache = new Map();
+  msgRetryCounterCache.get = (k) => Map.prototype.get.call(msgRetryCounterCache, k);
+  msgRetryCounterCache.set = (k, v) => Map.prototype.set.call(msgRetryCounterCache, k, v);
+  msgRetryCounterCache.del = (k) => Map.prototype.delete.call(msgRetryCounterCache, k);
+  // Store de mensajes recientes para reintentos
+  const msgStore = new Map();   // msgId → message (para retry de Signal)
+  const jidQueues = new Map(); // jid → Promise (cola secuencial por contacto)
+  const timeoutsRecs = {};
+  let sock = null;
+  let expressServer = null;
+  let reconectando = false;
+  let audioSvc = null;
+  let watchdogTimer = null;
+  let ultimoMensajeTs = Date.now();
+  let catalogFallos = 0;
+  let esNegocioWA = null; // null=desconocido, false=no es Business, true=es Business
+  let reconectarIntentos = 0; // contador de reconexiones sin éxito
+  let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
+  let botDetenidoIntencional = false; // true solo cuando el manager llama a detener()
+  let reconnectTimer = null; // 🔥 Timer de reconexión — se cancela para evitar timers cascading
+  const seenMsgIds = new Set(); // Dedup: IDs de mensajes ya procesados (evita duplicados de Baileys)
+  let conectandoLock = false; // Anti-paralelo: evita múltiples conectar() simultáneos
+
+  // ── Helpers ─────────────────────────────────────────────────
+
+  // Resuelve un JID @lid a su PN real @s.whatsapp.net usando todos los fallbacks
+  // disponibles. Devuelve el JID resuelto o null si no se pudo.
+  // Es async por el último fallback (signalRepository) pero los primeros son sync,
+  // así que en el 99% de los casos retorna en microsegundos sin awaits reales.
+  async function resolverLid(rawJid, key) {
+    // 1. Baileys ya lo resolvió y lo puso en la key
+    const senderPn = key?.senderPn || key?.participantPn;
+    if (senderPn && senderPn.endsWith('@s.whatsapp.net')) {
+      lidCache.set(rawJid, senderPn);
+      return senderPn;
+    }
+    // 2. participant directo (si vino como número real)
+    const participant = key?.participant;
+    if (participant && participant.endsWith('@s.whatsapp.net')) {
+      lidCache.set(rawJid, participant);
+      return participant;
+    }
+    // 3. cache local (aprendido de mensajes / contacts previos)
+    if (lidCache.has(rawJid)) return lidCache.get(rawJid);
+    // 4. Store interno de Baileys (lidMapping). Baileys lo va poblando con
+    //    cada contact sync, app-state, y mensajes que sí trajeron senderPn.
+    try {
+      const repo = sock?.signalRepository?.lidMapping;
+      const pn = await repo?.getPNForLID?.(rawJid);
+      if (pn && typeof pn === 'string' && pn.endsWith('@s.whatsapp.net')) {
+        lidCache.set(rawJid, pn);
+        return pn;
+      }
+    } catch {}
+    return null;
+  }
+
+  // Aprende mapeos LID↔PN desde un objeto contact (contacts.upsert / contacts.update).
+  // WhatsApp puede mandar el contact con `id` = pn y `lid` = lid (o viceversa).
+  function aprenderLidDeContacto(c) {
+    if (!c) return;
+    const id = c.id || '';
+    const lid = c.lid || '';
+    if (id.endsWith('@lid') && lid.endsWith('@s.whatsapp.net')) {
+      lidCache.set(id, lid);
+    } else if (id.endsWith('@s.whatsapp.net') && lid.endsWith('@lid')) {
+      lidCache.set(lid, id);
+    }
+  }
+
+  function quitarEmojis(t) {
+    return t
+      .replace(/\p{Emoji}/gu, '')
+      .replace(/[^\p{L}\p{N}\s]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  function esNombreValido(t) {
+    const l = quitarEmojis(t);
+    return (
+      l.length >= 2 &&
+      !/^\d+$/.test(l) &&
+      !['hola', 'si', 'no', 'ok', 'bien', 'dale', 'buenas', 'hey', 'test'].includes(
+        l.toLowerCase(),
+      ) &&
+      /\p{L}/u.test(l)
+    );
+  }
+  function esEmailValido(t) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t.trim());
+  }
+  function capitalizar(t) {
+    return t
+      .split(' ')
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join(' ');
+  }
+  function extraerNumero(jid) {
+    return (jid || '').split('@')[0].replace(/[^0-9]/g, '');
+  }
+
+  // Extrae el texto de un mensaje Baileys
+  // Cubre mensajes normales, efímeros, y captions de media
+  function getTexto(msg) {
+    const m = msg.message;
+    if (!m) return '';
+    // Mensaje efímero (desaparece) — el contenido real está anidado
+    if (m.ephemeralMessage?.message) {
+      const inner = m.ephemeralMessage.message;
+      return (
+        inner.conversation ||
+        inner.extendedTextMessage?.text ||
+        inner.imageMessage?.caption ||
+        inner.videoMessage?.caption ||
+        inner.documentMessage?.caption ||
+        ''
+      );
+    }
+    // Mensaje editado
+    if (m.editedMessage?.message?.protocolMessage?.editedMessage) {
+      const edited = m.editedMessage.message.protocolMessage.editedMessage;
+      return edited.conversation || edited.extendedTextMessage?.text || '';
+    }
+    return (
+      m.conversation ||
+      m.extendedTextMessage?.text ||
+      m.imageMessage?.caption ||
+      m.videoMessage?.caption ||
+      m.documentMessage?.caption ||
+      ''
+    );
+  }
+
+  // Detecta si un mensaje es de un tipo que no tiene texto pero debería recibir respuesta
+  function esTipoSinTexto(msg) {
+    const m = msg.message;
+    if (!m) return false;
+    return !!(
+      m.stickerMessage ||
+      m.reactionMessage ||
+      m.locationMessage ||
+      m.contactMessage ||
+      m.contactsArrayMessage ||
+      m.pollCreationMessage ||
+      m.pollUpdateMessage ||
+      m.liveLocationMessage ||
+      m.templateMessage
+    );
+  }
+
+  function limpiarRespuesta(texto) {
+    if (!texto) return 'Disculpá, hubo un problema. ¿Me repetís la consulta?';
+    texto = texto
+      // Bloques <function=...>...</function> bien formados
+      .replace(/<function=[^>]*>[\s\S]*?<\/function>/g, '')
+      // Variantes malformadas que Llama genera sin > de cierre en el tag de apertura:
+      // <function=nombre</function>  o  <function=nombre=</function>
+      .replace(/<function=[^<]*<\/function>/g, '')
+      // Cualquier <function...> abierto que haya quedado (con o sin >)
+      .replace(/<function[^>]*>/g, '')
+      // Tags </function> sueltos que hayan sobrevivido
+      .replace(/<\/function>/g, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*?"fecha"[\s\S]*?\}/g, '')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '$2')
+      .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+      .replace(
+        /https?:\/\/(?!www\.mercadopago\.com\.ar|checkout\.mercadopago\.com\.ar|calendar\.google\.com)[^\s)>\],"]+/gi,
+        '',
+      )
+      .replace(/[ \t]+\n/g, '\n')
+      .trim();
+    // Prompt injection: si el LLM filtra datos sensibles del sistema, reemplazar con respuesta genérica
+    const PATRONES_SENSIBLES = [
+      /ENCRYPTION_KEY/i,
+      /JWT_SECRET/i,
+      /MONGO_URI/i,
+      /ACCESS_TOKEN/i,
+      /CLIENT_SECRET/i,
+      /APP_SECRET/i,
+      /WORKER_SECRET/i,
+      /process\.env/i,
+      /\bpassword\s*[:=]/i,
+    ];
+    if (PATRONES_SENSIBLES.some((p) => p.test(texto))) {
+      log(`[Security] ⚠️ Prompt injection detectado — respuesta bloqueada`);
+      return 'Lo siento, no puedo responder eso. ¿En qué más puedo ayudarte?';
+    }
+    return texto;
+  }
+
+  function recortarHistorial(h, max = 20) {
+    if (h.length <= max) return h;
+    let r = [...h];
+    while (r.length > max) {
+      const fi = r.findIndex((m) => m.role === 'user');
+      if (fi === -1) break;
+      let fin = fi + 1;
+      while (fin < r.length && r[fin].role !== 'user') fin++;
+      r.splice(0, fin);
+    }
+    while (r.length > 0 && r[0].role === 'tool') r.shift();
+    return r;
+  }
+
+  // ── Envío de mensajes ────────────────────────────────────────
+  async function enviarMensaje(jid, texto) {
+    if (!sock) {
+      log(`⚠️ [${jid}] enviarMensaje sin socket — mensaje perdido`);
+      return false;
+    }
+    try {
+      const sent = await sock.sendMessage(jid, { text: String(texto) });
+      // Guardar en msgStore INMEDIATAMENTE después de enviar.
+      // WhatsApp puede pedir retry en <100ms si no puede descifrar.
+      // Sin esto, getMessage no encuentra el mensaje en los primeros retries → delay de 2-3s.
+      if (sent?.key?.id && sent?.message) msgStore.set(sent.key.id, sent.message);
+      log(`✅ Enviado a ${jid}: "${String(texto).slice(0, 50)}..."`);
+      emitter.emit('stat', 'out');
+      return true;
+    } catch (e) {
+      log(`⚠️ Error enviando a ${jid} (1er intento): ${e.message}`);
+      await new Promise((r) => setTimeout(r, 1200));
+      if (!sock) { log(`❌ [${jid}] reintento abortado — sock invalidado`); return false; }
+      try {
+        const sent2 = await sock.sendMessage(jid, { text: String(texto) });
+        if (sent2?.key?.id && sent2?.message) msgStore.set(sent2.key.id, sent2.message);
+        log(`✅ Enviado a ${jid} (reintento OK): "${String(texto).slice(0, 50)}..."`);
+        return true;
+      } catch (e2) {
+        log(`❌ Error enviando a ${jid} (reintento falló): ${e2.message}`);
+        return false;
+      }
+    }
+  }
+
+  async function enviarAudio(jid, buffer) {
+    if (!sock) return false;
+    try {
+      await sock.sendMessage(jid, { audio: buffer, mimetype: 'audio/mpeg', ptt: true });
+      return true;
+    } catch (e) {
+      log(`⚠️ Error enviando audio a ${jid}: ${e.message}`);
+      return false;
+    }
+  }
+
+  // ── Adjuntos del cliente (bandeja de documentos) ─────────────
+  const docsSvc = crearDocumentosService({ userId: USER_ID, dirBase: options.documentosDir || path.join(dataDir, 'documentos'), log });
+  const ultimoAckDoc = new Map(); // jid → ts: no repetir el "recibí tu archivo" si manda varios seguidos
+  const descargarAdjunto = options.descargarMedia || ((m) => downloadMediaMessage(m, 'buffer', {}));
+
+  // Devuelve true si el mensaje además trae texto y debe seguir al flujo normal.
+  async function manejarAdjunto(msg, jid, adj) {
+    const caption = (adj.caption || '').trim();
+    try {
+      const buffer = await descargarAdjunto(msg);
+      const uc = clientesSvc.cargarMemoria(jid);
+      const nombre = uc?.nombre || msg.pushName || '';
+      const numero = uc?.numeroReal || extraerNumero(jid);
+      const r = await docsSvc.guardarRecibido({
+        jid, nombreCliente: nombre, numero, buffer,
+        mimetype: adj.mimetype, nombreOriginal: adj.fileName, caption,
+      });
+
+      if (!r.ok) {
+        const motivo = r.motivo === 'tamano' ? 'es muy pesado (máximo 10 MB)' : 'no es un formato que pueda guardar (solo PDF o imágenes)';
+        log(`📎 [${jid}] Adjunto rechazado: ${r.motivo}`);
+        if (!uc?.silenciado) await enviarMensaje(jid, `Ese archivo ${motivo}. ¿Me lo mandás como PDF o foto? 🙏`);
+        return !!caption;
+      }
+
+      emitter.emit('documento', { id: String(r.doc._id), clienteNombre: nombre, tipo: r.doc.tipo });
+
+      // 1) Primero se le confirma al cliente (es lo que más importa)
+      const ahora = Date.now();
+      if (uc?.silenciado) {
+        log(`📎 [Documentos] ${jid} está silenciado: no se le responde`);
+      } else if (ahora - (ultimoAckDoc.get(jid) || 0) > 2 * 60_000) {
+        ultimoAckDoc.set(jid, ahora);
+        const extra = r.turno ? ' Quedó asociado a tu turno; en cuanto se revise te aviso.' : '';
+        const okAck = await enviarMensaje(jid, `¡Recibido${nombre ? ', ' + nombre : ''}! 📎 Se lo paso a *${MI_NOMBRE}* para que lo revise.${extra}`);
+        log(okAck ? `📎 [Documentos] Confirmación enviada a ${jid}` : `⚠️ [Documentos] No se pudo enviar la confirmación a ${jid}`);
+      }
+
+      // 2) Aviso al dueño, con el archivo
+      const etiqueta = { comprobante: '🧾 Comprobante', factura: '📄 Factura', sin_clasificar: '📎 Archivo' }[r.doc.tipo] || '📎 Archivo';
+      const monto = r.doc.montoSugerido ? `
+💰 Monto detectado: $${r.doc.montoSugerido.toLocaleString('es-AR')}` : '';
+      const turno = r.turno ? `
+📅 Turno pendiente: ${new Date(r.turno.fechaInicio).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}` : '';
+      notificarDueno(`${etiqueta} de *${nombre || numero}*${monto}${turno}
+
+Revisalo en Akira → Documentos.`);
+      if (CELULAR_NOTIFICACIONES && sock) {
+        const cel = CELULAR_NOTIFICACIONES.replace(/\D/g, '');
+        if (cel.length >= 10) {
+          const dest = `${cel}@s.whatsapp.net`;
+          const contenido = r.doc.mimetype === 'application/pdf'
+            ? { document: buffer, mimetype: 'application/pdf', fileName: r.doc.nombreOriginal }
+            : { image: buffer, caption: `${etiqueta} de ${nombre || numero}` };
+          sock.sendMessage(dest, contenido).catch(() => {});
+        }
+      }
+
+      // 3) Lectura de texto de las fotos, en segundo plano (no demora nada de lo anterior)
+      if (r.doc.mimetype !== 'application/pdf') {
+        docsSvc.analizarImagen(r.doc, buffer)
+          .then((d) => { log(`🔎 [Documentos] Texto leído de la foto de ${jid}${d.montoSugerido ? ` — monto $${d.montoSugerido}` : ''}`); emitter.emit('documento', { id: String(r.doc._id), clienteNombre: nombre, tipo: d.tipo, actualizado: true }); })
+          .catch((e) => log(`⚠️ [Documentos] No se pudo leer el texto de la foto: ${e.message}`));
+      }
+      return !!caption;
+    } catch (e) {
+      log(`⚠️ [Documentos] No pude procesar el adjunto de ${jid}: ${e.message}`);
+      const uc = clientesSvc.cargarMemoria(jid);
+      if (!uc?.silenciado) await enviarMensaje(jid, '¡Ups! No pude abrir tu archivo. ¿Me lo mandás de nuevo? 🙏');
+      return !!caption;
+    }
+  }
+
+  // ── Notificación al dueño ────────────────────────────────────
+  function notificarDueno(texto) {
+    if (!CELULAR_NOTIFICACIONES) return;
+    const cel = CELULAR_NOTIFICACIONES.replace(/\D/g, '');
+    if (cel.length < 10) return;
+    const jidDueno = `${cel}@s.whatsapp.net`;
+    enviarMensaje(jidDueno, texto).catch(() => {});
+  }
+
+  // ── Recordatorios ────────────────────────────────────────────
+  const RECS = [
+    {
+      min: 24 * 60,
+      label: '24h',
+      msg: (n, h) =>
+        `¡Hola ${n}! 👋 Mañana a las *${h}* tu turno con *${NEGOCIO}*.\n¿Confirmás que vas? Respondé *SÍ* para confirmar o *CANCELAR* si no podés. ⏳ Tenés 2 horas.`,
+    },
+    {
+      min: 4 * 60,
+      label: '4h',
+      msg: (n, h) => `¡Hola ${n}! ⏰ En unas horas tu turno a las *${h}*. Avisanos si no podés. 🙏`,
+    },
+    {
+      min: 30,
+      label: '30min',
+      msg: (n, h) => `¡${n}! 🚗 En 30 minutos tu turno a las *${h}*. ¡Nos vemos!`,
+    },
+  ];
+
+  function programarRecs(jid, nombre, fecha, hora) {
+    const [y, m, d] = fecha.split('-').map(Number);
+    const [h, min] = hora.split(':').map(Number);
+    const ft = calendar.crearFecha(y, m, d, h, min);
+    const ahora = Date.now();
+    const key = `${jid}|${fecha}|${hora}`;
+    recordatoriosActivos[key] = { chatId: jid, nombre, fecha, hora };
+    db.guardar(RECORDATORIOS_PATH, recordatoriosActivos);
+    for (const r of RECS) {
+      const delay = ft.getTime() - r.min * 60000 - ahora;
+      if (delay <= 0) continue;
+      const tk = `${key}|${r.label}`;
+      if (timeoutsRecs[tk]) clearTimeout(timeoutsRecs[tk]);
+      timeoutsRecs[tk] = setTimeout(async () => {
+        delete timeoutsRecs[tk];
+        try {
+          await enviarMensaje(jid, r.msg(nombre, hora));
+          log(`[REC] ✅ ${r.label} → ${nombre}`);
+          // Si es el recordatorio de 24h, programar verificación de confirmación
+          if (r.label === '24h') {
+            programarVerificacionConfirmacion(jid, nombre, fecha, hora);
+          }
+        } catch (e) {
+          log(`[REC] ❌ ${e.message}`);
+        }
+      }, delay);
+    }
+  }
+
+  function reprogramarRecs() {
+    let c = 0;
+    for (const [, r] of Object.entries(recordatoriosActivos)) {
+      const [y, m, d] = r.fecha.split('-').map(Number);
+      const [h, min] = r.hora.split(':').map(Number);
+      if (calendar.crearFecha(y, m, d, h, min).getTime() < Date.now()) continue;
+      programarRecs(r.chatId, r.nombre, r.fecha, r.hora);
+      c++;
+    }
+    if (c > 0) log(`[REC] ${c} recordatorios reprogramados`);
+    // Reprogramar reseñas pendientes
+    for (const [, r] of Object.entries(resenasPendientes)) {
+      if (r.jid && r.turnoId && r.fecha) {
+        programarResena(r.jid, r.turnoId, r.nombre, r.fecha, r.horaFin || '18:00');
+      }
+    }
+  }
+
+  // Verifica si confirmó 2h después del recordatorio de 24h
+  function programarVerificacionConfirmacion(jid, nombre, fecha, hora) {
+    const key = `${jid}|${fecha}|${hora}|conf`;
+    const delay = 2 * 60 * 60 * 1000; // 2 horas
+    waitlistOfertas[key] = {
+      tipo: 'confirmacion',
+      jid,
+      nombre,
+      fecha,
+      hora,
+      expiraEn: Date.now() + delay,
+    };
+    db.guardar(WAITLIST_OFRS_PATH, waitlistOfertas);
+    if (timeoutsWaitlist[key]) clearTimeout(timeoutsWaitlist[key]);
+    timeoutsWaitlist[key] = setTimeout(async () => {
+      delete timeoutsWaitlist[key];
+      delete waitlistOfertas[key];
+      db.guardar(WAITLIST_OFRS_PATH, waitlistOfertas);
+      // Si el cliente aún no confirmó, marcar posible no-show
+      const c = cacheTemporal[jid] || {};
+      if (!c.turnoConfirmado?.[`${fecha}|${hora}`]) {
+        log(`[AntiNoShow] ⚠️ ${nombre} no confirmó turno ${fecha} ${hora}`);
+        notificarDueno(
+          `⚠️ *Sin confirmación*: ${nombre} no confirmó su turno del ${fecha} a las ${hora}. Verificá si va a ir.`,
+        );
+        // Ofrecer al waitlist
+        await waitlistSvc.notificarSiguiente(fecha, hora, enviarMensaje, notificarDueno);
+      }
+    }, delay);
+  }
+
+  async function programarResena(jid, turnoId, nombre, fecha, horaFin) {
+    try {
+      const cfg = await Config.findOne({ userId: USER_ID }).lean();
+      if (!cfg?.googleReviewLink || cfg.activarResenas === false) return;
+      const [y, m, d] = fecha.split('-').map(Number);
+      const h = parseInt((horaFin || '18:00').split(':')[0]);
+      const ftFin = calendar.crearFecha(y, m, d, h);
+      const delay = ftFin.getTime() + 2 * 3600000 - Date.now(); // fin del turno + 2h
+      if (delay <= 0) return;
+      const key = `resena|${jid}|${turnoId}`;
+      resenasPendientes[key] = { jid, turnoId, nombre, fecha, horaFin, ts: Date.now() };
+      db.guardar(RESENAS_PATH, resenasPendientes);
+      if (timeoutsResenas[key]) clearTimeout(timeoutsResenas[key]);
+      timeoutsResenas[key] = setTimeout(async () => {
+        delete timeoutsResenas[key];
+        delete resenasPendientes[key];
+        db.guardar(RESENAS_PATH, resenasPendientes);
+        try {
+          const cfgFresh = await Config.findOne({ userId: USER_ID }).lean();
+          if (!cfgFresh?.googleReviewLink || cfgFresh.activarResenas === false) return;
+          await enviarMensaje(
+            jid,
+            `¡Hola ${nombre}! 😊 Esperamos que hayas disfrutado tu visita a *${NEGOCIO}*.\n` +
+              `Si quedaste contento/a, nos ayudaría muchísimo si dejás una reseñita ⭐\n` +
+              cfgFresh.googleReviewLink,
+          );
+          log(`[Reseña] ✅ Solicitud enviada a ${nombre}`);
+        } catch (e) {
+          log(`[Reseña] ❌ ${e.message}`);
+        }
+      }, delay);
+    } catch (e) {
+      log(`[Reseña] ❌ programarResena: ${e.message}`);
+    }
+  }
+
+  // ── Reservas ─────────────────────────────────────────────────
+  function pendienteActual(jid) {
+    const ahora = Date.now();
+    for (const [, r] of Object.entries(reservasPendientes))
+      if (r.chatId === jid && r.expiresAt > ahora) return r;
+    return null;
+  }
+  function limpiarExpiradas() {
+    let cambio = false;
+    // Libera slots de Turnos pendientes que pasaron los 30min sin confirmar pago.
+    // Esto permite que otro cliente reserve el horario sin que quede bloqueado.
+    calendar.limpiarPendientesExpirados?.().catch(() => {});
+    for (const k of Object.keys(reservasPendientes))
+      if (reservasPendientes[k].expiresAt <= Date.now()) {
+        delete reservasPendientes[k];
+        cambio = true;
+      }
+    if (cambio) db.guardar(RESERVAS_PATH, reservasPendientes);
+  }
+  setInterval(limpiarExpiradas, 5 * 60000);
+
+  // ── Procesamiento IA ─────────────────────────────────────────
+  async function procesarConIA(jid, usuario) {
+    log(`[DBG] procesarConIA START jid=${jid} groqKey=${GROQ_API_KEY ? GROQ_API_KEY.slice(0,8)+'...' : 'EMPTY'} historial=${usuario.historial?.length||0}`);
+    limpiarExpiradas();
+    const pend = pendienteActual(jid);
+    const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: ZONA_HORARIA }));
+    const fStr = ahora.toLocaleString('es-AR', {
+      timeZone: ZONA_HORARIA,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const fISO = ahora.toISOString().slice(0, 10);
+    const dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const prox = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(ahora);
+      d.setDate(ahora.getDate() + i + 1);
+      const y = d.getFullYear(),
+        mo = String(d.getMonth() + 1).padStart(2, '0'),
+        dd = String(d.getDate()).padStart(2, '0');
+      return `${dias[d.getDay()]} = ${y}-${mo}-${dd}`;
+    }).join(', ');
+
+    // Informar método de pago configurado (NUNCA inventar datos)
+    const metodoPago = MP_ACCESS_TOKEN
+      ? 'MercadoPago (link automático al confirmar turno)'
+      : ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+        ? `Transferencia bancaria — Alias: ${ALIAS_TRANSFERENCIA || 'N/A'} | CBU/CVU: ${CBU_TRANSFERENCIA || 'N/A'}`
+        : `Sin método de pago configurado — ${MI_NOMBRE} coordina el pago directamente`;
+
+    // ── Armar descripción de horarios configurados ───────────────
+    const DIAS_LABELS = {
+      lunes: 'Lun',
+      martes: 'Mar',
+      miercoles: 'Mié',
+      jueves: 'Jue',
+      viernes: 'Vie',
+      sabado: 'Sáb',
+      domingo: 'Dom',
+    };
+    const DIAS_ORDER = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+    const horariosStr =
+      Object.keys(HORARIOS_ATENCION).length > 0
+        ? DIAS_ORDER.map((d) => {
+            const h = HORARIOS_ATENCION[d];
+            if (!h) return null;
+            if (!h.activo) return `${DIAS_LABELS[d]} Cerrado`;
+            // Soporte para múltiples franjas (ej. 9-13 y 17-21:30)
+            if (Array.isArray(h.franjas) && h.franjas.length > 0) {
+              return `${DIAS_LABELS[d]} ${h.franjas.map((f) => `${f.inicio}–${f.fin}`).join(' y ')}`;
+            }
+            return `${DIAS_LABELS[d]} ${h.inicio}–${h.fin}`;
+          })
+            .filter(Boolean)
+            .join(' | ')
+        : `Lun–Vie 09:00–18:00 | Sáb 09:00–13:00 | Dom Cerrado`;
+
+    const esAlojamiento = TIPO_NEGOCIO === 'alojamiento';
+    const esServicios = TIPO_NEGOCIO === 'servicios';
+
+    // Armar listado del catálogo de productos (si existe)
+    const catalogoStr = CATALOGO.filter((p) => p.disponible)
+      .map(
+        (p) =>
+          `• *${p.nombre}*: $${p.precio} ${p.moneda || 'ARS'}${p.categoria ? ` [${p.categoria}]` : ''}${p.descripcion ? ` — ${p.descripcion}` : ''}${p.stock >= 0 ? ` (stock: ${p.stock})` : ''}`,
+      )
+      .join('\n');
+
+    // Armar descripción de unidades de alojamiento
+    const unidadesStr =
+      UNIDADES_ALOJAMIENTO.length > 0
+        ? UNIDADES_ALOJAMIENTO.map(
+            (u) =>
+              `• *${u.nombre}*: cap. ${u.capacidad} pers. — $${u.precioPorNoche} ARS/noche` +
+              (u.amenidades ? ` — ${u.amenidades}` : '') +
+              (u.descripcion ? ` — ${u.descripcion}` : ''),
+          ).join('\n')
+        : null;
+
+    const sysContent = esServicios
+      ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
+        `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
+        `🕐 Horarios de atención: ${horariosStr}\n` +
+        (DIAS_BLOQUEADOS.length > 0
+          ? `🚫 Días sin atención: ${DIAS_BLOQUEADOS.join(', ')}\n`
+          : '') +
+        (MODO_PAUSA
+          ? `🔴 MODO PAUSA ACTIVO: No tomamos trabajos por el momento. Informá amablemente. NO llamés herramientas de agenda.\n`
+          : '') +
+        (SERVICIOS_LIST.length > 0
+          ? `🔧 SERVICIOS DISPONIBLES:\n${SERVICIOS_LIST.map((s) => `• ${s.nombre}: $${s.precio} ARS (duración aprox. ${s.duracion || 60} min)`).join('\n')}\n`
+          : `🔧 Servicios: ${SERVICIOS} | Precio base: $${PRECIO_TURNO} ARS\n`) +
+        `💳 Método de pago: ${metodoPago}.\n` +
+        (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+          ? `Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}.\n`
+          : '') +
+        `⚠️ PROHIBIDO: NUNCA inventes datos bancarios. Usá SOLO los de arriba.\n` +
+        (pend
+          ? `🚨 PAGO PENDIENTE: ${pend.fecha} ${pend.hora} ($${pend.totalPrecio || PRECIO_TURNO}). NO agendar otro.\n`
+          : '') +
+        (usuario.turnosConfirmados?.length
+          ? `[INT] Servicios agendados: ${usuario.turnosConfirmados.map((t) => `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${t.fecha} ${t.hora}`).join(' | ')}\n`
+          : '') +
+        perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
+        `FLUJO OBLIGATORIO: 1.Preguntar qué servicio quiere → 2.Pedir datos del ítem (patente+modelo, nombre mascota, etc.) → 3.Consultar disponibilidad → 4.Cliente elige horario ("puede ser a las X?") → 5.PEDIR confirmación literal ("¿Te confirmo el [servicio] para el [fecha] a las [hora]? Decime 'dale' y te paso el link.") → 6.Cuando responda "sí/dale/confirmo" → llamar agendar_servicio. NUNCA saltear pasos. NUNCA llamar agendar_servicio si el cliente solo PREGUNTÓ.\n` +
+        `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
+        `Cancelar→cancelar_servicio, Cambiar→reagendar_servicio. Máx 4 líneas. Sin JSON ni código.\n` +
+        (catalogoStr
+          ? `📦 PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan.\n`
+          : '') +
+        (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
+      : esAlojamiento
+        ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
+          `Hoy: ${fStr} | ISO: ${fISO}\nPróx días: ${prox}\n` +
+          (DIAS_BLOQUEADOS.length > 0
+            ? `🚫 Fechas sin disponibilidad: ${DIAS_BLOQUEADOS.join(', ')}\n`
+            : '') +
+          (MODO_PAUSA
+            ? `🔴 MODO PAUSA ACTIVO: No tomamos nuevas reservas ahora. Informá amablemente y ofrecé contactar a ${MI_NOMBRE}. NO llamés herramientas de reserva.\n`
+            : '') +
+          `🏠 TIPO: ALOJAMIENTO — Check-in: ${CHECK_IN_HORA} hs | Check-out: ${CHECK_OUT_HORA} hs | Estadía mínima: ${MINIMA_ESTADIA} noche(s)\n` +
+          (unidadesStr
+            ? `🛏️ UNIDADES DISPONIBLES:\n${unidadesStr}\nCada unidad es INDEPENDIENTE: podés consultar disponibilidad por unidad pasando nombre_unidad.\n`
+            : '') +
+          (DIRECCION_PROPIEDAD ? `📍 Dirección: ${DIRECCION_PROPIEDAD}\n` : '') +
+          (LINK_UBICACION ? `🗺️ Ubicación Google Maps: ${LINK_UBICACION}\n` : '') +
+          `💳 Método de pago: ${metodoPago}\n` +
+          (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+            ? `Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}\n`
+            : '') +
+          `⚠️ PROHIBIDO: Nunca inventes datos bancarios. Usá SOLO los de arriba.\n` +
+          (pend
+            ? `🚨 RESERVA PENDIENTE DE PAGO: entrada ${pend.fecha} ($${pend.totalPrecio}). NO agendar otra.\n`
+            : '') +
+          (usuario.turnosConfirmados?.length
+            ? `[INT] Reservas confirmadas: ${usuario.turnosConfirmados.map((t) => `${t.unidad ? t.unidad + ' ' : ''}${t.fecha}→${t.horaFin || ''}`).join(', ')}\n`
+            : '') +
+          perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
+          `FLUJO: 1.Cliente dice fechas [y nº huéspedes] → 2.consultar_disponibilidad_alojamiento → 3.Informar precio total + dirección → 4.PEDIR confirmación literal ("¿Te confirmo del [entrada] al [salida]? Decime 'dale' y te mando el link de pago.") → 5.Cuando responda "sí/dale/confirmo" → llamar agendar_alojamiento. NUNCA saltear pasos. NUNCA llamar agendar_alojamiento si el cliente solo preguntó.\n` +
+          `🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo emite cuando el cliente confirma.\n` +
+          `Max 4 líneas. Sin JSON/código. Cancelar→cancelar_alojamiento, Cambiar fechas→reagendar_alojamiento.\n` +
+          (catalogoStr
+            ? `📦 CATÁLOGO DE PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan por productos.\n`
+            : '') +
+          (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
+        : `Sos Akira, la asistente virtual de ${MI_NOMBRE} (${NEGOCIO}). Estás hablando con ${usuario.nombre}.\n` +
+          `🎯 PERSONALIDAD: Sos cálida, profesional y entusiasta. Usás un tono cercano y natural para WhatsApp, como si fueras una persona real del equipo. Usás emojis con moderación, frases amigables y transmitís confianza. Nunca sos robótica ni fría.\n` +
+          `📅 Hoy: ${fStr} | ISO: ${fISO} | Próximos días: ${prox}\n` +
+          `🕐 Horarios de atención: ${horariosStr}\n` +
+          (DIAS_BLOQUEADOS.length > 0
+            ? `🚫 Días sin atención: ${DIAS_BLOQUEADOS.join(', ')}\n`
+            : '') +
+          (MODO_PAUSA
+            ? `🔴 MODO PAUSA ACTIVO: No hay disponibilidad ahora. Informá con calidez que no estamos tomando reservas y ofrecé contactar directamente a ${MI_NOMBRE}. NO llames consultar_disponibilidad ni agendar_turno.\n`
+            : '') +
+          (SERVICIOS_LIST.length > 0
+            ? `💼 Servicios:\n${SERVICIOS_LIST.map((s) => `  • ${s.nombre}: $${s.precio} ARS (${s.duracion || 60} min)`).join('\n')}\n`
+            : `💼 Negocio: ${SERVICIOS} | Precio: $${PRECIO_TURNO} ARS/turno\n`) +
+          `💳 Pago: ${metodoPago}.\n` +
+          (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
+            ? `🏦 Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}.\n`
+            : '') +
+          `⚠️ PROHIBIDO ABSOLUTO: Jamás inventes alias, CBU, CVU ni datos bancarios. Solo usá los datos de arriba.\n` +
+          `⏰ Cancelaciones/cambios: mínimo ${HORAS_MINIMAS_CANCELACION}h de anticipación.\n` +
+          (pend
+            ? `🚨 ATENCIÓN: ${usuario.nombre} tiene un PAGO PENDIENTE del ${pend.fecha} a las ${pend.hora} ($${pend.totalPrecio || PRECIO_TURNO} ARS). NO agendés otro turno hasta que pague ese.\n`
+            : '') +
+          (usuario.turnosConfirmados?.length
+            ? `✅ Turnos ya confirmados de ${usuario.nombre}: ${usuario.turnosConfirmados.map((t) => `${t.fecha} ${t.hora}`).join(', ')}. No preguntes si pagó, ya pagó.\n`
+            : '') +
+          perfilClienteSvc.formatearNotaPerfil(usuario.perfilResumen) +
+          `📋 FLUJO OBLIGATORIO (3 PASOS — NUNCA SALTEAR):\n` +
+          `  1. Si pregunta por disponibilidad → llamar consultar_disponibilidad con la fecha\n` +
+          `  2. Mostrar slots disponibles (ej: "Tenés libre las 9, 10 y 11 hs. ¿Cuál te queda mejor? 😊")\n` +
+          `  3. Cliente elige hora ("puede ser a las 14?", "me sirve las 10") → NO LLAMES agendar_turno todavía.\n` +
+          `     RESPONDÉ pidiendo confirmación literal: "¿Te confirmo el turno del [fecha] a las [hora]? Decime 'dale' y te paso el link de pago."\n` +
+          `  4. SOLO cuando el cliente responda LITERALMENTE "sí/dale/confirmo/reservame/ok" → AHÍ llamás agendar_turno.\n` +
+          `  5. Si quiere VARIOS turnos en el mismo día → agendar_turno UNA VEZ POR CADA TURNO (no reagendar)\n` +
+          `  6. Cancelar→cancelar_turno | Cambiar fecha/hora→reagendar_turno\n` +
+          `❌ ERRORES PROHIBIDOS:\n` +
+          `  - 🚨 NUNCA llames agendar_turno si el cliente solo PREGUNTÓ ("puede ser?", "me podés agendar?") — pregunta requiere confirmación primero.\n` +
+          `  - 🚨 NUNCA generes/menciones el link de pago vos mismo — la herramienta lo hace cuando corresponde.\n` +
+          `  - Nunca uses reagendar_turno cuando el cliente pide un TURNO ADICIONAL (distinto horario)\n` +
+          `  - Nunca confirmes el turno antes de que la herramienta lo registre\n` +
+          `  - Nunca menciones JSON, código ni datos internos\n` +
+          `  - Si el cliente dice "también quiero el de las X" → es un NUEVO turno, no un reagendamiento\n` +
+          `  - Si el cliente dice "el de las X" y X es la hora de FIN de un slot (ej: slot 12:00-13:00, cliente dice "el de las 13") → interpretarlo como ese slot (12:00)\n` +
+          `  - Si el cliente pide una hora que no fue mostrada como disponible, explicale cuáles SÍ están disponibles y ofrecele esas opciones\n` +
+          `💬 ESTILO DE RESPUESTA: Natural, cálido y profesional. Máximo 6 líneas. Sin listas largas ni tecnicismos.\n` +
+          (catalogoStr
+            ? `📦 PRODUCTOS DISPONIBLES:\n${catalogoStr}\nUsá consultar_catalogo si el cliente pregunta por algún producto.\n`
+            : '') +
+          (PROMPT_EXTRA ? `\n🔔 INSTRUCCIONES ESPECIALES DEL NEGOCIO:\n${PROMPT_EXTRA}\n` : '');
+
+    const sys = {
+      role: 'system',
+      content:
+        sysContent +
+        '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
+    };
+
+    // Sanitizar historial: eliminar tool_calls huérfanos (sin tool_result siguiente)
+    // y mensajes tool sin assistant previo — causan que el LLM repita bookings viejos.
+    const MAX_HIST = 30;
+
+    // ── Memoria de largo plazo (perfilResumen) ──────────────────────────
+    // NO se actualiza en cada mensaje (gastaría tokens de más). Solo quando
+    // el historial CRUDO está a punto de truncarse a MAX_HIST le pedimos al
+    // LLM una llamada corta y sin tools que actualice el resumen ANTES de
+    // descartar los mensajes viejos — así no se pierde el contexto que el
+    // recorte está a punto de tirar. El campo persiste en Mongo (BotCliente
+    // .perfilResumen) y nunca se resetea.
+    if (perfilClienteSvc.debeActualizarPerfil(usuario.historial, MAX_HIST)) {
+      usuario.perfilResumen = await perfilClienteSvc.actualizarPerfilResumen({
+        groqSvc,
+        perfilActual: usuario.perfilResumen,
+        historial: usuario.historial,
+        nombreCliente: usuario.nombre,
+        maxHist: MAX_HIST,
+        log,
+      });
+    }
+
+    const histLimpio = (() => {
+      const raw = usuario.historial.slice(-MAX_HIST);
+      const clean = [];
+      for (let i = 0; i < raw.length; i++) {
+        const m = raw[i];
+        if (m.role === 'assistant' && m.tool_calls?.length > 0) {
+          const next = raw[i + 1];
+          if (!next || next.role !== 'tool') continue; // huérfano — saltearlo
+        }
+        if (m.role === 'tool') {
+          const prev = clean[clean.length - 1];
+          if (!prev || prev.role !== 'assistant' || !prev.tool_calls?.length) continue;
+        }
+        clean.push(m);
+      }
+      return clean;
+    })();
+    log(`[DBG] Groq CALL → ${histLimpio.length} msgs en historial`);
+    let resp = await groqSvc.llamarGroq([sys, ...histLimpio]);
+    log(`[DBG] Groq OK → choices=${resp?.choices?.length}`);
+    let msg = resp.choices[0].message;
+
+    // ── Guardia: el modelo a veces "alucina" el nombre de una tool como
+    // texto plano en vez de invocarla (ej: responde literalmente
+    // "consultar_disponibilidad") — eso le llega crudo a un cliente real de
+    // WhatsApp. Si detectamos que TODA la respuesta es solo el nombre de una
+    // tool conocida, reintentamos una vez antes de mandar cualquier cosa.
+    if (!msg.tool_calls?.length && esRespuestaSoloNombreDeTool(msg.content, groqSvc.herramientas())) {
+      log(`⚠️ Respuesta sin tool_calls pero es solo el nombre de una tool — reintentando: "${msg.content}"`);
+      try {
+        resp = await groqSvc.llamarGroq([sys, ...histLimpio]);
+        msg = resp.choices[0].message;
+      } catch (e) { /* seguimos con el fallback de abajo si el reintento también falla */ }
+      if (!msg.tool_calls?.length && esRespuestaSoloNombreDeTool(msg.content, groqSvc.herramientas())) {
+        msg = { role: 'assistant', content: 'Dejame confirmarte eso en un segundo 🙏 ¿me repetís la consulta?' };
+      }
+    }
+
+    if (msg.tool_calls?.length > 0) {
+      // Guardar posición antes de agregar mensajes de tools — para armar msgs2 limpio
+      const histLenAntesTools = histLimpio.length;
+      usuario.historial.push({ role: msg.role, content: msg.content, tool_calls: msg.tool_calls });
+      for (const t of msg.tool_calls) {
+        let args = {};
+        try {
+          args = JSON.parse(t.function.arguments);
+        } catch (e) {
+          log(`⚠️ Tool ${t.function.name}: arguments inválido — ${e.message}`);
+        }
+        log(`🔧 Tool: ${t.function.name}`);
+        await ejecutarTool(t, args, jid, usuario);
+      }
+
+      // Segunda llamada Groq: usar histLimpio (sanitizado) + los mensajes nuevos del turno
+      // (assistant con tool_calls + tool results). Evita mandar todo usuario.historial que
+      // puede incluir mensajes sin sanear y es más largo que necesario.
+      const newToolMsgs = usuario.historial.slice(histLenAntesTools);
+
+      // ── LINK MP solo del TURNO ACTUAL ────────────────────────────
+      // 🚨 BUG CRÍTICO ANTERIOR: el código buscaba en TODO usuario.historial,
+      // así que un link MP de un agendar_turno PREVIO quedaba "pegado" y
+      // reaparecía en cada respuesta posterior — incluso cuando el cliente
+      // solo preguntaba disponibilidad. Ahora SOLO miramos los tool_messages
+      // generados en esta MISMA interacción (newToolMsgs), y SOLO si el
+      // assistant llamó una tool que genera link (agendar_*).
+      const toolsQueGeneranLink = new Set([
+        'agendar_turno',
+        'agendar_servicio',
+        'agendar_alojamiento',
+      ]);
+      const llamoToolDePago = msg.tool_calls?.some((t) =>
+        toolsQueGeneranLink.has(t?.function?.name),
+      );
+      let linkMP = null;
+      if (llamoToolDePago) {
+        for (const m of newToolMsgs) {
+          if (m.role === 'tool' && m.content) {
+            const match = m.content.match(/Link:\s*(https:\/\/www\.mercadopago\.com\.ar[^\s.]+)/);
+            if (match) {
+              linkMP = match[1];
+              break;
+            }
+          }
+        }
+      }
+      const msgs2 = [
+        {
+          role: 'system',
+          content: construirSystemPromptRespuestaFinal(
+            MI_NOMBRE,
+            usuario.nombre,
+            msg.tool_calls,
+            linkMP,
+          ),
+        },
+        ...histLimpio,
+        ...newToolMsgs,
+      ];
+      try {
+        resp = await groqSvc.llamarGroq(msgs2, false);
+        msg = resp.choices[0].message;
+      } catch (e) {
+        if (e.isRateLimit || e.isToolUseFailed)
+          msg = {
+            role: 'assistant',
+            content: '¡Listo! Revisá el mensaje anterior. ¿Te quedó alguna duda? 😊',
+          };
+        else throw e;
+      }
+
+      if (linkMP && msg.content && !msg.content.includes('mercadopago.com.ar')) {
+        msg = {
+          ...msg,
+          content:
+            msg.content.trim() +
+            `\n\n💳 *Para confirmar tu turno, pagá aquí:*\n${linkMP}\n\n⏳ Tenés 30 minutos para pagar, sino se cancela.`,
+        };
+      }
+    }
+
+    return limpiarRespuesta(msg.content);
+  }
+
+  // ── Ejecutor de tools ────────────────────────────────────────
+  async function ejecutarTool(tool, args, jid, usuario) {
+    const push = (c) =>
+      usuario.historial.push({
+        role: 'tool',
+        tool_call_id: tool.id,
+        name: tool.function.name,
+        content: c,
+      });
+
+    if (tool.function.name === 'consultar_disponibilidad') {
+      log(`[Calendar] consultar_disponibilidad → fecha=${args.fecha} userId=${USER_ID}`);
+      try {
+        const libres = await calendar.horariosLibres(args.fecha);
+        log(
+          `[Calendar] horariosLibres → ${libres.length} slots libres: ${libres.join(', ') || 'ninguno'}`,
+        );
+        const res =
+          libres.length > 0
+            ? `Horarios libres para ${args.fecha}: ${libres.join(', ')}`
+            : `No hay horarios disponibles para el ${args.fecha}.`;
+        if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+        cacheTemporal[jid].ultimaConsulta = { fecha: args.fecha, libres, ts: Date.now() };
+        db.guardar(CACHE_PATH, cacheTemporal);
+        push(res);
+      } catch (e) {
+        log(`❌ [Calendar] horariosLibres ERROR: ${e.message}`);
+        push(
+          `Horarios de atención: ${MI_NOMBRE} atiende de lunes a viernes. Pedile al cliente que elija una fecha y te diga qué hora le queda bien.`,
+        );
+      }
+      return;
+    }
+
+    if (tool.function.name === 'agendar_turno') {
+      const msgs = usuario.historial
+        .filter((m) => m.role === 'user')
+        .map((m) => (m.content || '').toLowerCase());
+      const ultimo = msgs[msgs.length - 1] || '';
+      // CONFIRMACIÓN = elección clara, NO pregunta.
+      // 1) Si es pregunta ("puede ser?", "me podés agendar?") → BLOQUEA
+      // 2) Confirma si: tiene palabra explícita ("sí/dale/confirmo/...")
+      //    O elige la hora directamente ("el de las 11", "11", "a las 11", "11:00")
+      const esPregunta = /\?\s*$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/, /\blisto\b/, /\bperfecto\b/,
+      ];
+      const tieneConfirmacionExplicita = palabrasConfirmacion.some((re) => re.test(ultimo));
+      // Eligió la hora directamente: "el de las 11", "las 11", "11hs", "11:00", "a las 11"
+      const horaNum = parseInt(args.hora?.split(':')[0]);
+      const eligioHora = !isNaN(horaNum) && (
+        new RegExp(`\\b${horaNum}\\s*(:|hs|hrs|h\\b)`, 'i').test(ultimo) ||
+        new RegExp(`\\b(el|las|a las|el de las|de las)\\s+${horaNum}\\b`, 'i').test(ultimo) ||
+        new RegExp(`^${horaNum}$`).test(ultimo.trim())
+      );
+      const confirma = !esPregunta && (tieneConfirmacionExplicita || eligioHora);
+      if (!confirma) {
+        push(
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo el turno del ${args.fecha} a las ${args.hora}? Decime 'dale' y te paso el link de pago." Esperá su confirmación EXPLÍCITA (sí/dale/confirmo/ok) o que elija claramente la hora ("el de las X") antes de llamar agendar_turno de nuevo.`,
+        );
+        return;
+      }
+      if (cacheTemporal[jid]?.preseleccionado) {
+        delete cacheTemporal[jid].preseleccionado;
+        db.guardar(CACHE_PATH, cacheTemporal);
+      }
+      limpiarExpiradas();
+      const pend = pendienteActual(jid);
+      if (pend) {
+        push(`Ya tenés reserva pendiente para el ${pend.fecha} ${pend.hora}. Pagá esa primero.`);
+        return;
+      }
+      // 🚨 NO confiar en args.hora_fin del LLM: el modelo 8b a veces alucina
+      // hora_fin lejano (ej: cliente dice "el de las 11" y manda hora_fin=14)
+      // → cobraba 3 horas = $30.000 cuando el slot es 1h = $10.000.
+      // Forzamos duración fija de 1 slot (= DURACION_RESERVA_HORAS, default 1h).
+      // Si en el futuro hay slots de duración variable, se maneja por
+      // agendar_servicio (que sí tiene SERVICIOS_LIST con duracion por servicio).
+      const [y, m, d] = args.fecha.split('-').map(Number);
+      const hI = parseInt(args.hora.split(':')[0]);
+      const hFn = hI + DURACION_RESERVA_HORAS;
+      const cant = 1; // siempre 1 slot — el cliente elige UN horario por agendar_turno
+      const total = PRECIO_TURNO * cant;
+      const sk = `${args.fecha}|${args.hora}`;
+      if (slotsEnProceso.has(sk)) {
+        push('El slot ya está siendo procesado. Pedile que elija otro.');
+        return;
+      }
+      slotsEnProceso.add(sk);
+      try {
+        const ini = calendar.crearFecha(y, m, d, hI);
+        const fin = calendar.crearFecha(y, m, d, hFn);
+        const conflictos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+        if (conflictos.length > 0) {
+          push(`El horario ${args.hora}–${hFn}:00 ya está ocupado.`);
+          return;
+        }
+
+        if (MP_ACCESS_TOKEN) {
+          // Si no hay email guardado, pedirlo antes de generar el pago.
+          // El email es REQUERIDO para invitar al cliente al evento de Calendar.
+          if (!usuario.email) {
+            cacheTemporal[jid] = {
+              esperandoEmail: true,
+              reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hFn },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            push('Para reservar necesitamos el email del cliente. Pedíselo.');
+            return;
+          }
+          // ── PRE-RESERVAR slot en MongoDB con estado 'pendiente' ─────
+          // Antes de generar el link MP, bloqueamos el slot creando un Turno
+          // pendiente. El índice único (userId+calendarId+fechaInicio) garantiza
+          // que dos clientes NO puedan reservar el mismo slot en paralelo —
+          // el segundo recibirá DuplicateKey y se le pedirá elegir otro horario.
+          // Si el pago confirma → cambiamos estado a 'confirmado' (atómico).
+          // Si vence sin pagar → limpiarExpiradas() lo marca 'cancelado'.
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: `Turno — ${usuario.nombre}`,
+              descripcion: `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Email: ${usuario.email}`,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: usuario.numeroReal || extraerNumero(jid),
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Turno] Slot ya tomado por otro cliente: ${args.fecha} ${args.hora}`);
+              push('SLOT_OCUPADO: Ese horario acaba de ser reservado por otro cliente. Llamá a consultar_disponibilidad y pedile que elija otro.');
+              return;
+            }
+            throw e;
+          }
+          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hFn);
+          const rk = `${jid}|${args.fecha}|${args.hora}|${hFn || args.hora}`;
+          reservasPendientes[rk] = {
+            chatId: jid,
+            fecha: args.fecha,
+            hora: args.hora,
+            horaFin: hFn,
+            nombre: usuario.nombre,
+            email: usuario.email,
+            cant,
+            total,
+            turnoId: turnoPendiente._id.toString(), // 🔥 ID del Turno pendiente para confirmar en webhook
+            expiresAt: Date.now() + 30 * 60000,
+          };
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          push(
+            `Link generado. Reserva: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. Link: ${pref.init_point}. Solo se agenda si paga. Vence en 30 min.`,
+          );
+          // Notificar al dueño (reserva pendiente de pago)
+          notificarDueno(
+            `🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💳 Esperando pago MP ($${total})\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+          );
+        } else {
+          // ── Flujo sin MercadoPago: agendar directo + transferencia ──
+          const desc = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+          const evento = await calendar.crearEvento(
+            CALENDAR_ID,
+            `Turno — ${usuario.nombre}`,
+            desc,
+            ini,
+            fin,
+            usuario.email,
+            usuario.numeroReal || extraerNumero(jid),
+          );
+
+          if (evento?.slotOcupado) {
+            log(`⚠️ [Turno] Slot ya ocupado: ${args.fecha} ${args.hora}`);
+            push('SLOT_OCUPADO: Ese horario acaba de ser reservado por otro cliente. Pedile que elija otro horario y llamá a consultar_disponibilidad para mostrarle los slots actualizados.');
+          } else if (!evento) {
+            // El evento no se creó en Calendar — no confirmar al cliente
+            log(`❌ [Turno] crearEvento falló para ${usuario.nombre} ${args.fecha} ${args.hora}`);
+            push(
+              `ERROR_CALENDAR: El turno NO fue guardado en el sistema. NO confirmes el turno. Decile al cliente que hubo un problema técnico y que ${MI_NOMBRE} lo va a contactar para confirmar manualmente.`,
+            );
+          } else {
+            usuario.turnosConfirmados = [
+              ...(usuario.turnosConfirmados || []),
+              { fecha: args.fecha, hora: args.hora, horaFin: `${hFn}:00` },
+            ];
+            clientesSvc.guardarMemoria(jid, usuario);
+            programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+            programarResena(jid, evento.id, usuario.nombre, args.fecha, `${hFn}:00`);
+
+            // Notificar al dueño
+            notificarDueno(
+              `✅ *Nuevo turno confirmado*\n👤 ${usuario.nombre}\n📅 ${args.fecha} a las ${args.hora}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+            );
+
+            // Armar instrucción de pago con datos REALES (nunca inventados)
+            let infoPago = '';
+            if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+              infoPago =
+                `Indicale que pague $${total} ARS por transferencia al` +
+                (ALIAS_TRANSFERENCIA ? ` Alias: ${ALIAS_TRANSFERENCIA}` : '') +
+                (CBU_TRANSFERENCIA ? ` / CBU/CVU: ${CBU_TRANSFERENCIA}` : '') +
+                ` y que mande el comprobante para confirmar.`;
+            } else {
+              infoPago = `No hay método de pago configurado. Indicale que ${MI_NOMBRE} le va a confirmar cómo abonar.`;
+            }
+            push(
+              `Turno confirmado y agendado: ${args.fecha} ${args.hora}–${hFn}:00 $${total} ARS. ${infoPago}`,
+            );
+          }
+        }
+      } catch (e) {
+        log('[Pago] ' + e.message);
+        // Este catch se llevaba puesto reservas enteras en silencio (solo iba al panel
+        // "Actividad en vivo", que nadie mira en el momento) — ahora también al log del
+        // servidor para poder diagnosticar sin depender de tener el dashboard abierto.
+        winstonLogger.error(`[Pago] user=${USER_ID} jid=${jid} fecha=${args?.fecha} hora=${args?.hora}: ${e.stack || e.message}`);
+        push(`Error al procesar la reserva: ${e.message}.`);
+      } finally {
+        slotsEnProceso.delete(sk);
+      }
+      return;
+    }
+
+    // ── Tools de ALOJAMIENTO ─────────────────────────────────────
+    if (tool.function.name === 'consultar_disponibilidad_alojamiento') {
+      const { fecha_entrada, fecha_salida, nombre_unidad, huespedes } = args;
+      const noches = Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000);
+      if (noches < MINIMA_ESTADIA) {
+        push(`Estadía mínima: ${MINIMA_ESTADIA} noche(s). El cliente pidió ${noches}.`);
+        return;
+      }
+
+      // Con múltiples unidades: consultar cada una (o solo la solicitada)
+      if (UNIDADES_ALOJAMIENTO.length > 0) {
+        const unidadesAConsultar = nombre_unidad
+          ? UNIDADES_ALOJAMIENTO.filter((u) =>
+              u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()),
+            )
+          : UNIDADES_ALOJAMIENTO.filter((u) => !huespedes || u.capacidad >= Number(huespedes));
+
+        if (unidadesAConsultar.length === 0) {
+          push(`No hay unidades con capacidad para ${huespedes || 'esa cantidad'} de huéspedes.`);
+          return;
+        }
+
+        const resultados = await Promise.all(
+          unidadesAConsultar.map(async (u) => {
+            const { disponible, motivo } = await calendar.consultarRango(
+              fecha_entrada,
+              fecha_salida,
+              u.nombre,
+            );
+            return { unidad: u, disponible, motivo };
+          }),
+        );
+
+        const disponibles = resultados.filter((r) => r.disponible);
+        if (disponibles.length === 0) {
+          const motivo = resultados[0]?.motivo;
+          push(motivo || `No hay unidades disponibles del ${fecha_entrada} al ${fecha_salida}.`);
+          return;
+        }
+
+        if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+        cacheTemporal[jid].ultimaConsultaAloj = {
+          fechaEntrada: fecha_entrada,
+          fechaSalida: fecha_salida,
+          noches,
+          ts: Date.now(),
+        };
+        db.guardar(CACHE_PATH, cacheTemporal);
+
+        const infoDisponibles = disponibles
+          .map(
+            (r) =>
+              `${r.unidad.nombre} (cap. ${r.unidad.capacidad} pers.) — $${r.unidad.precioPorNoche * noches} ARS (${noches} noches)`,
+          )
+          .join(' | ');
+        push(
+          `Disponibles del ${fecha_entrada} al ${fecha_salida}: ${infoDisponibles}. Check-in: ${CHECK_IN_HORA} hs. Check-out: ${CHECK_OUT_HORA} hs.${DIRECCION_PROPIEDAD ? ` Dirección: ${DIRECCION_PROPIEDAD}.` : ''}`,
+        );
+        return;
+      }
+
+      // Sin unidades configuradas: comportamiento simple (una sola propiedad)
+      const { disponible, motivo } = await calendar.consultarRango(fecha_entrada, fecha_salida);
+      if (disponible) {
+        if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+        cacheTemporal[jid].ultimaConsultaAloj = {
+          fechaEntrada: fecha_entrada,
+          fechaSalida: fecha_salida,
+          noches,
+          ts: Date.now(),
+        };
+        db.guardar(CACHE_PATH, cacheTemporal);
+        push(
+          `Disponible del ${fecha_entrada} al ${fecha_salida}. ${noches} noche(s). Check-in: ${CHECK_IN_HORA} hs. Check-out: ${CHECK_OUT_HORA} hs.${DIRECCION_PROPIEDAD ? ` Dirección: ${DIRECCION_PROPIEDAD}.` : ''}`,
+        );
+      } else {
+        push(
+          motivo ||
+            `No disponible del ${fecha_entrada} al ${fecha_salida}. Ya hay una reserva en esas fechas.`,
+        );
+      }
+      return;
+    }
+
+    if (tool.function.name === 'agendar_alojamiento') {
+      const { fecha_entrada, fecha_salida, nombre_unidad } = args;
+      const msgs = usuario.historial
+        .filter((m) => m.role === 'user')
+        .map((m) => (m.content || '').toLowerCase());
+      const ultimo = msgs[msgs.length - 1] || '';
+      // Confirmación EXPLÍCITA (no preguntas tipo "puede ser?", "me podés agendar?")
+      const esPregunta = /\?$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/,
+      ];
+      const confirma = !esPregunta && palabrasConfirmacion.some((re) => re.test(ultimo));
+      if (!confirma) {
+        push(
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo la reserva del ${fecha_entrada} al ${fecha_salida}? Si sí, decime "dale" y te paso el link de pago." Esperá confirmación EXPLÍCITA antes de llamar agendar_alojamiento.`,
+        );
+        return;
+      }
+      if (cacheTemporal[jid]?.ultimaConsultaAloj) {
+        delete cacheTemporal[jid].ultimaConsultaAloj;
+        db.guardar(CACHE_PATH, cacheTemporal);
+      }
+      limpiarExpiradas();
+      if (pendienteActual(jid)) {
+        push('Ya hay una reserva pendiente de pago. El cliente debe pagarla primero.');
+        return;
+      }
+
+      // Resolver unidad y precio
+      const unidad = nombre_unidad
+        ? UNIDADES_ALOJAMIENTO.find((u) =>
+            u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()),
+          )
+        : UNIDADES_ALOJAMIENTO[0] || null;
+      const precioPorNoche = unidad ? unidad.precioPorNoche : PRECIO_TURNO;
+      const nombreEvento = unidad
+        ? `Reserva ${unidad.nombre} — ${usuario.nombre}`
+        : `Reserva — ${usuario.nombre}`;
+
+      const noches = Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000);
+      const total = precioPorNoche * noches;
+      const [ye, me, de] = fecha_entrada.split('-').map(Number);
+      const [ys, ms, ds] = fecha_salida.split('-').map(Number);
+      const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
+      const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+      const ini = calendar.crearFecha(ye, me, de, hCI);
+      const fin = calendar.crearFecha(ys, ms, ds, hCO);
+      const sk = `${fecha_entrada}|${fecha_salida}|${unidad?.nombre || ''}`;
+      if (slotsEnProceso.has(sk)) {
+        push('Reserva en proceso. Pedile que espere.');
+        return;
+      }
+      slotsEnProceso.add(sk);
+
+      // Info de ubicación para incluir al confirmar
+      const infoUbicacion = [
+        DIRECCION_PROPIEDAD ? `📍 ${DIRECCION_PROPIEDAD}` : '',
+        LINK_UBICACION ? `🗺️ ${LINK_UBICACION}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      try {
+        // Verificar conflictos solo para esta unidad (si se especificó)
+        const eventos = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+        const conflictos = unidad
+          ? eventos.filter((e) =>
+              (e.summary || '').toLowerCase().includes(unidad.nombre.toLowerCase()),
+            )
+          : eventos;
+        if (conflictos.length > 0) {
+          push(
+            `Las fechas ${fecha_entrada}–${fecha_salida}${unidad ? ` para ${unidad.nombre}` : ''} ya están ocupadas.`,
+          );
+          return;
+        }
+
+        if (MP_ACCESS_TOKEN) {
+          if (!usuario.email) {
+            cacheTemporal[jid] = {
+              ...cacheTemporal[jid],
+              esperandoEmail: true,
+              reservaAlojPendiente: { fecha_entrada, fecha_salida, nombre_unidad },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            push('Necesitamos el email del cliente para el pago. Pedíselo.');
+            return;
+          }
+          const tel = usuario.numeroReal || extraerNumero(jid);
+          // Pre-reservar en MongoDB ANTES de generar el link — sin esto, dos
+          // clientes podían confirmar la misma unidad/fechas mientras ambos
+          // pagos estaban en curso (ventana de hasta 30 min sin ningún bloqueo
+          // real), a diferencia de agendar_turno/agendar_servicio que sí
+          // pre-reservan. Mismo patrón que esos dos.
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: nombreEvento,
+              descripcion: `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${tel}${unidad ? ' | Unidad: ' + unidad.nombre : ''}`,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: tel,
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Aloj] Fechas ya tomadas: ${fecha_entrada}–${fecha_salida}`);
+              push('SLOT_OCUPADO: Otro cliente reservó esas fechas. Llamá a consultar_disponibilidad_alojamiento y pedile que elija otras.');
+              return;
+            }
+            throw e;
+          }
+          // 🚨 BUG ANTERIOR: se llamaba mp.crearPago(jid, nombre, fecha_entrada,
+          // CHECK_IN_HORA, CHECK_OUT_HORA) — la función interpretaba esos dos
+          // últimos como hora/horaFin de un turno por HORA (hF-hI), así que
+          // cobraba PRECIO_TURNO × 1 en vez de precioPorNoche × noches. El
+          // cliente veía el total correcto en el mensaje, pero MercadoPago
+          // cobraba un monto distinto (y menor) en el checkout real.
+          const pref = await mp.crearPago(
+            jid,
+            usuario.nombre,
+            fecha_entrada,
+            CHECK_IN_HORA,
+            CHECK_OUT_HORA,
+            { montoTotal: total, titulo: nombreEvento },
+          );
+          const rk = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
+          reservasPendientes[rk] = {
+            chatId: jid,
+            fecha: fecha_entrada,
+            hora: CHECK_IN_HORA,
+            horaFin: fecha_salida,
+            unidad: unidad?.nombre || '',
+            nombre: usuario.nombre,
+            email: usuario.email,
+            cant: noches,
+            total,
+            totalPrecio: total,
+            turnoId: turnoPendiente._id.toString(),
+            expiresAt: Date.now() + 30 * 60000,
+          };
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          push(
+            `Link de pago generado. ${unidad ? unidad.nombre + ' — ' : ''}${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`,
+          );
+          notificarDueno(
+            `🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+          );
+        } else {
+          const desc = `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}${unidad ? ' | Unidad: ' + unidad.nombre : ''}`;
+          await calendar.crearEvento(
+            CALENDAR_ID,
+            nombreEvento,
+            desc,
+            ini,
+            fin,
+            usuario.email,
+            usuario.numeroReal || extraerNumero(jid),
+          );
+          usuario.turnosConfirmados = [
+            ...(usuario.turnosConfirmados || []),
+            {
+              fecha: fecha_entrada,
+              hora: CHECK_IN_HORA,
+              horaFin: fecha_salida,
+              unidad: unidad?.nombre || '',
+            },
+          ];
+          clientesSvc.guardarMemoria(jid, usuario);
+          let infoPago = '';
+          if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+            infoPago = `Indicale que transfiera $${total} ARS al Alias: ${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU: ${CBU_TRANSFERENCIA}` : ''} y mande comprobante.`;
+          } else {
+            infoPago = `${MI_NOMBRE} le va a indicar cómo abonar.`;
+          }
+          const infoLocacion = infoUbicacion
+            ? ` Al confirmar el pago enviá la ubicación: ${infoUbicacion}.`
+            : '';
+          push(
+            `Reserva confirmada: ${unidad ? unidad.nombre + ' — ' : ''}${fecha_entrada} al ${fecha_salida} — ${noches} noches — $${total} ARS. Check-in ${CHECK_IN_HORA}, Check-out ${CHECK_OUT_HORA}. ${infoPago}${infoLocacion}`,
+          );
+          notificarDueno(
+            `✅ *Nueva reserva confirmada*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+          );
+        }
+      } catch (e) {
+        log('[Aloj] ' + e.message);
+        winstonLogger.error(`[Aloj] user=${USER_ID} jid=${jid}: ${e.stack || e.message}`);
+        push(`Error al procesar la reserva: ${e.message}.`);
+      } finally {
+        slotsEnProceso.delete(sk);
+      }
+      return;
+    }
+
+    if (tool.function.name === 'cancelar_alojamiento') {
+      const { fecha_entrada, nombre_unidad: nu } = args;
+      const t = (usuario.turnosConfirmados || []).find(
+        (t) =>
+          t.fecha === fecha_entrada &&
+          (!nu || !t.unidad || t.unidad.toLowerCase().includes(nu.toLowerCase())),
+      );
+      if (!t) {
+        push(`No encontré reserva con entrada el ${fecha_entrada}.`);
+        return;
+      }
+      const [ye, me, de] = fecha_entrada.split('-').map(Number);
+      const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
+      const hs = (calendar.crearFecha(ye, me, de, hCI).getTime() - Date.now()) / 3600000;
+      if (hs < HORAS_MINIMAS_CANCELACION) {
+        push(`No se puede cancelar: el check-in es en ${Math.round(hs)} hs.`);
+        return;
+      }
+      const fechaSalida = t.horaFin;
+      if (fechaSalida) {
+        const [ys, ms, ds] = fechaSalida.split('-').map(Number);
+        const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+        const evs = await calendar.obtenerEventos(
+          CALENDAR_ID,
+          calendar.crearFecha(ye, me, de, hCI),
+          calendar.crearFecha(ys, ms, ds, hCO),
+        );
+        const ev = evs.find((e) => {
+          const s = (e.summary || '').toLowerCase();
+          return (
+            s.includes(usuario.nombre.toLowerCase()) &&
+            (!t.unidad || s.includes(t.unidad.toLowerCase()))
+          );
+        });
+        if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      }
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(
+        (tc) =>
+          !(
+            tc.fecha === fecha_entrada &&
+            (!nu || !tc.unidad || tc.unidad.toLowerCase().includes(nu.toLowerCase()))
+          ),
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(`Reserva${t.unidad ? ' de ' + t.unidad : ''} del ${fecha_entrada} cancelada.`);
+      return;
+    }
+
+    if (tool.function.name === 'reagendar_alojamiento') {
+      const {
+        fecha_entrada_actual,
+        fecha_entrada_nueva,
+        fecha_salida_nueva,
+        nombre_unidad: nu,
+      } = args;
+      const t = (usuario.turnosConfirmados || []).find(
+        (t) =>
+          t.fecha === fecha_entrada_actual &&
+          (!nu || !t.unidad || t.unidad.toLowerCase().includes(nu.toLowerCase())),
+      );
+      if (!t) {
+        push(`No encontré reserva con entrada el ${fecha_entrada_actual}.`);
+        return;
+      }
+      const [ye, me, de] = fecha_entrada_actual.split('-').map(Number);
+      const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
+      const hs = (calendar.crearFecha(ye, me, de, hCI).getTime() - Date.now()) / 3600000;
+      if (hs < HORAS_MINIMAS_CANCELACION) {
+        push(`No se puede reagendar: el check-in es en ${Math.round(hs)} hs.`);
+        return;
+      }
+      const { disponible } = await calendar.consultarRango(
+        fecha_entrada_nueva,
+        fecha_salida_nueva,
+        t.unidad || null,
+      );
+      if (!disponible) {
+        push(
+          `Las nuevas fechas ${fecha_entrada_nueva}–${fecha_salida_nueva}${t.unidad ? ' para ' + t.unidad : ''} ya están ocupadas.`,
+        );
+        return;
+      }
+      // Eliminar evento viejo
+      const fechaSalidaActual = t.horaFin;
+      if (fechaSalidaActual) {
+        const [ys, ms, ds] = fechaSalidaActual.split('-').map(Number);
+        const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+        const evs = await calendar.obtenerEventos(
+          CALENDAR_ID,
+          calendar.crearFecha(ye, me, de, hCI),
+          calendar.crearFecha(ys, ms, ds, hCO),
+        );
+        const ev = evs.find((e) => {
+          const s = (e.summary || '').toLowerCase();
+          return (
+            s.includes(usuario.nombre.toLowerCase()) &&
+            (!t.unidad || s.includes(t.unidad.toLowerCase()))
+          );
+        });
+        if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      }
+      // Crear evento nuevo
+      const [yn, mn, dn] = fecha_entrada_nueva.split('-').map(Number);
+      const [ys2, ms2, ds2] = fecha_salida_nueva.split('-').map(Number);
+      const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+      const inN = calendar.crearFecha(yn, mn, dn, hCI);
+      const fiN = calendar.crearFecha(ys2, ms2, ds2, hCO);
+      const noches = Math.round(
+        (new Date(fecha_salida_nueva) - new Date(fecha_entrada_nueva)) / 86400000,
+      );
+      const nomEvNuevo = t.unidad
+        ? `Reserva ${t.unidad} — ${usuario.nombre}`
+        : `Reserva — ${usuario.nombre}`;
+      await calendar.crearEvento(
+        CALENDAR_ID,
+        nomEvNuevo,
+        `Reagendado. WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`,
+        inN,
+        fiN,
+        usuario.email,
+        usuario.numeroReal || extraerNumero(jid),
+      );
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map((tc) =>
+        tc.fecha === fecha_entrada_actual &&
+        (!nu || !tc.unidad || tc.unidad.toLowerCase().includes(nu.toLowerCase()))
+          ? { ...tc, fecha: fecha_entrada_nueva, horaFin: fecha_salida_nueva }
+          : tc,
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(
+        `Reserva${t.unidad ? ' de ' + t.unidad : ''} reagendada: ${fecha_entrada_nueva} al ${fecha_salida_nueva} (${noches} noches). Sin costo extra.`,
+      );
+      return;
+    }
+
+    // ── Tools de SERVICIOS (lavaderos, mecánicos, veterinarias) ──
+    if (tool.function.name === 'agendar_servicio') {
+      const msgs = usuario.historial
+        .filter((m) => m.role === 'user')
+        .map((m) => (m.content || '').toLowerCase());
+      const ultimo = msgs[msgs.length - 1] || '';
+      // Confirmación = elección clara, NO pregunta. Acepta "sí/dale/confirmo" O elección directa ("el de las 11")
+      const esPregunta = /\?\s*$/.test(ultimo.trim()) || /\bpuede\b|\bpodes\b|\bpodés\b|\bpodría\b|\bpodrías\b|\bpuedo\b/.test(ultimo);
+      const palabrasConfirmacion = [
+        /\bsi\b/, /\bsí\b/, /\bdale\b/, /\bclaro\b/, /\bok\b/, /\bokis\b/, /\bokey\b/,
+        /\breservame\b/, /\breservá\b/, /\breserva\b/, /\bagendame\b/, /\banotame\b/,
+        /\bponeme\b/, /\bconfirmo\b/, /\bva\b/, /\bme sirve\b/, /\bme queda\b/,
+        /\bvoy\b/, /\bestoy de acuerdo\b/, /\bse confirma\b/, /\blisto\b/, /\bperfecto\b/,
+      ];
+      const tieneConfirmacionExplicita = palabrasConfirmacion.some((re) => re.test(ultimo));
+      const horaNum = parseInt(args.hora?.split(':')[0]);
+      const eligioHora = !isNaN(horaNum) && (
+        new RegExp(`\\b${horaNum}\\s*(:|hs|hrs|h\\b)`, 'i').test(ultimo) ||
+        new RegExp(`\\b(el|las|a las|el de las|de las)\\s+${horaNum}\\b`, 'i').test(ultimo) ||
+        new RegExp(`^${horaNum}$`).test(ultimo.trim())
+      );
+      const confirma = !esPregunta && (tieneConfirmacionExplicita || eligioHora);
+      if (!confirma) {
+        push(
+          `El cliente AÚN no confirmó. NO mandes link de pago. Preguntale literalmente: "¿Te confirmo ${args.servicio} para el ${args.fecha} a las ${args.hora}? Decime 'dale' y te paso el link." Esperá confirmación EXPLÍCITA o elección clara de hora antes de llamar agendar_servicio.`,
+        );
+        return;
+      }
+
+      limpiarExpiradas();
+      const pend = pendienteActual(jid);
+      if (pend) {
+        push(
+          `Ya hay un servicio pendiente de pago para el ${pend.fecha} ${pend.hora}. Que pague ese primero.`,
+        );
+        return;
+      }
+
+      const sk = `${args.fecha}|${args.hora}`;
+      if (slotsEnProceso.has(sk)) {
+        push('Ese horario ya está siendo procesado. Pedile que elija otro.');
+        return;
+      }
+      slotsEnProceso.add(sk);
+      try {
+        // Calcular precio y duración (en MINUTOS — el slot puede ser 30, 45, 90, etc.)
+        const servicioConf = SERVICIOS_LIST.find((s) =>
+          s.nombre.toLowerCase().includes((args.servicio || '').toLowerCase()),
+        );
+        const durMin = servicioConf?.duracion || 60;
+        const total = servicioConf?.precio || PRECIO_TURNO;
+        const [y, m, d] = args.fecha.split('-').map(Number);
+        const [hh, mm] = args.hora.split(':').map(Number);
+        const hI = hh;
+        const minI = mm || 0;
+        const ini = calendar.crearFecha(y, m, d, hI, minI);
+        // fin = ini + durMin (respeta la duración configurada, NO redondea a hora)
+        const fin = new Date(ini.getTime() + durMin * 60 * 1000);
+        // Para texto al cliente usamos HH:MM real
+        const hFnStr = `${String(fin.getHours()).padStart(2, '0')}:${String(fin.getMinutes()).padStart(2, '0')}`;
+
+        const tituloEvento = `${args.servicio} — ${args.info_item} — ${usuario.nombre}`;
+        const descEvento = `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Ítem: ${args.info_item}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+        const tel = usuario.numeroReal || extraerNumero(jid);
+
+        if (MP_ACCESS_TOKEN) {
+          // Pre-reservar slot en MongoDB antes de generar link MP (anti doble-venta)
+          if (!usuario.email) {
+            cacheTemporal[jid] = {
+              esperandoEmail: true,
+              reservaPendiente: { fecha: args.fecha, hora: args.hora, horaFin: hFnStr },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            push('Para reservar necesitamos el email del cliente. Pedíselo.');
+            return;
+          }
+          const Turno = require('../models/Turno');
+          let turnoPendiente;
+          try {
+            turnoPendiente = await Turno.create({
+              userId: USER_ID,
+              calendarId: CALENDAR_ID || 'principal',
+              resumen: tituloEvento,
+              descripcion: descEvento,
+              fechaInicio: ini,
+              fechaFin: fin,
+              clienteNombre: usuario.nombre,
+              clienteTelefono: tel,
+              clienteEmail: usuario.email,
+              estado: 'pendiente',
+              pago: { monto: total, metodo: 'mercadopago' },
+            });
+          } catch (e) {
+            if (e.code === 11000) {
+              log(`⚠️ [Servicio] Slot ya tomado: ${args.fecha} ${args.hora}`);
+              push('SLOT_OCUPADO: Otro cliente reservó ese horario. Llamá a consultar_disponibilidad y pedile que elija otro.');
+              return;
+            }
+            throw e;
+          }
+          const pref = await mp.crearPago(jid, usuario.nombre, args.fecha, args.hora, hFnStr, { montoTotal: total, titulo: tituloEvento });
+          if (pref?.init_point) {
+            const rk = `${jid}|${args.fecha}|${args.hora}|${hFnStr}`;
+            reservasPendientes[rk] = {
+              chatId: jid,
+              fecha: args.fecha,
+              hora: args.hora,
+              horaFin: hFnStr,
+              nombre: usuario.nombre,
+              email: usuario.email,
+              cant: 1,
+              total,
+              servicio: args.servicio,
+              infoItem: args.info_item,
+              turnoId: turnoPendiente._id.toString(),
+              expiresAt: Date.now() + 30 * 60000,
+            };
+            db.guardar(RESERVAS_PATH, reservasPendientes);
+            push(
+              `Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`,
+            );
+            notificarDueno(
+              `🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💳 Esperando pago MP ($${total})\n📱 +${tel}`,
+            );
+          } else {
+            // Si MP falla, liberar el slot pendiente
+            await Turno.findByIdAndUpdate(turnoPendiente._id, { estado: 'cancelado' }).catch(() => {});
+            push('Error generando link de pago. Intentá de nuevo.');
+          }
+        } else {
+          const evento = await calendar.crearEvento(
+            CALENDAR_ID,
+            tituloEvento,
+            descEvento,
+            ini,
+            fin,
+            usuario.email,
+            usuario.numeroReal || extraerNumero(jid),
+          );
+          if (evento?.slotOcupado) {
+            log(`⚠️ [Servicio] Slot ya ocupado: ${args.fecha} ${args.hora}`);
+            push('SLOT_OCUPADO: Ese horario acaba de ser reservado. Pedile al cliente que elija otro horario y llamá a consultar_disponibilidad para mostrarle los slots actualizados.');
+            return;
+          }
+          if (!evento) {
+            push(
+              'ERROR_CALENDAR: El servicio NO fue guardado. Avisale al cliente que hubo un problema técnico.',
+            );
+            return;
+          }
+          usuario.turnosConfirmados = [
+            ...(usuario.turnosConfirmados || []),
+            {
+              fecha: args.fecha,
+              hora: args.hora,
+              horaFin: hFnStr,
+              servicio: args.servicio,
+              infoItem: args.info_item,
+            },
+          ];
+          clientesSvc.guardarMemoria(jid, usuario);
+          programarRecs(jid, usuario.nombre, args.fecha, args.hora);
+          let infoPago = '';
+          if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+            infoPago = ` Aboná $${total} ARS al Alias: ${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU: ${CBU_TRANSFERENCIA}` : ''} y mandá el comprobante.`;
+          }
+          push(
+            `Servicio confirmado: ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS.${infoPago}`,
+          );
+          notificarDueno(
+            `✅ *Nuevo servicio confirmado*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💰 $${total} ARS\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+          );
+        }
+      } catch (e) {
+        log('[Servicios] ' + e.message);
+        winstonLogger.error(`[Servicios] user=${USER_ID} jid=${jid}: ${e.stack || e.message}`);
+        push('Error al procesar el servicio: ' + e.message);
+      } finally {
+        slotsEnProceso.delete(sk);
+      }
+      return;
+    }
+
+    if (tool.function.name === 'cancelar_servicio') {
+      const t = (usuario.turnosConfirmados || []).find(
+        (t) => t.fecha === args.fecha && t.hora === args.hora,
+      );
+      if (!t) {
+        push(`No encontré servicio para ${args.fecha} ${args.hora}.`);
+        return;
+      }
+      const [y, m, d] = args.fecha.split('-').map(Number);
+      const hI = parseInt(args.hora.split(':')[0]);
+      const hF = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : hI + 1;
+      const evs = await calendar.obtenerEventos(
+        CALENDAR_ID,
+        calendar.crearFecha(y, m, d, hI),
+        calendar.crearFecha(y, m, d, hF),
+      );
+      const ev = evs.find((e) => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(
+        (tc) => !(tc.fecha === args.fecha && tc.hora === args.hora),
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(
+        `Servicio ${t.servicio ? '(' + t.servicio + ')' : ''} del ${args.fecha} ${args.hora} cancelado.`,
+      );
+      notificarDueno(
+        `❌ *Servicio cancelado*\n🔧 ${t.servicio || 'Servicio'}\n🚗 ${t.infoItem || ''}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}`,
+      );
+      return;
+    }
+
+    if (tool.function.name === 'reagendar_servicio') {
+      const t = (usuario.turnosConfirmados || []).find(
+        (tc) => tc.fecha === args.fecha_actual && tc.hora === args.hora_actual,
+      );
+      if (!t) {
+        push(`No encontré servicio para ${args.fecha_actual} ${args.hora_actual}.`);
+        return;
+      }
+      const [ya, ma, da] = args.fecha_actual.split('-').map(Number);
+      const haI = parseInt(args.hora_actual.split(':')[0]);
+      const haF = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : haI + 1;
+      const evs = await calendar.obtenerEventos(
+        CALENDAR_ID,
+        calendar.crearFecha(ya, ma, da, haI),
+        calendar.crearFecha(ya, ma, da, haF),
+      );
+      const ev = evs.find((e) => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      const [yn, mn, dn] = args.fecha_nueva.split('-').map(Number);
+      const hnI = parseInt(args.hora_nueva.split(':')[0]);
+      const durMin = (() => {
+        const s = SERVICIOS_LIST.find((s) =>
+          s.nombre.toLowerCase().includes((t.servicio || '').toLowerCase()),
+        );
+        return s?.duracion || 60;
+      })();
+      const hnF = hnI + Math.ceil(durMin / 60);
+      const hnFStr = `${String(hnF).padStart(2, '0')}:00`;
+      const tituloEvento = `${t.servicio || 'Servicio'} — ${t.infoItem || ''} — ${usuario.nombre}`;
+      await calendar.crearEvento(
+        CALENDAR_ID,
+        tituloEvento,
+        `Reagendado. WhatsApp: +${usuario.numeroReal || extraerNumero(jid)}`,
+        calendar.crearFecha(yn, mn, dn, hnI),
+        calendar.crearFecha(yn, mn, dn, hnF),
+        usuario.email,
+        usuario.numeroReal || extraerNumero(jid),
+      );
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map((tc) =>
+        tc.fecha === args.fecha_actual && tc.hora === args.hora_actual
+          ? { ...tc, fecha: args.fecha_nueva, hora: args.hora_nueva, horaFin: hnFStr }
+          : tc,
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      push(
+        `Servicio ${t.servicio ? '(' + t.servicio + ')' : ''} reagendado: ${args.fecha_nueva} ${args.hora_nueva}–${hnFStr}. Sin costo extra.`,
+      );
+      return;
+    }
+
+    if (tool.function.name === 'cancelar_turno') {
+      const t = (usuario.turnosConfirmados || []).find(
+        (t) => t.fecha === args.fecha && t.hora === args.hora,
+      );
+      if (!t) {
+        push(`No encontré turno para ${args.fecha} ${args.hora}.`);
+        return;
+      }
+      const [y, m, d] = args.fecha.split('-').map(Number);
+      const h = parseInt(args.hora.split(':')[0]);
+      const hs = (calendar.crearFecha(y, m, d, h, 0).getTime() - Date.now()) / 3600000;
+      if (hs < HORAS_MINIMAS_CANCELACION) {
+        push(`No se puede cancelar: faltan solo ${Math.round(hs)}hs.`);
+        return;
+      }
+      const hF = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : h + 1;
+      const evs = await calendar.obtenerEventos(
+        CALENDAR_ID,
+        calendar.crearFecha(y, m, d, h),
+        calendar.crearFecha(y, m, d, hF),
+      );
+      const ev = evs.find((e) => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).filter(
+        (t) => !(t.fecha === args.fecha && t.hora === args.hora),
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      // Notificar al siguiente en la lista de espera
+      await waitlistSvc.notificarSiguiente(args.fecha, args.hora, enviarMensaje, notificarDueno);
+      // Cancelar recordatorios programados para este turno
+      const recKey = `${jid}|${args.fecha}|${args.hora}`;
+      delete recordatoriosActivos[recKey];
+      db.guardar(RECORDATORIOS_PATH, recordatoriosActivos);
+      for (const label of ['24h', '4h', '30min']) {
+        const tk = `${recKey}|${label}`;
+        if (timeoutsRecs[tk]) {
+          clearTimeout(timeoutsRecs[tk]);
+          delete timeoutsRecs[tk];
+        }
+      }
+      push(`Turno ${args.fecha} ${args.hora} cancelado.`);
+      return;
+    }
+
+    if (tool.function.name === 'anotarse_en_waitlist') {
+      const tel = usuario.numeroReal || extraerNumero(jid);
+      const res = await waitlistSvc.agregarALista(
+        jid,
+        usuario.nombre,
+        tel,
+        args.fecha,
+        args.hora || null,
+      );
+      if (res.ok) {
+        push(
+          `Cliente ${usuario.nombre} anotado en lista de espera para ${args.fecha}${args.hora ? ' ' + args.hora : ''}. Confirmale que lo vamos a contactar cuando se libere un turno.`,
+        );
+      } else {
+        push(res.msg || 'No se pudo anotar en la lista de espera.');
+      }
+      return;
+    }
+
+    if (tool.function.name === 'reagendar_turno') {
+      const t = (usuario.turnosConfirmados || []).find(
+        (t) => t.fecha === args.fecha_actual && t.hora === args.hora_actual,
+      );
+      if (!t) {
+        push(`No encontré turno para ${args.fecha_actual} ${args.hora_actual}.`);
+        return;
+      }
+      const [ya, ma, da] = args.fecha_actual.split('-').map(Number);
+      const ha = parseInt(args.hora_actual.split(':')[0]);
+      const hs = (calendar.crearFecha(ya, ma, da, ha).getTime() - Date.now()) / 3600000;
+      if (hs < HORAS_MINIMAS_CANCELACION) {
+        push(`No se puede reagendar: faltan solo ${Math.round(hs)}hs.`);
+        return;
+      }
+      const hfa = t.horaFin ? parseInt(t.horaFin.split(':')[0]) : ha + 1;
+      const dur = Math.max(1, hfa - ha);
+      const [yn, mn, dn] = args.fecha_nueva.split('-').map(Number);
+      const hn = parseInt(args.hora_nueva.split(':')[0]);
+      const hfn = Math.min(hn + dur, HORA_FIN_DIA);
+      const hfnStr = `${String(hfn).padStart(2, '0')}:00`;
+      const ini = calendar.crearFecha(yn, mn, dn, hn);
+      const fin = calendar.crearFecha(yn, mn, dn, hfn);
+      const conf = await calendar.obtenerEventos(CALENDAR_ID, ini, fin);
+      const confR = conf.filter(
+        (e) =>
+          !(
+            e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()) &&
+            args.fecha_nueva === args.fecha_actual
+          ),
+      );
+      if (confR.length > 0) {
+        push(`El horario ${args.fecha_nueva} ${args.hora_nueva}–${hfnStr} ya está ocupado.`);
+        return;
+      }
+      const evs = await calendar.obtenerEventos(
+        CALENDAR_ID,
+        calendar.crearFecha(ya, ma, da, ha),
+        calendar.crearFecha(ya, ma, da, hfa),
+      );
+      const ev = evs.find((e) => e.summary?.toLowerCase().includes(usuario.nombre.toLowerCase()));
+      // FIX: crear el nuevo turno ANTES de eliminar el viejo.
+      // Si la creación falla, el turno original queda intacto.
+      const nuevo = await calendar.crearEvento(
+        CALENDAR_ID,
+        `Turno — ${usuario.nombre}`,
+        `WhatsApp: +${usuario.numeroReal || extraerNumero(jid)} | Reagendado desde ${args.fecha_actual} ${args.hora_actual}`,
+        ini,
+        fin,
+        usuario.email,
+        usuario.numeroReal || extraerNumero(jid),
+      );
+      if (!nuevo) {
+        push('Error creando nuevo evento.');
+        return;
+      }
+      if (ev) await calendar.eliminarEvento(CALENDAR_ID, ev.id);
+      usuario.turnosConfirmados = (usuario.turnosConfirmados || []).map((tc) =>
+        tc.fecha === args.fecha_actual && tc.hora === args.hora_actual
+          ? { ...tc, fecha: args.fecha_nueva, hora: args.hora_nueva, horaFin: hfnStr }
+          : tc,
+      );
+      clientesSvc.guardarMemoria(jid, usuario);
+      programarRecs(jid, usuario.nombre, args.fecha_nueva, args.hora_nueva);
+      push(`Reagendado: ${args.fecha_nueva} ${args.hora_nueva}–${hfnStr}. Sin costo extra.`);
+    }
+
+    // ── Tool: buscar en catálogo de productos ───────────────────
+    if (tool.function.name === 'consultar_catalogo') {
+      const { query = '', categoria = '' } = args;
+      const q = query.toLowerCase();
+      const cat = categoria.toLowerCase();
+      const resultados = CATALOGO.filter((p) => {
+        if (!p.disponible) return false;
+        if (cat && !(p.categoria || '').toLowerCase().includes(cat)) return false;
+        if (
+          q &&
+          !p.nombre.toLowerCase().includes(q) &&
+          !(p.descripcion || '').toLowerCase().includes(q)
+        )
+          return false;
+        return true;
+      });
+      if (resultados.length === 0) {
+        push(
+          'No encontré productos que coincidan con la búsqueda. Chequeá con el negocio directamente.',
+        );
+        return;
+      }
+      push(
+        resultados
+          .map(
+            (p) =>
+              `*${p.nombre}* — $${p.precio.toLocaleString('es-AR')} ${p.moneda || 'ARS'}` +
+              (p.descripcion ? `\n${p.descripcion}` : '') +
+              (p.categoria ? ` [${p.categoria}]` : '') +
+              (p.stock >= 0 ? `\nStock disponible: ${p.stock}` : ''),
+          )
+          .join('\n\n'),
+      );
+      return;
+    }
+  }
+
+  // ── Pago post-email ──────────────────────────────────────────
+  async function generarPago(jid, usuario, fecha, hora, horaFin = null) {
+    try {
+      limpiarExpiradas();
+      const pend = pendienteActual(jid);
+      if (pend) {
+        await enviarMensaje(
+          jid,
+          `Ojo, ${usuario.nombre}! Ya tenés un turno pendiente para el *${pend.fecha}* a las *${pend.hora}*. Pagá ese primero. 💳`,
+        );
+        return;
+      }
+      const hI = parseInt(hora.split(':')[0]);
+      const hF = horaFin ? parseInt(horaFin.split(':')[0]) : hI + 1;
+      const cant = Math.max(1, hF - hI);
+      const total = PRECIO_TURNO * cant;
+      const [y, m, d] = fecha.split('-').map(Number);
+      const ini = calendar.crearFecha(y, m, d, hI);
+      const fin = calendar.crearFecha(y, m, d, hF);
+      const tel = usuario.numeroReal || extraerNumero(jid);
+
+      // Sin MercadoPago: agendar directo + transferencia
+      if (!MP_ACCESS_TOKEN) {
+        const desc = `WhatsApp: +${tel}${usuario.email ? ' | Email: ' + usuario.email : ''}`;
+        const evento = await calendar.crearEvento(
+          CALENDAR_ID,
+          `Turno — ${usuario.nombre}`,
+          desc,
+          ini,
+          fin,
+          usuario.email,
+          tel,
+        );
+        if (evento?.slotOcupado) {
+          await enviarMensaje(jid, `¡Ups! El horario ${hora} acaba de ser tomado por otro cliente. ¿Te queda bien otro horario?`);
+          return;
+        }
+        if (!evento || !evento.id) {
+          await enviarMensaje(jid, `¡Ups! Hubo un problema técnico al guardar el turno. ${MI_NOMBRE} te contacta para confirmar manualmente. 🙏`);
+          notificarDueno(`🚨 Error guardando turno de ${usuario.nombre} (${fecha} ${hora}) — confirmar manual.`);
+          return;
+        }
+        usuario.turnosConfirmados = [
+          ...(usuario.turnosConfirmados || []),
+          { fecha, hora, horaFin: horaFin || null, turnoId: evento.id },
+        ];
+        clientesSvc.guardarMemoria(jid, usuario);
+        programarRecs(jid, usuario.nombre, fecha, hora);
+        const r = horaFin ? `de *${hora}* a *${horaFin}*` : `a las *${hora}*`;
+        let msg = `¡Perfecto, ${usuario.nombre}! 🎉 Tu turno del *${fecha}* ${r} está confirmado.\n\n💰 *Total: $${total} ARS*\n\n`;
+        if (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) {
+          msg += `📲 *Pagá por transferencia:*\n`;
+          if (ALIAS_TRANSFERENCIA) msg += `• Alias: *${ALIAS_TRANSFERENCIA}*\n`;
+          if (CBU_TRANSFERENCIA) msg += `• CBU/CVU: *${CBU_TRANSFERENCIA}*\n`;
+          msg += `\n📸 Mandanos el *comprobante* para confirmar. ✅`;
+        } else {
+          msg += `${MI_NOMBRE} te va a indicar cómo abonar. ✅`;
+        }
+        await enviarMensaje(jid, msg);
+        notificarDueno(`✅ *Turno agendado*\n👤 ${usuario.nombre}\n📅 ${fecha} ${hora}\n💰 $${total} (transferencia pendiente)\n📱 +${tel}`);
+        return;
+      }
+
+      // ── Flujo con MercadoPago: pre-reservar slot y generar link ──
+      // Pre-reserva en MongoDB (estado='pendiente') ANTES de generar link.
+      // El índice único previene que dos clientes paguen el mismo slot.
+      const Turno = require('../models/Turno');
+      let turnoPendiente;
+      try {
+        turnoPendiente = await Turno.create({
+          userId: USER_ID,
+          calendarId: CALENDAR_ID || 'principal',
+          resumen: `Turno — ${usuario.nombre}`,
+          descripcion: `WhatsApp: +${tel} | Email: ${usuario.email}`,
+          fechaInicio: ini,
+          fechaFin: fin,
+          clienteNombre: usuario.nombre,
+          clienteTelefono: tel,
+          clienteEmail: usuario.email,
+          estado: 'pendiente',
+          pago: { monto: total, metodo: 'mercadopago' },
+        });
+      } catch (e) {
+        if (e.code === 11000) {
+          await enviarMensaje(jid, `¡Ups! El horario ${hora} acaba de ser reservado por otro cliente. ¿Te queda bien otro?`);
+          return;
+        }
+        throw e;
+      }
+      const pref = await mp.crearPago(jid, usuario.nombre, fecha, hora, horaFin);
+      const rk = `${jid}|${fecha}|${hora}|${horaFin || hora}`;
+      reservasPendientes[rk] = {
+        chatId: jid,
+        fecha,
+        hora,
+        horaFin,
+        nombre: usuario.nombre,
+        email: usuario.email,
+        cant,
+        total,
+        turnoId: turnoPendiente._id.toString(),
+        expiresAt: Date.now() + 30 * 60000,
+      };
+      db.guardar(RESERVAS_PATH, reservasPendientes);
+      const r = horaFin ? `de *${hora}* a *${horaFin}*` : `a las *${hora}*`;
+      await enviarMensaje(
+        jid,
+        `¡Perfecto! 🎉 Para confirmar tu turno del *${fecha}* ${r}:\n\n💳 *Pagá aquí:*\n${pref.init_point}\n\n💰 *$${total} ARS*${cant > 1 ? ` (${cant} × $${PRECIO_TURNO})` : ''}\n⏳ Vence en 30 min. ✅`,
+      );
+    } catch (e) {
+      log('[MP] Error pago: ' + e.message);
+      await enviarMensaje(
+        jid,
+        '¡Ups! Error generando el link de pago. Intentá en unos minutos. 🙏',
+      );
+    }
+  }
+
+  // ── Registro de nombre ───────────────────────────────────────
+  async function registrarNombre(jid, texto, tel, pushName = '') {
+    if (!cacheTemporal[jid]) {
+      // Si WhatsApp nos da el nombre del contacto y es válido, usarlo directamente
+      if (pushName && esNombreValido(pushName)) {
+        const nombre = capitalizar(quitarEmojis(pushName.trim()));
+        const u = {
+          nombre,
+          telefono: jid,
+          numeroReal: tel,
+          email: null,
+          historial: [
+            { role: 'assistant', content: '¡Hola!' },
+            { role: 'user', content: nombre },
+          ],
+          silenciado: false,
+        };
+        clientesSvc.guardarMemoria(jid, u);
+        const s = `¡Hola, ${nombre}! ✨ Soy Akira, asistente de *${MI_NOMBRE}* — ${NEGOCIO}.\n\n¿En qué te puedo ayudar? 😊`;
+        u.historial.push({ role: 'assistant', content: s });
+        clientesSvc.guardarMemoria(jid, u);
+        await enviarMensaje(jid, s);
+        return true;
+      }
+      cacheTemporal[jid] = { esperandoNombre: true, intentosNombre: 0 };
+      db.guardar(CACHE_PATH, cacheTemporal);
+      await enviarMensaje(
+        jid,
+        `¡Hola! ✨ Soy Akira, asistente de *${MI_NOMBRE}* — ${NEGOCIO}.\n\n¿Cuál es tu nombre? 😊`,
+      );
+      return true;
+    }
+    if (cacheTemporal[jid]?.esperandoNombre) {
+      cacheTemporal[jid].intentosNombre = (cacheTemporal[jid].intentosNombre || 0) + 1;
+      if (!esNombreValido(texto.trim())) {
+        // Después de 2 intentos fallidos, usar el texto como nombre de todas formas
+        // Evita que el cliente quede bloqueado en loop infinito
+        if (cacheTemporal[jid].intentosNombre >= 2) {
+          const nombre = texto.trim().slice(0, 30) || 'Cliente';
+          const u = {
+            nombre,
+            telefono: jid,
+            numeroReal: tel,
+            email: null,
+            historial: [],
+            silenciado: false,
+          };
+          delete cacheTemporal[jid];
+          db.guardar(CACHE_PATH, cacheTemporal);
+          clientesSvc.guardarMemoria(jid, u);
+          const s = `¡Hola! ✨ ¿En qué te puedo ayudar?`;
+          u.historial.push({ role: 'assistant', content: s });
+          clientesSvc.guardarMemoria(jid, u);
+          await enviarMensaje(jid, s);
+          return true;
+        }
+        db.guardar(CACHE_PATH, cacheTemporal);
+        await enviarMensaje(jid, '¿Me decís tu nombre? (solo tu nombre, ej: "María") 😊');
+        return true;
+      }
+      const nombre = capitalizar(quitarEmojis(texto.trim()));
+      const u = {
+        nombre,
+        telefono: jid,
+        numeroReal: tel,
+        email: null,
+        historial: [
+          { role: 'assistant', content: '¡Hola! ¿Cómo es tu nombre?' },
+          { role: 'user', content: nombre },
+        ],
+        silenciado: false,
+      };
+      delete cacheTemporal[jid];
+      db.guardar(CACHE_PATH, cacheTemporal);
+      clientesSvc.guardarMemoria(jid, u);
+      const s = `¡Genial, ${nombre}! Un gusto. 🤝\n\n¿En qué te puedo ayudar hoy?`;
+      u.historial.push({ role: 'assistant', content: s });
+      clientesSvc.guardarMemoria(jid, u);
+      await enviarMensaje(jid, s);
+      return true;
+    }
+    return false;
+  }
+
+  async function capturaEmail(jid, texto, usuario) {
+    if (!esEmailValido(texto.trim())) {
+      await enviarMensaje(
+        jid,
+        '¡Ese email no parece válido! ¿Lo escribís de nuevo? (ej: nombre@gmail.com)',
+      );
+      return;
+    }
+    usuario.email = texto.trim().toLowerCase();
+    clientesSvc.guardarMemoria(jid, usuario);
+
+    const cache = cacheTemporal[jid] || {};
+
+    // ── Flujo alojamiento (agendar_alojamiento con MP configurado) ──
+    if (cache.reservaAlojPendiente) {
+      const { fecha_entrada, fecha_salida, nombre_unidad } = cache.reservaAlojPendiente;
+      delete cacheTemporal[jid];
+      db.guardar(CACHE_PATH, cacheTemporal);
+
+      const unidad = nombre_unidad
+        ? UNIDADES_ALOJAMIENTO.find((u) =>
+            u.nombre.toLowerCase().includes(nombre_unidad.toLowerCase()),
+          )
+        : UNIDADES_ALOJAMIENTO[0] || null;
+      const precioPorNoche = unidad ? unidad.precioPorNoche : PRECIO_TURNO;
+      const noches = Math.max(1, Math.round((new Date(fecha_salida) - new Date(fecha_entrada)) / 86400000));
+      const total  = precioPorNoche * noches;
+
+      try {
+        const nombreEvento = unidad
+          ? `Reserva ${unidad.nombre} — ${usuario.nombre}`
+          : `Reserva — ${usuario.nombre}`;
+        const [ye, me, de] = fecha_entrada.split('-').map(Number);
+        const [ys, ms, ds] = fecha_salida.split('-').map(Number);
+        const hCI = parseInt(CHECK_IN_HORA.split(':')[0]);
+        const hCO = parseInt(CHECK_OUT_HORA.split(':')[0]);
+        const ini = calendar.crearFecha(ye, me, de, hCI);
+        const fin = calendar.crearFecha(ys, ms, ds, hCO);
+        const tel = usuario.numeroReal || extraerNumero(jid);
+
+        // Mismo fix que en agendar_alojamiento: pre-reservar en Mongo antes
+        // del link (cierra la ventana de doble-venta) y cobrar el monto
+        // EXPLÍCITO calculado (precioPorNoche × noches), no el cálculo por
+        // hora que interpretaba mal CHECK_IN_HORA/CHECK_OUT_HORA.
+        const Turno = require('../models/Turno');
+        let turnoPendiente;
+        try {
+          turnoPendiente = await Turno.create({
+            userId: USER_ID,
+            calendarId: CALENDAR_ID || 'principal',
+            resumen: nombreEvento,
+            descripcion: `Check-in: ${CHECK_IN_HORA} | Check-out: ${CHECK_OUT_HORA} | WhatsApp: +${tel}${unidad ? ' | Unidad: ' + unidad.nombre : ''} | Email: ${usuario.email}`,
+            fechaInicio: ini,
+            fechaFin: fin,
+            clienteNombre: usuario.nombre,
+            clienteTelefono: tel,
+            clienteEmail: usuario.email,
+            estado: 'pendiente',
+            pago: { monto: total, metodo: 'mercadopago' },
+          });
+        } catch (e) {
+          if (e.code === 11000) {
+            await enviarMensaje(jid, '¡Ups! Esas fechas acaban de ser reservadas por otro cliente. ¿Te sirven otras?');
+            return;
+          }
+          throw e;
+        }
+
+        const pref = await mp.crearPago(
+          jid, usuario.nombre, fecha_entrada, CHECK_IN_HORA, CHECK_OUT_HORA,
+          { montoTotal: total, titulo: nombreEvento },
+        );
+        const rk = `${jid}|${fecha_entrada}|${CHECK_IN_HORA}|${fecha_salida}|${unidad?.nombre || ''}`;
+        reservasPendientes[rk] = {
+          chatId:      jid,
+          fecha:       fecha_entrada,
+          hora:        CHECK_IN_HORA,
+          horaFin:     fecha_salida,
+          unidad:      unidad?.nombre || '',
+          nombre:      usuario.nombre,
+          email:       usuario.email,
+          cant:        noches,
+          total,
+          totalPrecio: total,
+          turnoId:     turnoPendiente._id.toString(),
+          expiresAt:   Date.now() + 30 * 60000,
+        };
+        db.guardar(RESERVAS_PATH, reservasPendientes);
+        await enviarMensaje(
+          jid,
+          `¡Perfecto! 🎉 Para confirmar tu reserva del *${fecha_entrada}* al *${fecha_salida}*${unidad ? ` en ${unidad.nombre}` : ''}:\n\n💳 *Pagá aquí:*\n${pref.init_point}\n\n💰 *$${total} ARS* (${noches} noche${noches !== 1 ? 's' : ''})\n⏳ Vence en 30 min. ✅`,
+        );
+        notificarDueno(
+          `🔔 *Reserva pendiente de pago*\n👤 ${usuario.nombre}${unidad ? '\n🏠 ' + unidad.nombre : ''}\n📅 ${fecha_entrada} → ${fecha_salida} (${noches} noches)\n💳 Esperando pago MP ($${total} ARS)\n📱 +${usuario.numeroReal || extraerNumero(jid)}`,
+        );
+      } catch (e) {
+        log('[capturaEmail/aloj] ' + e.message);
+        await enviarMensaje(jid, '¡Ups! Hubo un problema al generar el link de pago. ¿Me repetís la consulta?');
+      }
+      return;
+    }
+
+    // ── Flujo turno normal ──
+    if (!cache.reservaPendiente) {
+      // email guardado, no hay reserva pendiente activa
+      return;
+    }
+    const { fecha, hora, horaFin } = cache.reservaPendiente;
+    delete cacheTemporal[jid];
+    db.guardar(CACHE_PATH, cacheTemporal);
+    await generarPago(jid, usuario, fecha, hora, horaFin || null);
+  }
+
+  function quiereConDueno(t) {
+    return [
+      `hablar con ${MI_NOMBRE.toLowerCase()}`,
+      'pasame con',
+      'quiero hablar con',
+      'necesito hablar con',
+    ].some((f) => t.includes(f));
+  }
+
+  // ── Comandos del dueño ───────────────────────────────────────
+  async function manejarComando(bodyLower, jid, usuario) {
+    if (bodyLower.includes('akira stop')) {
+      if (usuario) {
+        usuario.silenciado = true;
+        clientesSvc.guardarMemoria(jid, usuario);
+      }
+      await enviarMensaje(
+        jid,
+        '*(Akira apagada — respondé vos. Se reactiva sola en 30min o escribí: akira reactivate)*',
+      );
+      return;
+    }
+    if (bodyLower.includes('akira reactivate')) {
+      if (usuario) {
+        usuario.silenciado = false;
+        clientesSvc.guardarMemoria(jid, usuario);
+      }
+      await enviarMensaje(jid, '*(Akira reactivada ✅ — vuelvo a responder)*');
+      return;
+    }
+    if (bodyLower.includes('akira help')) {
+      await enviarMensaje(
+        jid,
+        `*Comandos Akira:*\n` +
+          `• *akira stop* — pausar respuestas en este chat (30min)\n` +
+          `• *akira reactivate* — reactivar respuestas en este chat\n` +
+          `• *akira status* — ver estado de todos los clientes\n` +
+          `• *akira listo [info]* — avisar a un cliente que su trabajo está listo`,
+      );
+      return;
+    }
+    if (bodyLower.includes('akira status')) {
+      const clientes = clientesSvc.listarClientes();
+      const silenciados = clientes.filter((c) => c.silenciado);
+      const lineas = clientes.map(
+        (c) => `${c.nombre || '?'}: ${c.silenciado ? '🔇 SILENCIADO' : '✅ activo'}`,
+      );
+      await enviarMensaje(
+        jid,
+        `*Clientes (${clientes.length}):*\n${lineas.join('\n') || 'Sin clientes aún.'}${silenciados.length ? `\n\n⚠️ ${silenciados.length} silenciado(s) — escribí "akira reactivate" en cada chat para reactivar.` : ''}`,
+      );
+    }
+
+    // ── akira listo [info] — avisar al cliente que su trabajo está listo ──
+    if (bodyLower.startsWith('akira listo')) {
+      const info = bodyLower.replace(/^akira listo\s*/i, '').trim();
+      if (!info) {
+        await enviarMensaje(jid, '*(Uso: akira listo [patente / nombre del ítem])*');
+        return;
+      }
+      const clientes = clientesSvc.listarClientes();
+      const encontrado = clientes.find((c) =>
+        (c.turnosConfirmados || []).some(
+          (t) => t.infoItem && t.infoItem.toLowerCase().includes(info),
+        ),
+      );
+      if (!encontrado) {
+        await enviarMensaje(
+          jid,
+          `*(No encontré ningún cliente con "${info}" en servicios activos)*`,
+        );
+        return;
+      }
+      const turno = (encontrado.turnosConfirmados || []).find(
+        (t) => t.infoItem && t.infoItem.toLowerCase().includes(info),
+      );
+      const msgCliente = `¡Hola ${encontrado.nombre}! 🎉 Tu *${turno?.servicio || 'trabajo'}* ya está listo. Podés venir a buscarlo cuando quieras. ¡Gracias por elegirnos! 😊`;
+      await enviarMensaje(encontrado.jid, msgCliente);
+      await enviarMensaje(jid, `*(✅ Notificación enviada a ${encontrado.nombre})*`);
+      return;
+    }
+  }
+
+  // ── Sincronizar catálogo desde WA Business ───────────────────
+  async function sincronizarCatalogoWA() {
+    try {
+      if (!sock) return;
+
+      // Si ya detectamos que no es cuenta Business, no reintentar en esta sesión
+      // (se resetea cuando el usuario fuerza sync manual desde el dashboard)
+      if (esNegocioWA === false) return;
+
+      // Frenar si hay demasiados fallos consecutivos (se resetea en sync manual)
+      if (catalogFallos >= 3) return;
+
+      // Verificar que getCatalog exista (solo en cuentas WA Business)
+      if (typeof sock.getCatalog !== 'function') {
+        if (esNegocioWA === null) {
+          esNegocioWA = false;
+          log('[Catálogo] ℹ️ Esta cuenta no es WhatsApp Business — sync WA desactivado. Podés cargar productos manualmente desde el dashboard.');
+          emitter.emit('catalog:not_business');
+        }
+        return;
+      }
+
+      log('[Catálogo] 🔄 Obteniendo catálogo WA Business...');
+
+      // Recolectar todas las páginas (WA devuelve máx. 100 por página)
+      let todosLosProductos = [];
+      let cursor;
+      let pagina = 0;
+      const MAX_PAGINAS = 10;
+
+      do {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('CATALOG_TIMEOUT')), 15_000),
+        );
+        const result = await Promise.race([
+          sock.getCatalog({ limit: 100, ...(cursor ? { cursor } : {}) }),
+          timeoutPromise,
+        ]);
+        const products = result?.products;
+        if (Array.isArray(products) && products.length > 0) {
+          todosLosProductos = todosLosProductos.concat(products);
+        }
+        cursor = result?.nextPageCursor;
+        pagina++;
+      } while (cursor && pagina < MAX_PAGINAS);
+
+      if (!todosLosProductos.length) {
+        esNegocioWA = true;
+        catalogFallos = 0;
+        log('[Catálogo] ℹ️ Catálogo WA Business vacío — publicá productos desde la app de WA Business.');
+        emitter.emit('catalog:update', []);
+        return;
+      }
+
+      // Mapper con estructura real de Baileys v6:
+      // precio en centavos → dividir por 100; imageUrls.original primero
+      const catalogo = todosLosProductos.map((p) => ({
+        waProductId:  String(p.id || p.retailerId || ''),
+        nombre:       (p.name || 'Sin nombre').trim(),
+        descripcion:  (p.description || '').trim(),
+        precio:       p.price ? Math.round(p.price) / 100 : 0,
+        moneda:       p.currency || 'ARS',
+        categoria:    p.retailerId || '',
+        stock:        -1,
+        imagen:       p.imageUrls?.original || p.imageUrls?.requested || '',
+        disponible:   p.isHidden !== true,
+        fuente:       'wa_catalog',
+      })).filter((p) => p.nombre && p.nombre !== 'Sin nombre');
+
+      esNegocioWA = true;
+      catalogFallos = 0;
+      log(`[Catálogo] ✅ ${catalogo.length} producto(s) sincronizados desde WA Business (${pagina} página(s))`);
+      emitter.emit('catalog:update', catalogo);
+    } catch (e) {
+      if (
+        e.message === 'CATALOG_TIMEOUT' ||
+        e.message?.toLowerCase().includes('timeout') ||
+        e.message?.toLowerCase().includes('timed out')
+      ) {
+        if (esNegocioWA === null) {
+          esNegocioWA = false;
+          log('[Catálogo] ℹ️ Timeout al obtener catálogo — si usás WA Business, hacé click en "Sincronizar catálogo" para reintentar.');
+          emitter.emit('catalog:not_business');
+        }
+        return;
+      }
+      catalogFallos++;
+      if (catalogFallos < 3) {
+        log(`[Catálogo] ⚠️ Error obteniendo catálogo WA (intento ${catalogFallos}/3): ${e.message}`);
+      } else {
+        log('[Catálogo] ⏸ Sync de catálogo WA pausado tras 3 errores. Hacé click en "Sincronizar" para reintentar.');
+        emitter.emit('catalog:not_business');
+      }
+    }
+  }
+
+  // ── Analizar estado (status) del dueño para detectar productos ─
+  async function procesarStatusDueno(msg) {
+    try {
+      const caption =
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        msg.message?.extendedTextMessage?.text ||
+        '';
+      if (!caption || caption.length < 5) return;
+
+      const rsp = await groqSvc.llamarGroq(
+        [
+          {
+            role: 'system',
+            content:
+              'Sos un parser de productos. Si el texto describe un producto en venta (con precio), respondé SOLO con JSON válido: {"esProducto":true,"nombre":"...","precio":0,"descripcion":"...","categoria":""}. Si no es un producto respondé: {"esProducto":false}',
+          },
+          { role: 'user', content: caption },
+        ],
+        false,
+      );
+      const content = rsp?.choices?.[0]?.message?.content || '';
+      // Extraer JSON del texto (puede venir con texto adicional)
+      const match = content.match(/\{[\s\S]*\}/);
+      if (!match) return;
+      const data = JSON.parse(match[0]);
+      if (!data.esProducto) return;
+      const producto = {
+        nombre: String(data.nombre || '').trim(),
+        precio: parseFloat(data.precio) || 0,
+        descripcion: String(data.descripcion || caption).trim(),
+        categoria: String(data.categoria || '').trim(),
+      };
+      if (!producto.nombre) return;
+      emitter.emit('catalog:candidate', producto);
+      log(`[Catálogo] 📸 Producto detectado en estado: "${producto.nombre}" — $${producto.precio}`);
+    } catch {}
+  }
+
+  // ── Handler principal de mensajes ────────────────────────────
+  async function handleBaileysMessage(msg) {
+    if (!msg.message) return;
+    // Guardar en store para posibles reintentos de descifrado
+    if (msg.key?.id) msgStore.set(msg.key.id, msg.message);
+    const rawJid = msg.key.remoteJid;
+    if (!rawJid) return;
+    if (isJidGroup(rawJid)) return;
+
+    // ── FIX LID (Linked Identity) ───────────────────────────────
+    // WhatsApp entrega mensajes con `xxx@lid` (identidad anónima). No se puede
+    // responder a un @lid directo: hay que resolver el PN real (@s.whatsapp.net).
+    // Cascada de fallbacks ordenada de más barata a más costosa:
+    //   1. msg.key.senderPn / participantPn (Baileys ya resolvió)
+    //   2. msg.key.participant si es @s.whatsapp.net
+    //   3. lidCache local (aprendido de mensajes previos / contacts.upsert)
+    //   4. sock.signalRepository.lidMapping.getPNForLID (store interno Baileys)
+    let jid = rawJid;
+    if (rawJid.endsWith('@lid')) {
+      jid = await resolverLid(rawJid, msg.key);
+      if (!jid) {
+        // No pudimos resolver — solo registrar para visibilidad. El cliente recibirá
+        // respuesta automáticamente cuando WhatsApp envíe el siguiente mensaje del
+        // mismo contacto incluyendo senderPn (suele pasar en segundos).
+        log(`⚠️ [LID] ${rawJid} sin PN resoluble — esperando contact sync de WhatsApp`);
+        return;
+      }
+    }
+
+    // Chats ignorados — el dueño los bloqueó desde el dashboard
+    if (CHATS_IGNORADOS.length > 0) {
+      const num = extraerNumero(jid);
+      if (CHATS_IGNORADOS.includes(num)) return;
+    }
+
+    // Estados (stories) del dueño → detectar productos
+    if (isJidStatusBroadcast(jid)) {
+      if (msg.key.fromMe) await procesarStatusDueno(msg);
+      return;
+    }
+
+    // Pedido de catálogo WA Business (cliente hace un order desde el catálogo)
+    if (msg.message?.orderMessage) {
+      const order = msg.message.orderMessage;
+      const items = order.itemCount || '?';
+      const total = order.totalAmount1000
+        ? (order.totalAmount1000 / 1000).toLocaleString('es-AR')
+        : '?';
+      const moneda = order.totalCurrencyCode || 'ARS';
+      notificarDueno(
+        `🛒 *Nuevo pedido de catálogo WA*\n` +
+          `👤 ${extraerNumero(jid)}\n` +
+          `📦 ${items} ${items === 1 ? 'artículo' : 'artículos'}\n` +
+          `💰 $${total} ${moneda}\n` +
+          `🆔 Pedido: ${order.orderId || '—'}`,
+      );
+      await enviarMensaje(
+        jid,
+        `¡Gracias por tu pedido! 🛒\n*${MI_NOMBRE}* lo va a revisar y te contacta a la brevedad para coordinar entrega y pago.`,
+      );
+      return;
+    }
+
+    // Mensajes propios (comandos del dueño)
+    if (msg.key.fromMe) {
+      const texto = getTexto(msg).toLowerCase().trim();
+
+      // ── Comandos de sistema — SOLO admin, SOLO en su canal dedicado ──
+      // Gate triple: fromMe (imposible de falsificar) + jid === canal
+      // registrado en iniciar() + esa cuenta ya se verificó rol==='admin'
+      // en ese momento. Ningún cliente ni negocio normal puede llegar acá.
+      if (systemBot.esCanalAdminActivo(USER_ID, jid) && systemBot.esComandoSistemaCandidato(texto)) {
+        const manejado = await systemBot.manejarComandoSistema(texto, jid, USER_ID, enviarMensaje);
+        if (manejado) return;
+      }
+
+      if (texto.startsWith('akira '))
+        await manejarComando(texto, jid, clientesSvc.cargarMemoria(jid));
+      // Si el dueño responde manualmente en un chat silenciado → reactivar el bot automáticamente
+      // El dueño ya atendió al cliente, el bot puede retomar cuando el cliente vuelva a escribir
+      const uclient = clientesSvc.cargarMemoria(jid);
+      if (uclient?.silenciado && !texto.startsWith('akira')) {
+        uclient.silenciado = false;
+        clientesSvc.guardarMemoria(jid, uclient);
+        log(`✅ [Auto-reactivar] Bot reactivado en ${jid} — el dueño respondió manualmente`);
+      }
+      return;
+    }
+
+    // ── Adjuntos (PDF / imágenes): comprobantes, facturas, fotos ──
+    // Se guardan en la bandeja de documentos, se avisa al dueño y se le
+    // responde al cliente. Si trae texto (caption) se sigue con el flujo normal.
+    {
+      const cont = msg.message.documentWithCaptionMessage?.message || msg.message;
+      const adj = cont.documentMessage || cont.imageMessage;
+      if (adj) {
+        const seguir = await manejarAdjunto(msg, jid, adj);
+        if (!seguir) return;
+      }
+    }
+
+    const msgType = Object.keys(msg.message)[0];
+    const esAudio = msgType === 'audioMessage';
+
+    if (!esAudio && !getTexto(msg)) {
+      // Si es un tipo de mensaje sin texto (sticker, reacción, ubicación, etc.) — responder amablemente
+      if (esTipoSinTexto(msg)) {
+        log(`📎 [${jid}] Mensaje tipo "${msgType}" sin texto — respondiendo con fallback`);
+        const uc = clientesSvc.cargarMemoria(jid);
+        if (uc && !uc.silenciado) {
+          await enviarMensaje(
+            jid,
+            `¡Hola${uc.nombre ? ', ' + uc.nombre : ''}! 😊 Solo puedo responder mensajes de texto o audio. ¿En qué te puedo ayudar?`,
+          );
+        }
+        return;
+      }
+      // ⚠️ Mensaje SIN texto extraíble Y sin tipo conocido → muy probablemente
+      // falló al descifrar (Bad MAC). NO enviamos fallback al cliente: WhatsApp
+      // reintenta automáticamente el mensaje en segundos con sesión renegociada
+      // y nuestro dedup deja pasar los retries (ver messages.upsert). Mandar un
+      // "no entendí" acá generaba confusión y mensajes duplicados al cliente.
+      log(`🤫 [${jid}] Mensaje sin descifrar — silencio, esperando retry de WhatsApp`);
+      return;
+    }
+
+    let texto = getTexto(msg);
+    let fueAudio = false;
+
+    if (esAudio) {
+      if (!audioSvc) {
+        await enviarMensaje(
+          jid,
+          '¡Ups! El servicio de audio aún no está listo. ¿Me lo escribís? 🙏',
+        );
+        return;
+      }
+      // En modo PROXY pedimos al worker que descargue el media (él tiene el sock real)
+      let buffer;
+      if (usandoProxy && typeof options.descargarMediaViaProxy === 'function') {
+        const r = await options.descargarMediaViaProxy(msg);
+        if (!r?.ok || !r.base64) {
+          log(`⚠️ [Proxy] descargarMedia falló: ${r?.error || 'unknown'}`);
+          await enviarMensaje(jid, '¡Ups! No pude descargar tu audio. ¿Me lo escribís? 🙏');
+          return;
+        }
+        buffer = Buffer.from(r.base64, 'base64');
+      } else {
+        buffer = await downloadMediaMessage(msg, 'buffer', {});
+      }
+      const mimetype = msg.message.audioMessage?.mimetype || 'audio/ogg; codecs=opus';
+      const tr = await audioSvc.transcribirAudioBuffer(buffer, mimetype);
+      if (!tr) {
+        await enviarMensaje(jid, '¡Ups! No pude entender el audio. ¿Me lo escribís? 🙏');
+        return;
+      }
+      texto = tr;
+      fueAudio = true;
+    }
+
+    const bodyLower = texto.toLowerCase().trim();
+    log(`${fueAudio ? '🎤' : '📩'} [${jid}]: ${texto.slice(0, 80)}`);
+    emitter.emit('stat', 'in');
+
+    // Intentar cache RAM primero (sync, O(1))
+    const mongoose = require('mongoose');
+    let usuario = clientesSvc.cargarMemoria(jid);
+    if (!usuario) {
+      usuario = await clientesSvc.cargarMemoriaAsync(jid);
+    }
+    if (usuario?.silenciado && !bodyLower.includes('akira')) {
+      log(
+        `🔇 [${jid}] Mensaje ignorado — cliente silenciado (el dueño debe responder manualmente o esperá 30min para auto-reactivación)`,
+      );
+      return;
+    }
+
+    try {
+      const pushName = msg.pushName || '';
+      const tel = extraerNumero(jid);
+
+      if (!usuario) {
+        const r = await registrarNombre(jid, texto, tel, pushName);
+        if (r) return;
+      }
+      if (cacheTemporal[jid]?.esperandoEmail) {
+        await capturaEmail(jid, texto, clientesSvc.cargarMemoria(jid));
+        return;
+      }
+
+      // ── Interceptor: oferta de waitlist activa ───────────────
+      // Cuando otro cliente cancela y se le ofreció el slot a este cliente,
+      // tiene 15min para responder. Acá interceptamos SÍ/NO sin pasar por el LLM
+      // para máxima velocidad y precisión.
+      const ofertaWL = await waitlistSvc.obtenerOfertaActivaSinFecha?.(jid).catch(() => null);
+      if (ofertaWL) {
+        if (bodyLower.match(/\bsi\b|\bsí\b|\bdale\b|\bok\b|\bok!\b|\bquiero\b|\bperfecto\b|\bconfirmo\b|\blo tomo\b|\blisto\b/)) {
+          // Confirmar la oferta: marcar confirmado en waitlist + generar reserva real
+          ofertaWL.estado = 'confirmado';
+          await ofertaWL.save().catch(() => {});
+          const fechaOf = ofertaWL.fecha;
+          const horaOf = ofertaWL.hora || '09:00';
+          log(`[Waitlist] ✅ ${ofertaWL.clienteNombre} aceptó oferta ${fechaOf} ${horaOf}`);
+          // Si tenemos email del cliente → generar link MP directamente
+          const um = clientesSvc.cargarMemoria(jid) || usuario;
+          if (um?.email) {
+            await generarPago(jid, um, fechaOf, horaOf, null);
+          } else {
+            // Pedir email primero (lo seguirá capturaEmail → generarPago)
+            cacheTemporal[jid] = {
+              ...(cacheTemporal[jid] || {}),
+              esperandoEmail: true,
+              reservaPendiente: { fecha: fechaOf, hora: horaOf, horaFin: null },
+            };
+            db.guardar(CACHE_PATH, cacheTemporal);
+            await enviarMensaje(jid, `¡Buenísimo! 🎉 Para confirmar tu turno necesito tu email. ¿Cuál es?`);
+          }
+          notificarDueno(`✅ *Waitlist confirmó*: ${ofertaWL.clienteNombre} aceptó el turno del ${fechaOf}${ofertaWL.hora ? ' a las ' + ofertaWL.hora : ''}.`);
+          return;
+        }
+        if (bodyLower.match(/\bno\b|\bno puedo\b|\bno me sirve\b|\bno gracias\b|\bpaso\b|\bdejá\b|\bdejalo\b/)) {
+          await waitlistSvc.rechazarOferta(ofertaWL._id, ofertaWL.fecha, ofertaWL.hora, enviarMensaje, notificarDueno);
+          await enviarMensaje(jid, `Entendido, paso al siguiente. ¡Gracias por avisar! 🙏`);
+          return;
+        }
+        // Si responde otra cosa, dejar que el LLM lo procese pero la oferta sigue activa
+      }
+
+      // ── Interceptor: confirmación anti no-show ───────────────
+      const turnoConfirmKey = Object.keys(cacheTemporal[jid] || {}).find((k) =>
+        k.startsWith('esperandoConf_'),
+      );
+      if (turnoConfirmKey) {
+        const { fecha, hora } = cacheTemporal[jid][turnoConfirmKey];
+        if (bodyLower.match(/\bsi\b|sí|confirmo|dale|voy|ahi estoy/)) {
+          if (!cacheTemporal[jid].turnoConfirmado) cacheTemporal[jid].turnoConfirmado = {};
+          cacheTemporal[jid].turnoConfirmado[`${fecha}|${hora}`] = true;
+          delete cacheTemporal[jid][turnoConfirmKey];
+          db.guardar(CACHE_PATH, cacheTemporal);
+          await enviarMensaje(
+            jid,
+            `¡Perfecto! ✅ Te esperamos mañana a las *${hora}*. ¡Hasta pronto!`,
+          );
+          return;
+        }
+        if (bodyLower.match(/\bno\b|cancelar|no puedo|no voy/)) {
+          delete cacheTemporal[jid][turnoConfirmKey];
+          db.guardar(CACHE_PATH, cacheTemporal);
+          // Cancelar el turno en DB
+          const Turno = require('../models/Turno');
+          await Turno.findOneAndUpdate(
+            {
+              userId: USER_ID,
+              clienteTelefono: usuario?.numeroReal || extraerNumero(jid),
+              fechaInicio: { $gte: new Date() },
+            },
+            { $set: { estado: 'cancelado' } },
+          ).catch(() => {});
+          await waitlistSvc.notificarSiguiente(fecha, hora, enviarMensaje, notificarDueno);
+          await enviarMensaje(
+            jid,
+            `Entendido, cancelamos tu turno del ${fecha} a las ${hora}. Si querés reagendar, avisame. 👍`,
+          );
+          notificarDueno(
+            `❌ *Turno cancelado por cliente*: ${usuario?.nombre || extraerNumero(jid)} canceló su turno del ${fecha} a las ${hora}.`,
+          );
+          return;
+        }
+      }
+
+      if (quiereConDueno(bodyLower)) {
+        const u = clientesSvc.cargarMemoria(jid);
+        if (u) {
+          u.silenciado = true;
+          clientesSvc.guardarMemoria(jid, u);
+          // Auto-reactivar después de 30 minutos si el dueño no respondió
+          // Evita que el bot quede muerto permanentemente para ese cliente
+          setTimeout(
+            () => {
+              const uf = clientesSvc.cargarMemoria(jid);
+              if (uf?.silenciado) {
+                uf.silenciado = false;
+                clientesSvc.guardarMemoria(jid, uf);
+                log(`⏱️ [Auto-reactivar] Bot reactivado en ${jid} — 30min sin respuesta del dueño`);
+              }
+            },
+            30 * 60 * 1000,
+          );
+        }
+        notificarDueno(
+          `👤 *${u?.nombre || extraerNumero(jid)}* quiere hablar con vos directamente. Respondele en WhatsApp.`,
+        );
+        await enviarMensaje(
+          jid,
+          `¡Dale, ${u?.nombre || ''}! Le aviso a ${MI_NOMBRE} para que te contacte. 🙌`,
+        );
+        return;
+      }
+
+      // Preselección de hora
+      if (cacheTemporal[jid]?.ultimaConsulta) {
+        const uc = cacheTemporal[jid].ultimaConsulta;
+        if ((Date.now() - uc.ts) / 60000 < 30) {
+          const hm = (uc.libres || []).filter((s) => {
+            const n = s.split(':')[0];
+            return (
+              bodyLower.includes(`${n}:00`) ||
+              bodyLower.includes(`las ${n}`) ||
+              bodyLower.includes(`a las ${n}`) ||
+              bodyLower.includes(`${n} hs`)
+            );
+          });
+          if (hm.length === 1) {
+            if (!cacheTemporal[jid]) cacheTemporal[jid] = {};
+            cacheTemporal[jid].preseleccionado = { fecha: uc.fecha, hora: hm[0].split(' ')[0] };
+            db.guardar(CACHE_PATH, cacheTemporal);
+          }
+        }
+      }
+
+      // Indicador "escribiendo..." apenas detectamos un mensaje válido.
+      // Fire-and-forget para no sumar latencia al path crítico.
+      sock.sendPresenceUpdate('composing', jid).catch(() => {});
+
+      // Reutilizar `usuario` cargado arriba — evita doble carga/query a MongoDB.
+      // Si por algún motivo no está (MongoDB tardó y caché vacía), intentar una vez más.
+      if (!usuario) usuario = await clientesSvc.cargarMemoriaAsync(jid);
+      if (!usuario) {
+        // MongoDB inaccesible — distinguir usuario CONOCIDO de usuario NUEVO
+        // Si cacheTemporal[jid] tiene datos, el usuario YA tuvo conversaciones previas
+        // (turnos, consultas, etc.) → crear usuario temporal para poder responder.
+        // Si cacheTemporal está vacío → primer mensaje ever → registrar nombre.
+        const tmpKeys = Object.keys(cacheTemporal[jid] || {});
+        if (tmpKeys.length > 0) {
+          const nombreTmp = pushName ? capitalizar(quitarEmojis(pushName.trim())) : '';
+          usuario = {
+            jid,
+            nombre:           nombreTmp,
+            telefono:         jid,
+            numeroReal:       tel,
+            email:            null,
+            silenciado:       false,
+            historial:        [],
+            turnosConfirmados:[],
+          };
+          clientesSvc.guardarMemoria(jid, usuario); // cache RAM inmediato; MongoDB en background
+          log(`[DB] ⚠️ MongoDB inaccesible — usuario temporal "${nombreTmp || tel}" creado. El bot responde igual.`);
+        } else {
+          // Usuario genuinamente nuevo (primer mensaje EVER) — registrar nombre
+          await registrarNombre(jid, texto, tel, pushName);
+          return;
+        }
+      }
+      usuario.historial.push({ role: 'user', content: fueAudio ? `[voz] ${texto}` : texto });
+      usuario.historial = recortarHistorial(usuario.historial, 12); // 12 msgs: contexto suficiente, menos tokens enviados a Groq
+
+      // ── Cupo de mensajes/mes (ver config/planes.js) ─────────────
+      // Antes de este chequeo, un Trial/Básico podía mandar mensajes
+      // ilimitados — la tabla de precios prometía un límite que el código
+      // nunca hacía cumplir. Se corta ANTES de llamar a Groq (ahorra costo).
+      const cupo = await registrarMensajeYVerificarCupo(USER_ID, PLAN);
+      let respuesta;
+      if (!cupo.permitido) {
+        respuesta = `¡Gracias por escribir! 🙏 ${MI_NOMBRE} llegó al límite de mensajes de este mes. Va a poder seguir atendiéndote muy pronto — mientras tanto contactá a ${MI_NOMBRE} directamente.`;
+        log(`⚠️ [Cupo] user=${USER_ID} plan=${PLAN} superó el límite mensual (${cupo.usados}/${cupo.limite}) — no se llamó a Groq`);
+        notificarDueno(`🚨 *Límite de mensajes alcanzado este mes* (${cupo.usados}/${cupo.limite}). Los clientes nuevos no reciben respuesta de IA hasta que actualices tu plan o empiece el próximo mes.`);
+      } else {
+        respuesta = await procesarConIA(jid, usuario);
+      }
+      usuario.historial.push({ role: 'assistant', content: respuesta });
+      clientesSvc.guardarMemoria(jid, usuario);
+
+      // 'paused' fire-and-forget — no bloqueamos el envío del mensaje real.
+      sock.sendPresenceUpdate('paused', jid).catch(() => {});
+      log(`🤖 AKIRA → ${jid}: "${respuesta.slice(0, 60)}..."`);
+
+      const debeAudio = fueAudio && audioSvc && audioSvc.debeResponderEnAudio(respuesta);
+      if (debeAudio) {
+        const ok = await audioSvc.enviarComoAudio(jid, respuesta, enviarAudio);
+        if (!ok) await enviarMensaje(jid, respuesta);
+      } else {
+        await enviarMensaje(jid, respuesta);
+      }
+    } catch (err) {
+      log('❌ handleMessage error: ' + err.message + ' — stack: ' + (err.stack || '').split('\n')[1]);
+      let msgError = '¡Ups! Tuve un problema. ¿Me repetís la consulta? 🙏';
+      if (err.isRateLimit)
+        msgError = 'Estoy con mucha demanda en este momento. ¡Te respondo en unos segundos! 🙏';
+      if (err.isTimeout) msgError = 'Tardé demasiado en pensar 😅 ¿Me repetís la pregunta?';
+      if (err.isAuthError)
+        msgError = 'Tengo un problema de configuración. El dueño del negocio ya fue notificado. 🙏';
+      // Reintentar el envío del mensaje de error 1 vez si falla — no dejar al cliente sin respuesta
+      const okEnvio = await enviarMensaje(jid, msgError).catch(() => false);
+      if (okEnvio === false) {
+        log(`⚠️ [${jid}] Mensaje de error no se pudo enviar — reintentando en 2s`);
+        setTimeout(() => {
+          enviarMensaje(jid, msgError).catch((e) => {
+            log(`❌ [${jid}] Reintento de mensaje de error también falló: ${e.message}`);
+          });
+        }, 2000);
+      }
+      if (err.isAuthError)
+        notificarDueno(
+          `⚠️ *Error de configuración*: La API Key de Groq es inválida. Actualizala en el dashboard de Akira.`,
+        );
+    }
+  }
+
+  // ── Webhook MercadoPago ──────────────────────────────────────
+  // Lógica común: procesa una notificación MP (payment.created/updated),
+  // verifica el pago contra la API de MP, y si está aprobado agenda el turno
+  // y notifica al cliente. Se invoca desde:
+  //  1) el endpoint público del backend principal (/api/bot/webhook-mp/:userId)
+  //     — flujo principal en producción, sin ngrok.
+  //  2) el express interno en PUERTO (legacy / dev local con tunel manual).
+  async function procesarWebhookMP(p) {
+    if (!p || p.type !== 'payment' || !p.data?.id) return;
+    try {
+      const pago = await mp.verificarPago(p.data.id);
+      if (pago.status !== 'approved') return;
+      const rk = pago.external_reference;
+      let res2 = reservasPendientes[rk];
+      if (!res2) {
+        // Render pudo haberse reiniciado — _reservas.json se pierde.
+        // Reconstruimos desde external_reference + cliente en MongoDB.
+        log(`[Webhook] reserva ${rk} no está en memoria — intentando reconstruir`);
+        const parts = (rk || '').split('|');
+        if (parts.length >= 3) {
+          const rchatId   = parts[0];
+          const rfecha    = parts[1];
+          const rhora     = parts[2];
+          const rhoraFin  = parts[3] && parts[3] !== rhora ? parts[3] : null;
+          const rum = clientesSvc.cargarMemoria(rchatId);
+          if (rum) {
+            // Buscar Turno pendiente que coincida (creado en agendar_turno)
+            const Turno = require('../models/Turno');
+            const [yy, mm, dd] = rfecha.split('-').map(Number);
+            const hhI = parseInt(rhora.split(':')[0]);
+            const iniRec = calendar.crearFecha(yy, mm, dd, hhI);
+            const tPend = await Turno.findOne({
+              userId: USER_ID,
+              fechaInicio: iniRec,
+              estado: 'pendiente',
+            }).lean().catch(() => null);
+            res2 = {
+              chatId:  rchatId,
+              fecha:   rfecha,
+              hora:    rhora,
+              horaFin: rhoraFin,
+              nombre:  rum.nombre || pago.payer?.name || 'Cliente',
+              email:   rum.email  || null,
+              total:   tPend?.pago?.monto || PRECIO_TURNO,
+              turnoId: tPend?._id?.toString() || null,
+            };
+            log(`[Webhook] Reconstruido: ${rchatId} ${rfecha} ${rhora} turnoId=${res2.turnoId || 'no'}`);
+          }
+        }
+        if (!res2) {
+          log(`[Webhook] No se pudo reconstruir la reserva — ignorando webhook ${rk}`);
+          return;
+        }
+      }
+      // OK: tenemos res2 con datos de la reserva.
+      const Turno = require('../models/Turno');
+      const um = clientesSvc.cargarMemoria(res2.chatId);
+      const tel = um?.numeroReal || extraerNumero(res2.chatId);
+      const [y, m, d] = res2.fecha.split('-').map(Number);
+      const hI = parseInt(res2.hora.split(':')[0]);
+      const hF = res2.horaFin
+        ? parseInt(res2.horaFin.split(':')[0])
+        : hI + DURACION_RESERVA_HORAS;
+      const ini = calendar.crearFecha(y, m, d, hI);
+      const fin = calendar.crearFecha(y, m, d, hF);
+
+      // ── CONFIRMAR el Turno pendiente (path normal) ───────────────
+      // Si tenemos turnoId, confirmamos atómicamente el Turno existente.
+      // Esto evita doble-venta: si otro cliente ya confirmó este slot,
+      // findOneAndUpdate con estado='pendiente' no encontrará nada.
+      let turnoConfirmado = null;
+      if (res2.turnoId) {
+        turnoConfirmado = await Turno.findOneAndUpdate(
+          { _id: res2.turnoId, userId: USER_ID, estado: 'pendiente' },
+          {
+            estado: 'confirmado',
+            'pago.monto':       res2.total || PRECIO_TURNO,
+            'pago.metodo':      'mercadopago',
+            'pago.comprobante': String(pago.id),
+            descripcion:        `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
+          },
+          { new: true },
+        ).catch((e) => { log(`[Webhook] confirmar Turno ERROR: ${e.message}`); return null; });
+      }
+
+      // Si NO había turnoId o el Turno pendiente ya no existe (Render restart
+      // sin pre-reserva), crear el Turno ahora vía calendar.crearEvento. Verifica
+      // conflictos de slot internamente y devuelve { slotOcupado: true } si
+      // otro cliente ya tomó este slot.
+      if (!turnoConfirmado) {
+        log(`[Webhook] Sin turno pendiente — creando directo via calendar.crearEvento`);
+        const ev = await calendar.crearEvento(
+          CALENDAR_ID,
+          `Turno — ${res2.nombre}`,
+          `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
+          ini,
+          fin,
+          res2.email || null,
+          tel,
+        );
+        if (ev?.slotOcupado) {
+          // ⚠️ El slot fue tomado por otro cliente entre el link y el pago.
+          // Le notificamos al cliente Y al dueño para que haga refund manual.
+          log(`⚠️ [Webhook] Pago recibido pero slot ocupado: ${res2.fecha} ${res2.hora} (pagoId=${pago.id})`);
+          await enviarMensaje(
+            res2.chatId,
+            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero el horario ${res2.fecha} ${res2.hora} ya había sido tomado por otro cliente. ${MI_NOMBRE} te contacta para reagendar o reintegrar el pago. 🙏`,
+          );
+          notificarDueno(
+            `🚨 *DOBLE VENTA — ACCIÓN REQUERIDA*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} pagado MP\n💳 ID Pago: ${pago.id}\n📱 +${tel}\n\n⚠️ El slot ya estaba ocupado. Reintegrar el pago manualmente o reagendar al cliente.`,
+          );
+          delete reservasPendientes[rk];
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          return;
+        }
+        if (!ev || !ev.id) {
+          // Error técnico creando el Turno en MongoDB (validación, DB caída, etc.)
+          log(`❌ [Webhook] crearEvento devolvió null — pago recibido sin turno (pagoId=${pago.id})`);
+          await enviarMensaje(
+            res2.chatId,
+            `Hola ${res2.nombre}! Tu pago fue recibido ✅ pero hubo un problema técnico al guardar el turno. ${MI_NOMBRE} te contacta para confirmar manualmente. 🙏`,
+          );
+          notificarDueno(
+            `🚨 *Pago recibido pero turno NO guardado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} pagado MP\n💳 ID Pago: ${pago.id}\n📱 +${tel}\n\n⚠️ Confirmar manualmente o reintegrar.`,
+          );
+          delete reservasPendientes[rk];
+          db.guardar(RESERVAS_PATH, reservasPendientes);
+          return;
+        }
+        // Si crearEvento lo creó OK, hidratamos turnoConfirmado y guardamos el pago.
+        turnoConfirmado = await Turno.findByIdAndUpdate(
+          ev.id,
+          {
+            'pago.monto':       res2.total || PRECIO_TURNO,
+            'pago.metodo':      'mercadopago',
+            'pago.comprobante': String(pago.id),
+          },
+          { new: true },
+        ).catch(() => null);
+      }
+
+      // ── Si llegamos acá, el Turno está confirmado en MongoDB ─────
+      // (y se sincronizó a Google Calendar si está conectado).
+      // Sincronizar manualmente a GCal si veníamos del path findOneAndUpdate
+      // (en ese caso, el calendar.service no se invocó así que no hay GCal sync).
+      if (res2.turnoId && turnoConfirmado && !turnoConfirmado.googleEventId) {
+        // Pre-reservado tipo 'pendiente' → ahora hay que sincronizar a GCal.
+        // 🚨 BUG ANTERIOR: syncTurnoToGCal() puede resolver con {ok:false, error}
+        // en vez de rechazar la promesa (ej: token de Google vencido, gcal no
+        // conectado) — el .catch() de antes NUNCA se disparaba en ese caso, así
+        // que un turno pagado y confirmado en Mongo podía quedar para siempre
+        // sin evento real en el Google Calendar del negocio, sin ningún aviso.
+        calendar.syncTurnoToGCal(turnoConfirmado._id)
+          .then((r) => {
+            if (!r?.ok) {
+              log(`⚠️ [Webhook] Sync GCal post-confirm falló: ${r?.error || 'desconocido'} — turno ${turnoConfirmado._id} confirmado en Mongo pero SIN evento real en Calendar`);
+              winstonLogger.warn(`[Webhook] syncTurnoToGCal falló turno=${turnoConfirmado._id} user=${USER_ID}: ${r?.error || 'desconocido'}`);
+            }
+          })
+          .catch((e) => {
+            log(`⚠️ [Webhook] Sync GCal post-confirm excepción: ${e?.message || e}`);
+            winstonLogger.error(`[Webhook] syncTurnoToGCal excepción turno=${turnoConfirmado._id} user=${USER_ID}: ${e?.stack || e?.message || e}`);
+          });
+      }
+
+      delete reservasPendientes[rk];
+      db.guardar(RESERVAS_PATH, reservasPendientes);
+
+      // Actualizar cache del cliente
+      if (um) {
+        if (!um.turnosConfirmados) um.turnosConfirmados = [];
+        um.turnosConfirmados.push({
+          fecha: res2.fecha,
+          hora: res2.hora,
+          horaFin: res2.horaFin || null,
+          pagoId: pago.id,
+          turnoId: turnoConfirmado?._id?.toString(),
+          confirmadoEn: new Date().toISOString(),
+        });
+        um.historial.push({
+          role: 'assistant',
+          content: `[SISTEMA] Pago MP confirmado (ID:${pago.id}). Turno ${res2.fecha} ${res2.hora}. YA PAGÓ.`,
+        });
+        clientesSvc.guardarMemoria(res2.chatId, um);
+      }
+
+      const hFwh = res2.horaFin ? parseInt(res2.horaFin.split(':')[0]) : hF;
+      programarRecs(res2.chatId, res2.nombre, res2.fecha, res2.hora);
+      programarResena(
+        res2.chatId,
+        turnoConfirmado?._id?.toString() || res2.turnoId,
+        res2.nombre,
+        res2.fecha,
+        res2.horaFin || `${hFwh}:00`,
+      );
+
+      // Notificar al dueño — turno confirmado y pagado
+      notificarDueno(
+        `✅ *Turno confirmado y pagado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} ARS (MP)\n💳 ID Pago: ${pago.id}\n📱 +${tel}`,
+      );
+
+      const horaFinStr = res2.horaFin || `${hF}:00`;
+      let msgConfirmacion =
+        `¡Listo, ${res2.nombre}! 🎉 Tu turno está *confirmado y reservado*.\n\n` +
+        `✅ *Pago recibido:* $${res2.total || PRECIO_TURNO} ARS\n` +
+        `📅 *Fecha:* ${res2.fecha}\n` +
+        `🕐 *Horario:* ${res2.hora} – ${horaFinStr} hs\n`;
+      if (turnoConfirmado?.googleEventHtmlLink) {
+        msgConfirmacion += `📆 *Evento en tu calendario:*\n${turnoConfirmado.googleEventHtmlLink}\n`;
+      }
+      msgConfirmacion += `\n⏰ Te vamos a recordar 24hs, 4hs y 30 minutos antes para que no se te pase. ¡Te esperamos! 🙌`;
+      await enviarMensaje(res2.chatId, msgConfirmacion);
+    } catch (e) {
+      log('[Webhook] ' + (e.stack || e.message));
+    }
+  }
+
+  function iniciarServidor() {
+    const app = express();
+    app.use(express.json());
+    // Endpoint legacy: el webhook ahora va al backend principal (sin ngrok).
+    // Lo dejamos disponible por compatibilidad con setups que aún tienen
+    // un tunel local manual apuntando a este puerto.
+    app.post('/webhook-bot', async (req, res) => {
+      res.sendStatus(200);
+      procesarWebhookMP(req.body).catch((e) => log('[Webhook legacy] ' + e.message));
+    });
+    app.get('/health', (_, r) => r.json({ ok: true, bot: MI_NOMBRE }));
+    expressServer = app.listen(PUERTO, () => log(`🚀 Webhook bot en puerto ${PUERTO}`));
+    expressServer.on('error', (e) => log(`⚠️ Puerto ${PUERTO}: ${e.message}`));
+  }
+
+  // ── Conexión Baileys ─────────────────────────────────────────
+  async function conectar() {
+    // Lock anti-paralelo: si ya hay un conectar() en curso, no abrir otro.
+    // Sin esto, eventos cascading (disconnect → reconnect timer + watchdog +
+    // manager start) pueden disparar 10+ conectar() simultáneos que se pisan.
+    if (conectandoLock) {
+      log('⏸️ conectar() ya en curso — descarto duplicado');
+      return;
+    }
+    conectandoLock = true;
+    try {
+      await _conectarReal();
+    } finally {
+      conectandoLock = false;
+    }
+  }
+
+  async function _conectarReal() {
+    // ─── MODO PROXY ─────────────────────────────────────────────
+    // El sock real vive en el worker. Acá solo nos enchufamos a sus eventos.
+    if (usandoProxy) {
+      sock = externalSock;
+      // Suscribir handlers al proxy. El worker.handler.js inyecta los eventos
+      // crudos de Baileys (connection.update, messages.upsert, etc.) en sock.ev
+      _setupHandlersProxy();
+      log('🔌 [Bot] Modo PROXY: usando worker como Baileys backend');
+      // No emitimos 'ready' acá — esperamos que el worker emita connection.update open
+      return;
+    }
+
+    // ── Modo CLOUD-DIRECT (legacy): el bot crea su propio socket ────
+    // Cerrar socket anterior antes de crear uno nuevo.
+    // Sin esto, el socket viejo queda vivo y WhatsApp envía código 440
+    // (connectionReplaced) causando un loop infinito de reconexiones.
+    if (sock) {
+      const prevSock = sock;
+      sock = null; // null primero: evita que el handler del socket viejo programe otro reconect
+      try {
+        prevSock.end();
+      } catch {}
+    }
+
+    // ── Auth state en FILESYSTEM LOCAL ──────────────────────────
+    // Las credenciales de WhatsApp se guardan en {sessionDir}/ como archivos JSON.
+    // Esto elimina a MongoDB del camino crítico del arranque de bots, que es lo
+    // que estaba causando los timeouts de buffering.
+    let state, saveCreds, clearAuth;
+    try {
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+      const fsAuth = await useMultiFileAuthState(sessionDir);
+      state = fsAuth.state;
+      saveCreds = fsAuth.saveCreds;
+      // clearAuth: borra el contenido del sessionDir (equivalente al clearAuth de Mongo)
+      clearAuth = async () => {
+        try {
+          if (fs.existsSync(sessionDir)) {
+            const files = fs.readdirSync(sessionDir);
+            for (const f of files) {
+              try {
+                fs.unlinkSync(path.join(sessionDir, f));
+              } catch {}
+            }
+          }
+        } catch (e) {
+          log(`⚠️ clearAuth FS: ${e.message}`);
+        }
+      };
+      log(`📂 Auth state cargado desde filesystem: ${sessionDir}`);
+    } catch (authErr) {
+      log(`❌ Error cargando sesión desde filesystem: ${authErr.message}`);
+      throw authErr; // Propagar para que el handler de reconexión lo capture
+    }
+
+    let version;
+    try {
+      ({ version } = await fetchLatestBaileysVersion());
+    } catch (vErr) {
+      log(`⚠️ No se pudo obtener versión de Baileys, usando fallback`);
+      version = [2, 3000, 0]; // Fallback seguro
+    }
+    log(`[Baileys] Versión WA: ${version.join('.')}`);
+
+    // ── Logger silencioso que detecta sesión corrupta (Bad MAC) ──
+    // Baileys usa pino internamente. Con level: 'silent' NO debería
+    // loguear nada, pero libsignal a veces escribe a stderr directo.
+    // Este logger intercepta errores para detectar corrupción de sesión
+    // y limpiarla automáticamente (auto-clear → pedir QR nuevo).
+    let _macErrorCount = 0;
+    let _sessionClearScheduled = false;
+    const noop = () => {};
+    const baileysLogger = {
+      level: 'silent',
+      trace: noop,
+      debug: noop,
+      info: noop,
+      warn: noop,
+      fatal: noop,
+      error(obj, msg) {
+        const text = [
+          typeof obj === 'string' ? obj : '',
+          obj?.err?.message || obj?.error?.message || '',
+          msg || '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (text.includes('bad mac') || text.includes('bad_mac')) {
+          _macErrorCount++;
+          // NUNCA borrar la sesión por Bad MAC. Es ruido normal de Signal
+          // Protocol (renegociación de claves con contactos nuevos). Borrarla
+          // forzaba un QR nuevo cada vez que llegaba un mensaje desde un
+          // contacto cuya cache de claves había expirado. Solo loggeamos.
+          if (_macErrorCount % 20 === 0) {
+            log(`ℹ️ [Baileys] Bad MAC acumulado x${_macErrorCount} (normal en Signal — la sesión sigue activa)`);
+          }
+        }
+      },
+      child() {
+        return this;
+      },
+    };
+
+    // Aplicar cache de claves Signal AHORA que baileysLogger ya está declarado
+    // Previene MessageCounterError y Bad MAC por accesos concurrentes al store
+    state.keys = makeCacheableSignalKeyStore(state.keys, baileysLogger);
+
+    sock = makeWASocket({
+      version,
+      auth: state,
+      logger: baileysLogger,
+      printQRInTerminal: false,
+      browser: ['Akira Cloud', 'Chrome', '1.0.0'],
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      // Habilita reintento automático cuando WhatsApp falla al descifrar
+      msgRetryCounterCache,
+      maxMsgRetryCount: 5,
+      // Permite que Baileys reenvíe mensajes al remitente para renegociar claves
+      getMessage: async (key) => {
+        const stored = msgStore.get(key.id);
+        return stored || { conversation: '' };
+      },
+    });
+
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+      if (qr) {
+        log('📱 QR generado — escaneá con WhatsApp');
+        emitter.emit('qr', qr);
+      }
+      if (connection === 'close') {
+        const code = lastDisconnect?.error?.output?.statusCode;
+        const loggedOut = code === DisconnectReason.loggedOut; // 401
+        const replaced = code === DisconnectReason.connectionReplaced; // 440
+        const badSession = code === DisconnectReason.badSession; // 500
+        log(
+          `⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : badSession ? ' — sesión corrupta' : ''}`,
+        );
+
+        if (loggedOut || replaced || badSession) {
+          // Sesión inválida/corrupta — limpiar y detener para que el usuario escanee QR nuevo
+          emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
+          await clearAuth().catch(() => {});
+          log('🗑️ Sesión eliminada — iniciá el bot de nuevo para escanear un QR nuevo.');
+          await detener('session-cleared');
+          return;
+        }
+
+        // POLÍTICA: la sesión NUNCA se borra automáticamente por desconexiones
+        // sin código (cortes de internet/luz, watchdog ping fail, Render
+        // restart, ciclos rápidos). El usuario explícitamente pidió que la
+        // sesión solo se cierre cuando WhatsApp diga "loggedOut/replaced/
+        // badSession" (manejado arriba) o cuando él cierre sesión desde su
+        // celular. Acá reintentamos indefinidamente con la sesión guardada.
+        reconectarIntentos++;
+        if (reconectarIntentos % 10 === 0) {
+          log(`ℹ️ Sigo intentando reconectar (intento ${reconectarIntentos}) — sesión preservada`);
+        }
+
+        // Desconexión transitoria — reconectar automáticamente.
+        // IMPORTANTE: Cancelar timer anterior antes de crear uno nuevo
+        // para evitar timers cascading (múltiples reconexiones en paralelo).
+        reconectando = false;
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+        if (sock !== null) {
+          reconectando = true;
+          const delay = Math.min(5000 * reconectarIntentos, 30_000); // backoff: 5s, 10s, 15s... max 30s
+          log(`🔄 Reconectando en ${delay / 1000}s... (intento ${reconectarIntentos})`);
+          reconnectTimer = setTimeout(async () => {
+            reconnectTimer = null;
+            reconectando = false;
+            if (botDetenidoIntencional) return;
+            if (sock === null) return;
+            try {
+              await conectar();
+            } catch (e) {
+              log(`❌ Error al reconectar: ${e.message}`);
+              // Si conectar() falla (e.g. MongoDB timeout), programar siguiente intento
+              if (!botDetenidoIntencional && sock !== null && reconectarIntentos < 10) {
+                reconectarIntentos++;
+                const nextDelay = Math.min(5000 * reconectarIntentos, 30_000);
+                log(`🔄 Reintentando reconexión en ${nextDelay / 1000}s...`);
+                if (reconnectTimer) clearTimeout(reconnectTimer);
+                reconnectTimer = setTimeout(async () => {
+                  reconnectTimer = null;
+                  if (!botDetenidoIntencional && sock !== null) {
+                    try { await conectar(); } catch {}
+                  }
+                }, nextDelay);
+              } else if (!botDetenidoIntencional) {
+                log('❌ No se pudo reconectar — notificando manager para reinicio externo');
+                emitter.emit('disconnected', 'error conectar — reinicio externo requerido');
+              }
+            }
+          }, delay);
+        }
+      }
+      if (connection === 'open') {
+        reconectarIntentos = 0; // reset — conexión exitosa
+        _macErrorCount = 0; // reset — sesión válida
+        _sessionClearScheduled = false;
+        tsUltimaConexion = Date.now();
+        log('✅ WhatsApp conectado y listo');
+        emitter.emit('ready');
+        reprogramarRecs();
+        ultimoMensajeTs = Date.now();
+        iniciarWatchdog();
+        // Sincronizar catálogo WA Business (si tiene productos)
+        setTimeout(() => sincronizarCatalogoWA().catch(() => {}), 5000);
+      }
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    // ── Sincronizar contactos/chats existentes de WhatsApp ───────
+    // contactosWA: jid → nombre para resolverlo cuando llega chats.set
+    const contactosWA = new Map();
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const c of contacts) {
+        if (!c.id) continue;
+        aprenderLidDeContacto(c); // aprende mapping LID↔PN si vino enlazado
+        const nombre = c.notify || c.name || '';
+        if (nombre) {
+          contactosWA.set(c.id, nombre);
+          // Si el cliente ya existe en cache pero sin nombre, actualizarlo
+          // Solo actualizar en RAM — la DB se actualiza cuando llegue un mensaje real
+          const existing = clientesSvc.cargarMemoria(c.id);
+          if (existing && !existing.nombre) {
+            existing.nombre = nombre;
+            // No llamar guardarMemoria acá para no generar flood de DB al conectar
+          }
+        }
+      }
+    });
+
+    // chats.set: WhatsApp envía la lista completa al conectarse
+    // Procesamos en background con delay para no interferir con mensajes reales
+    sock.ev.on('chats.set', ({ chats: lista }) => {
+      const nuevos = (lista || []).filter(
+        (c) => c.id && c.id.endsWith('@s.whatsapp.net') && !clientesSvc.cargarMemoria(c.id),
+      );
+      if (nuevos.length === 0) return;
+      log(`[Chats] ${nuevos.length} chats nuevos detectados — registrando en background`);
+      // Procesar de a 10 por vez con delay para no saturar MongoDB
+      let i = 0;
+      const procesarLote = () => {
+        const lote = nuevos.slice(i, i + 10);
+        if (lote.length === 0) return;
+        i += 10;
+        for (const chat of lote) {
+          const num = chat.id.split('@')[0].replace(/\D/g, '');
+          const nombre = contactosWA.get(chat.id) || chat.name || '';
+          clientesSvc
+            .registrarNuevo(chat.id, { nombre, telefono: num, numeroReal: num })
+            .catch(() => {});
+        }
+        setTimeout(procesarLote, 500); // 500ms entre lotes
+      };
+      setTimeout(procesarLote, 5000); // 5s delay inicial — esperar que el bot esté estable
+    });
+
+    // chats.upsert: nuevos chats que aparecen luego de la conexión inicial
+    sock.ev.on('chats.upsert', (chats) => {
+      for (const chat of chats || []) {
+        const jid = chat.id;
+        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+        if (clientesSvc.cargarMemoria(jid)) continue; // ya existe — no hacer nada
+        const num = jid.split('@')[0].replace(/\D/g, '');
+        const nombre = contactosWA.get(jid) || chat.name || '';
+        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+      }
+    });
+
+    // Mensajes en paralelo — cada uno con timeout propio para que uno colgado
+    // no bloquee los siguientes
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
+      // Capturar mensajes ENVIADOS por el bot (type==='append') en msgStore.
+      // Cuando WhatsApp no puede descifrar un mensaje del bot, envía un retry
+      // request. Baileys llama getMessage(key) para re-cifrar y reenviar.
+      // Si getMessage devuelve undefined → reenvía vacío → "Esperando el mensaje" permanente.
+      if (type === 'append') {
+        for (const m of messages) {
+          if (m.key?.id && m.key?.fromMe && m.message) {
+            msgStore.set(m.key.id, m.message);
+          }
+        }
+        return;
+      }
+      if (type !== 'notify') return;
+      ultimoMensajeTs = Date.now();
+      for (const msg of messages) {
+        // ── DEDUP por msg.key.id: WhatsApp/Baileys re-entrega el MISMO mensaje
+        // tras reconexiones (vimos 6× "Hola" en 1 segundo). Descartamos antes
+        // de encolar para no procesarlo varias veces.
+        //
+        // IMPORTANTE: solo registrar en dedup si el mensaje tiene contenido real.
+        // Cuando Bad MAC ocurre, Baileys emite el mensaje con msg.message = null.
+        // Si lo registramos en ese estado, bloqueamos los reintentos de WhatsApp
+        // que traen el mismo msgId pero ya correctamente descifrado.
+        const msgId = msg.key?.id;
+        const tieneContenido = msg.message && Object.keys(msg.message).length > 0;
+        if (msgId && tieneContenido) {
+          if (seenMsgIds.has(msgId)) {
+            log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
+            continue;
+          }
+          seenMsgIds.add(msgId);
+          // Limpiar IDs viejos para no llenar memoria infinitamente
+          if (seenMsgIds.size > 500) {
+            const arr = Array.from(seenMsgIds);
+            for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
+          }
+        } else if (msgId && !tieneContenido) {
+          // Mensaje sin contenido (Bad MAC / descifrado fallido) — ignorar sin registrar
+          // en dedup para que el reintento de WhatsApp pueda pasar.
+          log(`⚠️ [Dedup] Mensaje sin contenido (Bad MAC?) — no registrado: ${msgId.slice(0, 12)}...`);
+          continue;
+        }
+        const rawJid = msg.key?.remoteJid || 'unknown';
+        // Cola por JID: mensajes del mismo contacto se procesan uno a la vez.
+        // Evita que un backlog de mensajes acumulados dispare N respuestas en paralelo.
+        const prev = jidQueues.get(rawJid) || Promise.resolve();
+        const next = prev.then(async () => {
+          const limit = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000),
+          );
+          try {
+            await Promise.race([handleBaileysMessage(msg), limit]);
+          } catch (e) {
+            log(`❌ Error handleMessage [${rawJid}]: ${e.message}`);
+          }
+        });
+        jidQueues.set(rawJid, next);
+        next.finally(() => {
+          if (jidQueues.get(rawJid) === next) jidQueues.delete(rawJid);
+        });
+      }
+    });
+  }
+
+  // ── Setup handlers para modo PROXY ───────────────────────────
+  // Cuando el sock viene del worker (vía baileysProxy), no tenemos lifecycle
+  // interno de Baileys. Solo registramos los handlers de mensajes/contactos/chats.
+  // El worker maneja conexión, sesión, watchdog y reconexión por su cuenta.
+  function _setupHandlersProxy() {
+    const contactosWA = new Map();
+
+    // connection.update simplificado: solo escuchamos open/close del worker
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
+      if (connection === 'open') {
+        tsUltimaConexion = Date.now();
+        log('✅ WhatsApp conectado y listo (vía worker)');
+        emitter.emit('ready');
+        reprogramarRecs();
+        ultimoMensajeTs = Date.now();
+        // No iniciamos watchdog — el worker tiene su propio watchdog Baileys
+        // No sincronizamos catálogo automáticamente porque el worker ya emite
+        // los eventos relevantes. Si querés forzar sync: emitter.emit('catalog:sync')
+      }
+      if (connection === 'close') {
+        log(`⚠️ Desconectado (worker reportó cierre)`);
+        emitter.emit('disconnected', lastDisconnect?.error?.message || 'connection_close');
+      }
+    });
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const c of contacts) {
+        if (!c.id) continue;
+        aprenderLidDeContacto(c); // aprende mapping LID↔PN si vino enlazado
+        const nombre = c.notify || c.name || '';
+        if (nombre) {
+          contactosWA.set(c.id, nombre);
+          const existing = clientesSvc.cargarMemoria(c.id);
+          if (existing && !existing.nombre) existing.nombre = nombre;
+        }
+      }
+    });
+
+    sock.ev.on('chats.set', ({ chats: lista }) => {
+      const nuevos = (lista || []).filter(
+        (c) => c.id && c.id.endsWith('@s.whatsapp.net') && !clientesSvc.cargarMemoria(c.id),
+      );
+      if (nuevos.length === 0) return;
+      log(`[Chats] ${nuevos.length} chats nuevos detectados — registrando en background`);
+      let i = 0;
+      const procesarLote = () => {
+        const lote = nuevos.slice(i, i + 10);
+        if (lote.length === 0) return;
+        i += 10;
+        for (const chat of lote) {
+          const num = chat.id.split('@')[0].replace(/\D/g, '');
+          const nombre = contactosWA.get(chat.id) || chat.name || '';
+          clientesSvc.registrarNuevo(chat.id, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+        }
+        setTimeout(procesarLote, 500);
+      };
+      setTimeout(procesarLote, 5000);
+    });
+
+    sock.ev.on('chats.upsert', (chats) => {
+      for (const chat of chats || []) {
+        const jid = chat.id;
+        if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+        if (clientesSvc.cargarMemoria(jid)) continue;
+        const num = jid.split('@')[0].replace(/\D/g, '');
+        const nombre = contactosWA.get(jid) || chat.name || '';
+        clientesSvc.registrarNuevo(jid, { nombre, telefono: num, numeroReal: num }).catch(() => {});
+      }
+    });
+
+    // messages.upsert con dedup + cola por JID (igual al modo cloud-direct)
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
+      if (type !== 'notify') return;
+      ultimoMensajeTs = Date.now();
+      for (const msg of messages) {
+        // Solo registrar en dedup si hay contenido real (evita bloquear reintentos
+        // de mensajes que llegaron con Bad MAC / msg.message = null).
+        const msgId = msg.key?.id;
+        const tieneContenido = msg.message && Object.keys(msg.message).length > 0;
+        if (msgId && tieneContenido) {
+          if (seenMsgIds.has(msgId)) {
+            log(`⏭️ [Dedup] Mensaje duplicado ignorado: ${msgId.slice(0, 12)}...`);
+            continue;
+          }
+          seenMsgIds.add(msgId);
+          if (seenMsgIds.size > 500) {
+            const arr = Array.from(seenMsgIds);
+            for (let i = 0; i < 200; i++) seenMsgIds.delete(arr[i]);
+          }
+        } else if (msgId && !tieneContenido) {
+          log(`⚠️ [Dedup] Mensaje sin contenido (Bad MAC?) — no registrado: ${msgId.slice(0, 12)}...`);
+          continue;
+        }
+        const rawJid = msg.key?.remoteJid || 'unknown';
+        const prev = jidQueues.get(rawJid) || Promise.resolve();
+        const next = prev.then(async () => {
+          const limit = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('MSG_TIMEOUT')), 40_000),
+          );
+          try {
+            await Promise.race([handleBaileysMessage(msg), limit]);
+          } catch (e) {
+            log(`❌ Error handleMessage [${rawJid}]: ${e.message}`);
+          }
+        });
+        jidQueues.set(rawJid, next);
+        next.finally(() => {
+          if (jidQueues.get(rawJid) === next) jidQueues.delete(rawJid);
+        });
+      }
+    });
+  }
+
+  // ── Watchdog: detecta conexión zombie y reconecta ────────────
+  // Política: SOLO reconectar si el ping al WebSocket falla.
+  // No reconectar por "silencio" — un negocio con poca actividad nocturna
+  // puede estar perfectamente conectado durante horas sin recibir mensajes.
+  // Las reconexiones innecesarias hacen perder mensajes que llegan durante
+  // la ventana de reconexión (3-15s).
+  let watchdogPingFallos = 0; // contador de pings fallidos consecutivos
+  function iniciarWatchdog() {
+    if (usandoProxy) {
+      // En modo PROXY el watchdog Baileys lo maneja el worker localmente.
+      // El backend solo verifica conectividad del worker via Socket.io
+      // (ya gestionada por worker.handler).
+      return;
+    }
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    watchdogPingFallos = 0;
+    // Cada 2 minutos verifica si el socket sigue vivo
+    watchdogTimer = setInterval(
+      () => {
+        // Top-level try/catch — si el watchdog falla no debe matar el intervalo
+        try {
+          if (!sock || botDetenidoIntencional) return;
+          // Solo verificamos: ¿el WebSocket responde al ping?
+          if (sock.ws && typeof sock.ws.ping === 'function') {
+            try {
+              sock.ws.ping();
+              if (watchdogPingFallos > 0) {
+                log(`✅ [Watchdog] Ping recuperado tras ${watchdogPingFallos} fallo(s)`);
+              }
+              watchdogPingFallos = 0; // ping exitoso — reset contador
+            } catch (pingErr) {
+              watchdogPingFallos++;
+              log(`⚠️ [Watchdog] Ping falló x${watchdogPingFallos} (${pingErr.message})`);
+              // 3 pings fallidos consecutivos (6 min) → reconectar
+              if (watchdogPingFallos >= 3) {
+                log('⚠️ [Watchdog] 3 pings fallidos consecutivos — forzando reconexión');
+                watchdogPingFallos = 0;
+                detenerWatchdog();
+                if (!reconectando) {
+                  try {
+                    sock.end(new Error('watchdog_ping_fail'));
+                  } catch {}
+                }
+              }
+            }
+            return;
+          }
+          // Si el socket no expone .ws.ping (raro), red de seguridad:
+          // solo reconectar si pasaron MÁS DE 8 HORAS sin actividad — protección
+          // anti-zombie absoluta sin afectar a negocios con baja actividad normal.
+          const silencio = Date.now() - ultimoMensajeTs;
+          const ZOMBIE_HARD_MS = 8 * 60 * 60 * 1000; // 8 horas
+          if (silencio > ZOMBIE_HARD_MS) {
+            log(
+              `⚠️ [Watchdog] Sin ping disponible y sin actividad por ${Math.round(silencio / 60000)}min — reconectando preventivamente`,
+            );
+            ultimoMensajeTs = Date.now();
+            detenerWatchdog();
+            if (!reconectando) {
+              try {
+                sock.end(new Error('watchdog_no_ping_available'));
+              } catch {}
+            }
+          }
+        } catch (e) {
+          log(`❌ [Watchdog] Error interno: ${e.message}`);
+        }
+      },
+      2 * 60 * 1000,
+    );
+  }
+
+  function detenerWatchdog() {
+    if (watchdogTimer) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
+  }
+
+  // ── Canal de admin — recalcula y re-registra en system.bot.js cada vez
+  // que CELULAR_NOTIFICACIONES puede haber cambiado (arranque, patch directo
+  // desde worker, o reload desde el dashboard). Sin esto, cambiar el número
+  // desde afuera dejaba el canal de comandos "sistema ..." apuntando al
+  // número viejo hasta el próximo reinicio del bot.
+  async function actualizarCanalAdmin() {
+    try {
+      if (!CELULAR_NOTIFICACIONES) {
+        systemBot.desregistrarCanalAdmin(USER_ID);
+        return;
+      }
+      const User = require('../models/User');
+      const uDoc = await User.findById(USER_ID).select('rol').lean();
+      if (uDoc?.rol === 'admin') {
+        const nuevoJid = `${CELULAR_NOTIFICACIONES.replace(/\D/g, '')}@s.whatsapp.net`;
+        systemBot.registrarCanalAdmin(USER_ID, nuevoJid);
+        log(`[Sistema] Canal de admin habilitado en ${nuevoJid}`);
+      } else {
+        systemBot.desregistrarCanalAdmin(USER_ID);
+      }
+    } catch (e) {
+      log(`⚠️ [Sistema] No se pudo actualizar canal de admin: ${e.message}`);
+    }
+  }
+
+  // ── Ciclo de vida ────────────────────────────────────────────
+  async function iniciar() {
+    // Cargar clientes existentes desde MongoDB (antes de procesar mensajes)
+    await clientesSvc.inicializar();
+    audioSvc = crearAudioService({
+      groqApiKey: GROQ_API_KEY,
+      rimeApiKey: RIME_API_KEY,
+      dataDir,
+      log,
+    });
+    iniciarServidor();
+    // ngrok eliminado del flujo principal: el webhook MP llega al backend
+    // público (Render) vía /api/bot/webhook-mp/:userId y bot.manager lo
+    // reenvía a procesarWebhookMP() de esta instancia.
+    // Escuchar solicitudes externas de sync de catálogo (desde bot.manager)
+    emitter.on('catalog:sync', () => {
+      log('[Catálogo] 🔄 Sync solicitado manualmente...');
+      catalogFallos = 0; // el usuario forzó el sync — resetear contador
+      esNegocioWA = null; // permitir redetección por si migró a Business
+      sincronizarCatalogoWA().catch(() => {});
+    });
+
+    // Recargar tokens de Google Calendar en caliente (el usuario conectó OAuth)
+    emitter.on('calendar:reload', async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID });
+        if (!cfg) return;
+        const raw = cfg.getKey('googleCalendarTokens');
+        if (!raw) {
+          log('🗓️ calendar:reload — sin tokens GCal, usando solo MongoDB');
+          return;
+        }
+        const newTokens = JSON.parse(raw);
+        // Actualizar GOOGLE_CALENDAR_TOKENS en memoria y recrear el servicio completo
+        // para que el nuevo GCal service use los tokens frescos
+        Object.assign(GOOGLE_CALENDAR_TOKENS || {}, newTokens);
+        calendar = _crearCalendar();
+        log('🗓️ Google Calendar reconectado con tokens frescos — modo híbrido activo');
+      } catch (e) {
+        log('⚠️ calendar:reload error: ' + e.message);
+      }
+    });
+
+    // Cargar configuración real desde MongoDB al arrancar
+    // (el credentials cache puede estar desactualizado respecto al dashboard)
+    try {
+      const cfgInicial = await Promise.race([
+        Config.findOne({ userId: USER_ID }).lean(),
+        new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 8000)),
+      ]);
+      if (cfgInicial) {
+        if (typeof cfgInicial.modoPausa === 'boolean') {
+          MODO_PAUSA = cfgInicial.modoPausa;
+        }
+        if (cfgInicial.celularNotificaciones) CELULAR_NOTIFICACIONES = cfgInicial.celularNotificaciones;
+        if (cfgInicial.promptPersonalizado)   PROMPT_EXTRA = cfgInicial.promptPersonalizado;
+        if (cfgInicial.horariosAtencion)      HORARIOS_ATENCION = cfgInicial.horariosAtencion;
+        if (cfgInicial.diasBloqueados)        DIAS_BLOQUEADOS = cfgInicial.diasBloqueados;
+        log(`[Config] ✅ Config cargada desde MongoDB — MODO_PAUSA=${MODO_PAUSA}`);
+      } else {
+        // No existe Config — el bot está recién creado. Por seguridad, NO pausa.
+        MODO_PAUSA = false;
+        log(`[Config] ℹ️ Sin Config en MongoDB — asumiendo bot ACTIVO (no pausa)`);
+      }
+    } catch (e) {
+      // ⚠️ FIX CRITICO: si MongoDB no respondio al arrancar, NO confiar en el
+      // credentials cache para MODO_PAUSA. Siempre asumir ACTIVO (no pausado).
+      // Es mas seguro que el bot atienda y el dueno lo pause manualmente, que
+      // que quede mudo creyendo erroneamente que esta en pausa.
+      MODO_PAUSA = false;
+      log(`[Config] ⚠️ MongoDB no respondio al arrancar (${e.message}) — bot asume ACTIVO por seguridad. Si querias pausa, activala desde el dashboard.`);
+    }
+
+    // ── Canal de admin (comandos "sistema ...") — SOLO si esta cuenta es
+    // rol==='admin' Y tiene un CELULAR_NOTIFICACIONES configurado. Ese
+    // número es el único chat donde se habilitan los comandos de sistema.
+    await actualizarCanalAdmin();
+
+    // Reintento en background: si MongoDB se conecta despues, refrescar Config
+    setTimeout(async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID }).lean();
+        if (cfg) {
+          if (typeof cfg.modoPausa === 'boolean' && cfg.modoPausa !== MODO_PAUSA) {
+            MODO_PAUSA = cfg.modoPausa;
+            log(`[Config] 🔄 Reintento OK — MODO_PAUSA actualizado a ${MODO_PAUSA}`);
+          }
+        }
+      } catch {}
+    }, 30_000);
+
+    // Patch de configuración directo — sin leer MongoDB (funciona con DB caída)
+    // Usado por worker:set-pausa y otros eventos directos desde el backend
+    emitter.on('config:patch', (patch) => {
+      if (!patch) return;
+      if (typeof patch.modoPausa === 'boolean') MODO_PAUSA = patch.modoPausa;
+      if (patch.celularNotificaciones !== undefined) {
+        CELULAR_NOTIFICACIONES = patch.celularNotificaciones;
+        actualizarCanalAdmin().catch(() => {});
+      }
+      if (patch.promptPersonalizado   !== undefined) PROMPT_EXTRA = patch.promptPersonalizado;
+      log(`[Config] 🔧 Patch directo aplicado: ${JSON.stringify(patch)}`);
+    });
+
+    // Recargar configuración en caliente — se dispara cuando el usuario
+    // guarda cambios desde el dashboard sin necesidad de reiniciar el bot
+    emitter.on('config:reload', async () => {
+      try {
+        const cfg = await Config.findOne({ userId: USER_ID });
+        if (!cfg) return;
+        HORARIOS_ATENCION = cfg.horariosAtencion || {};
+        DIAS_BLOQUEADOS = cfg.diasBloqueados || [];
+        MODO_PAUSA = cfg.modoPausa || false;
+        if (cfg.celularNotificaciones !== CELULAR_NOTIFICACIONES) {
+          CELULAR_NOTIFICACIONES = cfg.celularNotificaciones || '';
+          await actualizarCanalAdmin();
+        }
+        PROMPT_EXTRA = cfg.promptPersonalizado || '';
+        SERVICIOS_LIST = (() => {
+          try {
+            return cfg.serviciosList || [];
+          } catch {
+            return [];
+          }
+        })();
+        CHATS_IGNORADOS = cfg.chatsIgnorados || [];
+        // Actualizar catálogo en RAM + groq service
+        CATALOGO = Array.isArray(cfg.catalogo) ? cfg.catalogo : [];
+        groqSvc.setCatalogo(CATALOGO);
+        // Recrear el calendar service con los nuevos horarios/días bloqueados
+        calendar = _crearCalendar();
+        log('⚙️ Configuración recargada en caliente — sin reiniciar el bot');
+      } catch (e) {
+        log('⚠️ config:reload error: ' + e.message);
+      }
+    });
+
+    // Actualizar CATALOGO en RAM cuando llega sync desde WA Business
+    emitter.on('catalog:update', (nuevoCatalogo) => {
+      if (Array.isArray(nuevoCatalogo)) {
+        CATALOGO = nuevoCatalogo;
+        groqSvc.setCatalogo(CATALOGO);
+        log(`[Catálogo] 🔄 CATALOGO en RAM actualizado: ${CATALOGO.length} producto(s)`);
+      }
+    });
+
+    // Actualizar silenciado de un cliente en la caché RAM (desde el dashboard)
+    // La app le pide al bot que le escriba a un cliente (ej. turno confirmado)
+    emitter.on('enviar:texto', ({ jid, texto }) => { if (jid && texto) enviarMensaje(jid, texto).catch(() => {}); });
+
+    emitter.on('cliente:silenciar', ({ jid, silenciado }) => {
+      const u = clientesSvc.cargarMemoria(jid);
+      if (u) {
+        u.silenciado = !!silenciado;
+        clientesSvc.guardarMemoria(jid, u);
+        log(`🔇 Cliente ${jid} silenciado=${silenciado} (actualizado en caliente)`);
+      }
+    });
+
+    log('🔄 Iniciando conexión WhatsApp (Baileys — sin Chrome)...');
+    await conectar();
+  }
+
+  async function detener(motivo = null, opts = null) {
+    botDetenidoIntencional = true; // marcar antes de nulificar sock para cortar todos los timers
+    const sockRef = sock;
+    sock = null; // null primero para cortar reconexión automática
+    reconectando = false;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    detenerWatchdog();
+    for (const k of Object.keys(timeoutsRecs)) clearTimeout(timeoutsRecs[k]);
+    if (sockRef) {
+      try {
+        // En modo PROXY, opts.silencioso=true evita que el cierre se propague
+        // al worker (worker:stop-bot). Sin esto, reciclar la instancia en el
+        // backend (reconexión, shutdown) mata la sesión WA del worker y fuerza
+        // un QR nuevo. En modo cloud-direct el flag se ignora silenciosamente.
+        if (opts?.silencioso) {
+          sockRef.end({ silencioso: true });
+        } else {
+          sockRef.end();
+        }
+      } catch (e) {
+        log('sock.end: ' + e.message);
+      }
+    }
+    if (expressServer) {
+      try {
+        expressServer.close();
+      } catch {}
+      expressServer = null;
+    }
+    log(opts?.silencioso ? '🛑 Bot detenido localmente (worker sigue activo).' : '🛑 Bot detenido.');
+    emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
+  }
+
+  emitter.iniciar           = iniciar;
+  emitter.detener           = detener;
+  emitter.enviarMensaje     = enviarMensaje;
+  emitter.procesarWebhookMP = procesarWebhookMP;
+  return emitter;
+}
+crearAkiraBot.esRespuestaSoloNombreDeTool = esRespuestaSoloNombreDeTool;
+crearAkiraBot.construirSystemPromptRespuestaFinal = construirSystemPromptRespuestaFinal;
+module.exports = crearAkiraBot;

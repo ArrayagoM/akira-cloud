@@ -1,0 +1,215 @@
+// main/index.js — proceso principal de Electron.
+// Arranque: abre la base SQLite ANTES de cargar cualquier módulo que toque un
+// modelo (bot-service → akira.bot.js → models/* ejecutan crearColeccion() al
+// cargarse y necesitan la conexión abierta), levanta el servidor local
+// (local-api) y abre una ventana que muestra el MISMO frontend de la
+// plataforma servido desde ahí.
+'use strict';
+
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell } = require('electron');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+
+const userDataDir = app.getPath('userData');
+
+// ── Registro en archivo (userData/logs/akira.log) ─────────────────
+// Sin esto, si algo falla en una PC de un cliente no queda ninguna pista.
+const logDir = path.join(userDataDir, 'logs');
+fs.mkdirSync(logDir, { recursive: true });
+const logFile = path.join(logDir, 'akira.log');
+try { if (fs.statSync(logFile).size > 2 * 1024 * 1024) fs.renameSync(logFile, logFile + '.old'); } catch {}
+function log(...partes) {
+  const linea = `${new Date().toISOString()} ${partes.map((p) => (p instanceof Error ? p.stack : typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`;
+  try { fs.appendFileSync(logFile, linea); } catch {}
+}
+process.on('uncaughtException', (e) => log('[uncaughtException]', e));
+process.on('unhandledRejection', (e) => log('[unhandledRejection]', e));
+log('--- arranque', app.getVersion(), process.platform, os.release());
+
+const store = require('./db/store');
+store.abrir(path.join(userDataDir, 'akira.db')); // DEBE ir antes de cualquier require de un modelo
+
+const esmCompat = require('./esm-compat');
+const licenseClient = require('./license/license-client');
+
+// AKIRA_LICENSE_SERVER_URL permite apuntar a un backend local en desarrollo
+// (ej. http://localhost:5050); por defecto, el servidor de licencias en Vercel.
+const SERVER_URL = process.env.AKIRA_LICENSE_SERVER_URL || 'https://akira-licencias.vercel.app';
+licenseClient.configurar({ serverUrl: SERVER_URL });
+// MercadoPago notifica a esta URL pública (el servidor guarda el aviso y la
+// app lo retira) — ver backend-desktop/routes/bot-gate.routes.js.
+process.env.BACKEND_URL = SERVER_URL;
+
+let ventana = null;
+let tray = null;
+let botService = null;
+let localApi = null;
+let actualizador = null;
+let pedirMostrar = false; // alguien intentó abrir la app antes de que la ventana existiera
+let avisoBandejaMostrado = false;
+const iniciaOculta = process.argv.includes('--hidden'); // lo usa el inicio automático con Windows
+
+// Preferencia "Iniciar con Windows" (por defecto sí: el bot tiene que seguir
+// atendiendo después de reiniciar la PC, sin que nadie abra nada).
+const archivoPrefs = path.join(userDataDir, 'prefs.json');
+const leerPrefs = () => { try { return JSON.parse(fs.readFileSync(archivoPrefs, 'utf-8')); } catch { return {}; } };
+function aplicarInicioAutomatico(activo) {
+  if (!app.isPackaged) return; // en desarrollo no se registra
+  app.setLoginItemSettings({ openAtLogin: !!activo, args: ['--hidden'] });
+}
+
+function esDeLaApp(url) {
+  return !!localApi && url.startsWith(localApi.url);
+}
+
+function mostrarVentana() {
+  if (!ventana) { pedirMostrar = true; return; }
+  if (ventana.isMinimized()) ventana.restore();
+  ventana.show();
+  ventana.focus();
+}
+
+function crearVentana() {
+  ventana = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 960,
+    minHeight: 640,
+    title: 'Akira',
+    icon: path.join(__dirname, 'assets', 'tray.png'),
+    autoHideMenuBar: true,
+    backgroundColor: '#0a0f1a',
+    show: !iniciaOculta,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  ventana.loadURL(localApi.url);
+
+  // Todo lo que no es la propia app (Google, MercadoPago, enlaces) se abre en
+  // el navegador del sistema: Google bloquea el login dentro de ventanas
+  // embebidas, y el pago no debe pasar por la app.
+  const aNavegador = (e, url) => {
+    if (esDeLaApp(url)) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  };
+  ventana.webContents.on('will-navigate', aNavegador);
+  ventana.webContents.on('will-redirect', aNavegador);
+  ventana.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Si la pestaña interna se cae, se vuelve a cargar en vez de dejar la ventana muerta.
+  ventana.webContents.on('render-process-gone', (_e, d) => {
+    log('[render-process-gone]', d);
+    if (d.reason !== 'clean-exit') ventana?.loadURL(localApi.url);
+  });
+  ventana.webContents.on('did-fail-load', (_e, code, desc, url) => log('[did-fail-load]', code, desc, url));
+
+  // Cerrar la ventana la manda a la bandeja: el bot sigue atendiendo WhatsApp.
+  // La primera vez se avisa, para que nadie crea que la app se cerró.
+  ventana.on('close', (e) => {
+    if (app.isQuitting) return;
+    e.preventDefault();
+    ventana.hide();
+    log('[ventana] oculta en la bandeja');
+    if (!avisoBandejaMostrado && Notification.isSupported()) {
+      avisoBandejaMostrado = true;
+      new Notification({
+        title: 'Akira sigue funcionando',
+        body: 'Tu bot sigue atendiendo en segundo plano. Para abrirla de nuevo, hacé clic en el ícono de Akira junto al reloj.',
+        icon: path.join(__dirname, 'assets', 'tray.png'),
+      }).show();
+    }
+  });
+
+  if (pedirMostrar) { pedirMostrar = false; mostrarVentana(); }
+}
+
+function crearTray() {
+  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
+  tray.setToolTip('Akira');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir Akira', click: mostrarVentana },
+    { label: 'Actualizar ahora', click: () => { if (!actualizador?.instalarAhora()) actualizador?.buscar(); } },
+    {
+      label: 'Iniciar con Windows',
+      type: 'checkbox',
+      checked: leerPrefs().inicioAutomatico !== false,
+      click: (item) => {
+        fs.writeFileSync(archivoPrefs, JSON.stringify({ ...leerPrefs(), inicioAutomatico: item.checked }));
+        aplicarInicioAutomatico(item.checked);
+      },
+    },
+    { type: 'separator' },
+    { label: 'Salir (el bot dejará de responder)', click: () => { app.isQuitting = true; Promise.resolve(botService?.detenerTodos()).finally(() => app.quit()); } },
+  ]));
+  tray.on('click', mostrarVentana);
+}
+
+const bloqueo = app.requestSingleInstanceLock();
+if (!bloqueo) {
+  // Ya hay una Akira abierta (quizás oculta en la bandeja): ella se muestra.
+  log('[instancia] ya había otra Akira abierta; esta se cierra');
+  app.quit();
+} else {
+  app.on('second-instance', () => { log('[instancia] segundo intento de abrir; se muestra la ventana'); mostrarVentana(); });
+
+  app.whenReady().then(async () => {
+    await esmCompat.preparar(); // Baileys es ESM (ver esm-compat.js)
+    // Google Calendar: los tokens se renuevan a través del servidor (el client
+    // secret de Google no puede estar en la PC del cliente).
+    const { obtenerDeviceId } = require('./device');
+    require('./bot-engine/gcal-proxy').instalar({
+      request: (refreshToken) => licenseClient.request('/api/google/refresh', 'POST', { refresh_token: refreshToken }, { 'x-device-id': obtenerDeviceId(userDataDir) }),
+    });
+    botService = require('./slots/bot-service');
+
+    localApi = await require('./local-api/server').iniciar({
+      userDataDir,
+      serverUrl: SERVER_URL,
+      frontendDir: path.join(__dirname, '..', 'renderer-app'),
+      nombreEquipo: os.hostname(),
+      botService,
+      // El login con Google termina en el navegador del sistema; el código
+      // se canjea dentro de la ventana de la app.
+      alCodigoOAuth: (code) => {
+        log('[oauth] código recibido; se carga en la ventana');
+        if (!ventana) return;
+        ventana.loadURL(`${localApi.url}/oauth-callback?code=${encodeURIComponent(code)}`);
+        mostrarVentana();
+      },
+    });
+
+    crearVentana();
+    crearTray();
+    aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
+    log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
+
+    // Actualizaciones automáticas (solo en la app instalada).
+    if (app.isPackaged) {
+      try {
+        const { autoUpdater } = require('electron-updater');
+        actualizador = require('./updater').crearUpdater({
+          autoUpdater,
+          log,
+          notificar: (titulo, cuerpo) => {
+            if (Notification.isSupported()) new Notification({ title: titulo, body: cuerpo, icon: path.join(__dirname, 'assets', 'tray.png') }).show();
+          },
+        });
+        actualizador.iniciar();
+      } catch (e) { log('[updater] no disponible', e); }
+    }
+
+    // Revalida la licencia y reactiva los bots activos aunque nadie abra la ventana.
+    require('./license/guardian')
+      .iniciar({ userDataDir, botService, emitir: localApi.emitirAlUsuario })
+      .catch((e) => log('[guardian] FALLÓ', e));
+  }).catch((e) => log('[arranque] FALLÓ', e));
+
+  app.on('window-all-closed', () => { /* vive en la bandeja */ });
+  app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
+  app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
+  app.on('will-quit', () => { actualizador?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+}

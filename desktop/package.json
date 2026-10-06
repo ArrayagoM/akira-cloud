@@ -1,0 +1,101 @@
+{
+  "name": "akira-desktop",
+  "productName": "Akira",
+  "version": "1.0.7",
+  "description": "Akira â€” software de escritorio. Corre el bot de WhatsApp completo (IA, calendario, cobros, memoria de clientes) en la PC del negocio. El servidor solo valida la licencia.",
+  "main": "main/index.js",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node tests/run.js",
+    "dist": "electron-builder",
+    "build:ui": "node scripts/build-renderer.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.23",
+    "better-sqlite3": "^11.3.0",
+    "electron-updater": "^6.8.9",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "form-data": "^4.0.0",
+    "googleapis": "^140.0.0",
+    "groq-sdk": "^0.3.3",
+    "pdf-parse": "^1.1.1",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.4",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.akiracloud.desktop",
+    "asar": true,
+    "compression": "normal",
+    "files": [
+      "main/**/*",
+      "renderer-app/**/*",
+      "package.json",
+      "!**/*.test.js",
+      "ocr-data/**/*"
+    ],
+    "extraResources": [],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build-resources"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Akira",
+      "installerIcon": "build-resources/icon.ico",
+      "uninstallerIcon": "build-resources/icon.ico",
+      "artifactName": "AkiraCloud.${ext}",
+      "differentialPackage": false
+    },
+    "productName": "Akira",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://75e2pc5qx5jjfp4g.public.blob.vercel-storage.com/"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/tesseract.js/**/*",
+      "node_modules/tesseract.js-core/**/*",
+      "node_modules/bmp-js/**/*",
+      "node_modules/idb-keyval/**/*",
+      "node_modules/is-electron/**/*",
+      "node_modules/is-url/**/*",
+      "node_modules/node-fetch/**/*",
+      "node_modules/whatwg-url/**/*",
+      "node_modules/tr46/**/*",
+      "node_modules/webidl-conversions/**/*",
+      "node_modules/regenerator-runtime/**/*",
+      "node_modules/wasm-feature-detect/**/*",
+      "node_modules/zlibjs/**/*",
+      "node_modules/opencollective-postinstall/**/*",
+      "ocr-data/**/*"
+    ]
+  }
+}
