@@ -23,6 +23,7 @@ import SugerenciasPage   from './pages/SugerenciasPage';
 import ChatsPage         from './pages/ChatsPage';
 import ClientesPage      from './pages/ClientesPage';
 import DocumentosPage    from './pages/DocumentosPage';
+import CatalogoPage      from './pages/CatalogoPage';
 import Descargar         from './pages/Descargar';
 import CuentaPanel       from './pages/CuentaPanel';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
@@ -107,6 +108,7 @@ export default function App() {
         <Route path="/chats"       element={DESKTOP ? <ProtectedRoute><ChatsPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/clientes"    element={DESKTOP ? <ProtectedRoute><ClientesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/documentos" element={DESKTOP ? <ProtectedRoute><DocumentosPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/catalogo"   element={DESKTOP ? <ProtectedRoute><CatalogoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 
         {/* Solo admin */}
         <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />

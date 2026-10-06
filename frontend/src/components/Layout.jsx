@@ -5,7 +5,7 @@ import api from '../services/api';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
-  BookOpen, Download, FileText,
+  BookOpen, Download, FileText, Package,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
@@ -20,6 +20,7 @@ const NAV_ITEMS_BASE = [
   { to: '/agenda',      icon: CalendarDays,    label: 'Agenda'     },
   { to: '/clientes',    icon: Users,           label: 'Clientes'   },
   { to: '/chats',       icon: MessageSquare,   label: 'Chats'      },
+  { to: '/catalogo',    icon: Package,         label: 'Catálogo'   },
   { to: '/documentos',  icon: FileText,        label: 'Documentos' },
   { to: '/config',      icon: Settings,        label: 'Config'     },
   { to: '/descargar',   icon: Download,        label: 'App'        },
@@ -55,7 +56,7 @@ export default function Layout({ children }) {
   const navItems = [
     ...NAV_ITEMS_BASE.filter((i) => (DESKTOP
       ? !(i.to === '/sugerencias' || i.to === '/descargar')
-      : !['/agenda', '/clientes', '/chats', '/config', '/documentos'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
+      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
     ...(user?.rol === 'admin' ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];
 
