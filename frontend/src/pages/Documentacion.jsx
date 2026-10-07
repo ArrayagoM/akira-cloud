@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Layout from '../components/Layout';
 import {
   ArrowLeft, Rocket, Settings, Plug, Bot, LayoutDashboard, Users2,
   CreditCard, ShieldCheck, HelpCircle, Mail, Menu, X,
@@ -238,43 +239,18 @@ export default function Documentacion() {
 
   const bodyStyle = { color: 'var(--text2)', fontSize: 15, lineHeight: 1.75 };
 
-  return (
-    <div style={{ background: 'var(--bg)', minHeight: '100vh', color: 'var(--text)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            onClick={() => setSidebarOpen((s) => !s)}
-            className="lg-hidden"
-            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text2)' }}
-            aria-label="Abrir índice"
-          >
-            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
-          </button>
-          <button onClick={volver} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0 }}>
-            <ArrowLeft size={16} />
-            Volver
-          </button>
-          <span style={{ color: 'var(--border)' }}>·</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(0,232,123,0.12)', border: '1px solid rgba(0,232,123,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Bot size={14} style={{ color: '#00e87b' }} />
-            </div>
-            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>Akira Cloud</span>
-          </div>
-        </div>
-        <a href="mailto:soporte@akiracloud.lat" className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }}>
-          <Mail size={13} /> Contactar soporte
-        </a>
-      </div>
+  // Con sesión iniciada la documentación vive DENTRO de la app (con el menú lateral y las demás pestañas);
+  // sin sesión (visitante) sigue siendo una página pública con su propio encabezado.
+  const enApp = !!user;
 
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '0 24px', display: 'flex', gap: 40 }}>
+  const cuerpo = (
+      <div style={{ maxWidth: enApp ? 'none' : 1280, margin: '0 auto', padding: enApp ? 0 : '0 24px', display: 'flex', gap: enApp ? 32 : 40 }}>
         {/* ── Sidebar ── */}
         <aside
           className={sidebarOpen ? 'docs-sidebar open' : 'docs-sidebar'}
           style={{ width: 260, flexShrink: 0 }}
         >
-          <div style={{ position: 'sticky', top: 88, maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', paddingBottom: 40, paddingTop: 32 }}>
+          <div style={{ position: 'sticky', top: enApp ? 76 : 88, maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', paddingBottom: 40, paddingTop: 32 }}>
             {INDICE.map((cat) => {
               const CatIcon = cat.icon;
               return (
@@ -310,7 +286,7 @@ export default function Documentacion() {
         </aside>
 
         {/* ── Contenido ── */}
-        <main ref={contentRef} style={{ flex: 1, minWidth: 0, maxWidth: 760, padding: '40px 0 100px' }}>
+        <main ref={contentRef} style={{ flex: 1, minWidth: 0, maxWidth: 760, padding: enApp ? '8px 0 100px' : '40px 0 100px' }}>
           <p style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Documentación</p>
           <h1 style={{ fontSize: 36, fontWeight: 800, marginBottom: 12, color: 'var(--text)' }}>Guía completa de Akira Cloud</h1>
           <p style={{ fontSize: 16, color: 'var(--text2)', marginBottom: 44, lineHeight: 1.7 }}>
@@ -635,7 +611,9 @@ export default function Documentacion() {
 
         </main>
       </div>
+  );
 
+  const estilos = (
       <style>{`
         @media (max-width: 1024px) {
           .docs-sidebar {
@@ -656,6 +634,57 @@ export default function Documentacion() {
           .lg-hidden { display: none; }
         }
       `}</style>
+  );
+
+  if (enApp) {
+    return (
+      <Layout>
+        <div style={{ color: 'var(--text)' }}>
+          <div className="lg-hidden" style={{ marginBottom: 14 }}>
+            <button onClick={() => setSidebarOpen((s) => !s)} aria-label="Abrir índice" className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {sidebarOpen ? <X size={14} /> : <Menu size={14} />} Índice de la guía
+            </button>
+          </div>
+          {cuerpo}
+          {estilos}
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', color: 'var(--text)' }}>
+      {/* Header */}
+      <div style={{ borderBottom: '1px solid var(--border)', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 30 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => setSidebarOpen((s) => !s)}
+            className="lg-hidden"
+            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text2)' }}
+            aria-label="Abrir índice"
+          >
+            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
+          </button>
+          <button onClick={volver} style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0 }}>
+            <ArrowLeft size={16} />
+            Volver
+          </button>
+          <span style={{ color: 'var(--border)' }}>·</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(0,232,123,0.12)', border: '1px solid rgba(0,232,123,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Bot size={14} style={{ color: '#00e87b' }} />
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>Akira Cloud</span>
+          </div>
+        </div>
+        <a href="mailto:soporte@akiracloud.lat" className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }}>
+          <Mail size={13} /> Contactar soporte
+        </a>
+      </div>
+
+      {cuerpo}
+
+      {estilos}
     </div>
   );
 }
