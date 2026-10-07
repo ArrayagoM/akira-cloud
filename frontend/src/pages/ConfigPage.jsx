@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
+import PlantillasRubro from '../components/PlantillasRubro';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useSocket } from '../hooks/useSocket';
@@ -289,6 +290,8 @@ export default function ConfigPage() {
   const { on }   = useSocket(user?._id);
   const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig]   = useState({});
+  const [plantillasAbiertas, setPlantillasAbiertas] = useState(false);
+  const plantillaAplicada = useRef(false);
   const [keys,   setKeys]     = useState({});
   const [form,   setForm]     = useState({
     miNombre: '', negocio: '', servicios: '', precioTurno: '1000',
@@ -748,6 +751,7 @@ export default function ConfigPage() {
         <div className="config-section" style={{ animationDelay: '0ms' }}>
           <h1 className="text-2xl font-bold text-white">Configuración</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>Personalizá tu bot y conectá tus servicios.</p>
+          <button className="btn-secondary text-xs mt-2.5" onClick={() => setPlantillasAbiertas(true)}>✨ Empezar con una plantilla de mi rubro</button>
         </div>
 
         {/* Datos del negocio */}
@@ -1658,6 +1662,7 @@ export default function ConfigPage() {
           </div>
         </SeccionCollapsible>
       </div>
+      {plantillasAbiertas && <PlantillasRubro onClose={() => { setPlantillasAbiertas(false); if (plantillaAplicada.current) window.location.reload(); }} onAplicada={() => { plantillaAplicada.current = true; }} />}
     </Layout>
   );
 }

@@ -39,6 +39,11 @@ const { esPedidoDeBaja } = require('../../difusion');
 const { notaFueraDeHorario } = require('./bot/horario-atencion');
 const ausenciasSvc = require('./bot/ausencias.service');
 const resenasSvc = require('./bot/resenas.service');
+const conocimientoSvc = require('./bot/conocimiento.service');
+const pedidosSvc = require('./bot/pedidos.service');
+const analiticaSvc = require('./bot/analitica.service');
+const copilotoSvc = require('./bot/copiloto.service');
+const { crearPedidosBot } = require('./bot/pedidos-bot');
 const programasLib = require('../../programas');
 const systemBot = require('./system.bot');
 const { registrarMensajeYVerificarCupo } = require('./bot/quota.service');
@@ -55,6 +60,7 @@ const TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES = new Set([
   'consultar_disponibilidad',
   'consultar_disponibilidad_alojamiento',
   'consultar_catalogo',
+  'ver_carrito',
 ]);
 
 // Arma el system prompt de la 2da llamada a Groq (la que redacta la
@@ -285,6 +291,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     log,
     tipoNegocio: TIPO_NEGOCIO,
     catalogo: CATALOGO,
+    pedidosActivos: () => !!options.obtenerProgramas?.()?.pedidos?.activa,
   });
   const waitlistSvc = crearWaitlistService({ userId: USER_ID, calendarId: CALENDAR_ID, log });
 
@@ -505,6 +512,17 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   }
 
   // ── Envío de mensajes ────────────────────────────────────────
+  // Manda una foto (con texto al pie). Devuelve false si no se pudo.
+  async function enviarImagen(jid, buffer, caption) {
+    if (!sock) return false;
+    try {
+      const sent = await sock.sendMessage(jid, { image: buffer, caption: String(caption || '').slice(0, 900) });
+      if (sent?.key?.id && sent?.message) msgStore.set(sent.key.id, sent.message);
+      emitter.emit('stat', 'out');
+      return true;
+    } catch (e) { log(`⚠️ Error enviando foto a ${jid}: ${e.message}`); return false; }
+  }
+
   async function enviarMensaje(jid, texto) {
     if (!sock) {
       log(`⚠️ [${jid}] enviarMensaje sin socket — mensaje perdido`);
@@ -727,6 +745,8 @@ Revisalo en Akira → Documentos.`);
   }
 
   async function programarResena(jid, turnoId, nombre, fecha, horaFin) {
+    // El programa de reseñas nuevo (pregunta "del 1 al 5" y recién ahí pasa el enlace) reemplaza a este pedido directo: nunca los dos.
+    if (options.obtenerProgramas?.()?.resenas?.activa) return;
     try {
       const cfg = await Config.findOne({ userId: USER_ID }).lean();
       if (!cfg?.googleReviewLink || cfg.activarResenas === false) return;
@@ -745,7 +765,7 @@ Revisalo en Akira → Documentos.`);
         db.guardar(RESENAS_PATH, resenasPendientes);
         try {
           const cfgFresh = await Config.findOne({ userId: USER_ID }).lean();
-          if (!cfgFresh?.googleReviewLink || cfgFresh.activarResenas === false) return;
+          if (!cfgFresh?.googleReviewLink || cfgFresh.activarResenas === false || options.obtenerProgramas?.()?.resenas?.activa) return;
           await enviarMensaje(
             jid,
             `¡Hola ${nombre}! 😊 Esperamos que hayas disfrutado tu visita a *${NEGOCIO}*.\n` +
@@ -1005,12 +1025,35 @@ Revisalo en Akira → Documentos.`);
       }
     } catch { /* sin datos de fidelidad: el bot sigue normal */ }
 
+    // Pedidos con carrito (si el negocio los activó y tiene productos con precio)
+    let notaPedidos = '';
+    try {
+      const pc = options.obtenerProgramas?.()?.pedidos;
+      if (pc?.activa && pedidosSvc.vendibles(CATALOGO).length) {
+        notaPedidos = `🛒 PEDIDOS: podés tomar pedidos de productos del catálogo con las herramientas del carrito (agregar_al_carrito, quitar_del_carrito, ver_carrito, confirmar_pedido). ` +
+          `Antes de confirmar mostrá el resumen con el total y preguntá si es ${pc.entrega === 'retiro' ? 'retiro en el local' : pc.entrega === 'envio' ? 'envío (pedí la dirección)' : 'retiro en el local o envío (si es envío, pedí la dirección)'}. ` +
+          `NUNCA inventes precios ni stock: los da el sistema. Los datos de pago los envía el sistema al confirmar.\n`;
+      }
+    } catch { /* sin pedidos */ }
+
+    // Base de conocimiento propia: solo los fragmentos del documento del dueño que sirven para ESTA pregunta
+    let notaConocimiento = '';
+    try {
+      const consulta = conocimientoSvc.consultaDesdeHistorial(usuario.historial);
+      if (consulta) {
+        const docsConocimiento = await require('../models/Conocimiento').find({ userId: USER_ID }).lean();
+        if (docsConocimiento.length) notaConocimiento = conocimientoSvc.notaParaPrompt(conocimientoSvc.buscar(docsConocimiento, consulta, { k: 3 }));
+      }
+    } catch { /* sin base de conocimiento: el bot sigue normal */ }
+
     const sys = {
       role: 'system',
       content:
         sysContent +
         notaAusencias +
         notaFidelidad +
+        notaPedidos +
+        notaConocimiento +
         notaFueraDeHorario(HORARIOS_ATENCION, DIAS_BLOQUEADOS, new Date(), { modoPausa: MODO_PAUSA, dueno: MI_NOMBRE }) +
         '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
     };
@@ -1160,7 +1203,33 @@ Revisalo en Akira → Documentos.`);
     return limpiarRespuesta(msg.content);
   }
 
+  // ── Análisis de conversaciones: guarda la pregunta ANONIMIZADA (sin teléfonos ni mails) y si el bot dudó. Se conservan 90 días. ──
+  let ultimaLimpiezaAnalitica = 0;
+  function registrarAnalitica(pregunta, respuesta) {
+    try {
+      const Analitica = require('../models/Analitica');
+      const p = analiticaSvc.anonimizar(pregunta);
+      if (p.length < 3) return;
+      Analitica.create({ userId: USER_ID, ts: new Date().toISOString(), pregunta: p, tema: analiticaSvc.clasificarTema(p), sinRespuesta: analiticaSvc.noSupoResponder(p, respuesta) }).catch(() => {});
+      if (Date.now() - ultimaLimpiezaAnalitica > 6 * 3600e3) {
+        ultimaLimpiezaAnalitica = Date.now();
+        Analitica.deleteMany({ userId: USER_ID, ts: { $lt: new Date(Date.now() - analiticaSvc.RETENCION_DIAS * 86400000).toISOString() } }).catch(() => {});
+      }
+    } catch { /* el análisis nunca debe afectar al bot */ }
+  }
+
   // ── Ejecutor de tools ────────────────────────────────────────
+  // ── Pedidos con carrito (ver bot/pedidos-bot.js) ──────────────
+  const pedidosBot = crearPedidosBot({
+    userId: USER_ID, Pedido: require('../models/Pedido'), Config, Movimiento: require('../models/Movimiento'),
+    getCatalogo: () => CATALOGO, getProgramas: () => options.obtenerProgramas?.() || {},
+    mp, conMP: !!MP_ACCESS_TOKEN, negocio: NEGOCIO, miNombre: MI_NOMBRE, alias: ALIAS_TRANSFERENCIA, cbu: CBU_TRANSFERENCIA, banco: BANCO_TRANSFERENCIA,
+    enviarMensaje: (jid, t) => enviarMensaje(jid, t), notificarDueno: (t) => notificarDueno(t), extraerNumero: (j) => extraerNumero(j),
+    recargarConfig: () => emitter.emit('config:reload'), log,
+  });
+  const manejarCarrito = (nombre, args, jid, usuario, push) => pedidosBot.manejar(nombre, args, jid, usuario, push);
+  const confirmarPagoPedido = (pedidoId, pago) => pedidosBot.confirmarPago(pedidoId, pago);
+
   async function ejecutarTool(tool, args, jid, usuario) {
     const push = (c) =>
       usuario.historial.push({
@@ -2209,6 +2278,11 @@ Revisalo en Akira → Documentos.`);
     }
 
     // ── Tool: buscar en catálogo de productos ───────────────────
+    if (['agregar_al_carrito', 'quitar_del_carrito', 'ver_carrito', 'vaciar_carrito', 'confirmar_pedido'].includes(tool.function.name)) {
+      await manejarCarrito(tool.function.name, args, jid, usuario, push);
+      return;
+    }
+
     if (tool.function.name === 'consultar_catalogo') {
       const { query = '', categoria = '' } = args;
       const q = query.toLowerCase();
@@ -2230,6 +2304,18 @@ Revisalo en Akira → Documentos.`);
         );
         return;
       }
+      // Si el producto tiene foto cargada, se la mandamos al cliente (hasta 3, y sin repetirle la misma en 10 minutos)
+      try {
+        const yaMandadas = (cacheTemporal[jid] ||= {}).fotosEnviadas ||= {};
+        let enviadas = 0;
+        for (const p of resultados) {
+          if (enviadas >= 3 || !String(p.imagen || '').startsWith('local:')) continue;
+          if (Date.now() - (yaMandadas[p.imagen] || 0) < 10 * 60 * 1000) continue;
+          const foto = options.leerFotoCatalogo?.(p.imagen);
+          if (!foto) continue;
+          if (await enviarImagen(jid, foto, `*${p.nombre}* — $${Number(p.precio).toLocaleString('es-AR')}${p.descripcion ? `\n${p.descripcion}` : ''}`)) { yaMandadas[p.imagen] = Date.now(); enviadas++; }
+        }
+      } catch (e) { log(`⚠️ [Catálogo] fotos: ${e.message}`); }
       push(
         resultados
           .map(
@@ -3169,6 +3255,7 @@ Revisalo en Akira → Documentos.`);
       }
       usuario.historial.push({ role: 'assistant', content: respuesta });
       clientesSvc.guardarMemoria(jid, usuario);
+      registrarAnalitica(texto, respuesta); // qué preguntan y qué no supo responder (en segundo plano, nunca frena la respuesta)
 
       // 'paused' fire-and-forget — no bloqueamos el envío del mensaje real.
       sock.sendPresenceUpdate('paused', jid).catch(() => {});
@@ -3219,6 +3306,7 @@ Revisalo en Akira → Documentos.`);
       const pago = await mp.verificarPago(p.data.id);
       if (pago.status !== 'approved') return;
       const rk = pago.external_reference;
+      if (String(rk || '').startsWith('pedido|')) { await confirmarPagoPedido(String(rk).split('|')[1], pago); return; }
       let res2 = reservasPendientes[rk];
       if (!res2) {
         // Render pudo haberse reiniciado — _reservas.json se pierde.
@@ -4167,6 +4255,15 @@ Revisalo en Akira → Documentos.`);
     // Actualizar silenciado de un cliente en la caché RAM (desde el dashboard)
     // La app le pide al bot que le escriba a un cliente (ej. turno confirmado)
     emitter.on('enviar:texto', ({ jid, texto }) => { if (jid && texto) enviarMensaje(jid, texto).catch(() => {}); });
+    // El dueño le responde a un cliente desde la app: se envía y queda en la charla (así el bot tiene el contexto)
+    emitter.on('dueno:responde', async ({ jid, texto, resolver }) => {
+      const ok = texto ? await enviarMensaje(jid, String(texto)) : false;
+      if (ok) {
+        const u = clientesSvc.cargarMemoria(jid);
+        if (u) { u.historial = [...(u.historial || []), { role: 'assistant', content: String(texto) }]; clientesSvc.guardarMemoria(jid, u); }
+      }
+      resolver?.(!!ok);
+    });
     // La app le pide al bot que le escriba al DUEÑO (a su celular de notificaciones): resumen del día, avisos…
     emitter.on('avisar:dueno', (texto) => { if (texto) notificarDueno(String(texto)); });
     // Se le pidió una reseña a este cliente: su próxima respuesta (1 a 5) se toma como puntaje
@@ -4220,6 +4317,22 @@ Revisalo en Akira → Documentos.`);
     emitter.emit('stopped', { sessionCleared: motivo === 'session-cleared' });
   }
 
+  // Copiloto: borrador de respuesta para el dueño (NO se envía nada: el dueño lo revisa y lo manda él)
+  emitter.sugerirRespuesta = async (jid, { instruccion = '' } = {}) => {
+    const u = clientesSvc.cargarMemoria(jid) || (await clientesSvc.cargarMemoriaAsync(jid)) || {};
+    let fragmentos = [];
+    try {
+      const consulta = conocimientoSvc.consultaDesdeHistorial(u.historial);
+      const docs = consulta ? await require('../models/Conocimiento').find({ userId: USER_ID }).lean() : [];
+      fragmentos = docs.length ? conocimientoSvc.buscar(docs, consulta, { k: 3 }) : [];
+    } catch { /* sin conocimiento */ }
+    const arm = copilotoSvc.armarMensajes({ negocio: NEGOCIO, miNombre: MI_NOMBRE, servicios: SERVICIOS_LIST, horarios: copilotoSvc.textoHorarios(HORARIOS_ATENCION), catalogo: CATALOGO, fragmentos, cliente: u, historial: u.historial, instruccion });
+    if (!arm.ok) throw Object.assign(new Error(arm.error), { status: 422 });
+    const resp = await groqSvc.llamarGroq(arm.mensajes, false);
+    const texto = copilotoSvc.limpiarSugerencia(resp?.choices?.[0]?.message?.content);
+    if (!texto) throw Object.assign(new Error('La IA no pudo redactar un borrador. Probá de nuevo.'), { status: 502 });
+    return texto;
+  };
   emitter.iniciar           = iniciar;
   emitter.detener           = detener;
   emitter.enviarMensaje     = enviarMensaje;

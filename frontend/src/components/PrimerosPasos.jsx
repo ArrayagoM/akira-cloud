@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Circle, X, ArrowRight, Rocket } from 'lucide-react';
 import api from '../services/api';
+import PlantillasRubro from './PlantillasRubro';
 
 // Solo en la app de escritorio. Lista de "Primeros pasos" que se tilda sola según lo que ya está
 // configurado de verdad (no es un texto fijo): clave de Groq, datos del negocio, WhatsApp, celular de avisos,
@@ -15,6 +16,7 @@ export default function PrimerosPasos({ botConectado }) {
   const [oculto, setOculto] = useState(() => leer(OCULTO));
   const [probado, setProbado] = useState(() => leer(PROBADO));
   const [datos, setDatos] = useState(null);
+  const [plantillas, setPlantillas] = useState(false);
 
   const cargar = useCallback(async () => {
     const [c, r] = await Promise.allSettled([api.get('/config'), api.get('/app/respaldo')]);
@@ -33,7 +35,7 @@ export default function PrimerosPasos({ botConectado }) {
 
   const pasos = [
     { id: 'groq', hecho: datos.groq, titulo: 'Cargá tu clave de Groq (gratis)', detalle: 'Es la inteligencia artificial que usa el bot. Creás la cuenta en groq.com y pegás la clave.', ir: '/config', cta: 'Ir a Config' },
-    { id: 'negocio', hecho: datos.negocio, titulo: 'Contale a Akira de tu negocio', detalle: 'Nombre, servicios, precios y horarios: con eso responde y agenda.', ir: '/config', cta: 'Completar' },
+    { id: 'negocio', hecho: datos.negocio, titulo: 'Contale a Akira de tu negocio', detalle: 'Nombre, servicios, precios y horarios: con eso responde y agenda. Podés arrancar con una plantilla de tu rubro.', ir: '/config', cta: 'Completar', extra: { texto: 'Usar plantilla', accion: () => setPlantillas(true) } },
     { id: 'wa', hecho: !!botConectado, titulo: 'Conectá tu WhatsApp', detalle: 'Tocá "Iniciar bot" en esta pantalla y escaneá el QR desde WhatsApp → Dispositivos vinculados.', ir: null },
     { id: 'celular', hecho: datos.celular, titulo: 'Cargá tu celular para los avisos', detalle: 'Ahí te avisa cuando se agenda un turno, y te manda el resumen del día si lo activás.', ir: '/config', cta: 'Cargar celular' },
     { id: 'prueba', hecho: probado, titulo: 'Probalo escribiéndole desde otro celular', detalle: 'Pedí un turno como si fueras un cliente. Cuando lo hayas probado, marcalo.', ir: null, marcar: true },
@@ -69,12 +71,14 @@ export default function PrimerosPasos({ botConectado }) {
                 <p className={`text-sm ${p.hecho ? 'text-gray-500 line-through' : 'text-white font-medium'}`}>{p.titulo}</p>
                 {!p.hecho && <p className="text-xs text-gray-500 mt-0.5">{p.detalle}</p>}
               </div>
+              {!p.hecho && p.extra && <button className="btn-secondary text-xs shrink-0" onClick={p.extra.accion}>{p.extra.texto}</button>}
               {!p.hecho && p.ir && <Link to={p.ir} className="btn-secondary text-xs flex items-center gap-1 shrink-0">{p.cta} <ArrowRight size={12} /></Link>}
               {!p.hecho && p.marcar && <button className="btn-secondary text-xs shrink-0" onClick={() => { guardar(PROBADO); setProbado(true); }}>Ya lo probé</button>}
             </li>
           );
         })}
       </ul>
+      {plantillas && <PlantillasRubro onClose={() => setPlantillas(false)} onAplicada={cargar} />}
     </div>
   );
 }

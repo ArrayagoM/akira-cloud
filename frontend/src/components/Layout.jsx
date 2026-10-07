@@ -5,7 +5,7 @@ import api from '../services/api';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
-  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck,
+  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck, Brain, ShoppingBag, BarChart3,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
@@ -22,10 +22,13 @@ const NAV_ITEMS_BASE = [
   { to: '/clientes',    icon: Users,           label: 'Clientes'   },
   { to: '/chats',       icon: MessageSquare,   label: 'Chats'      },
   { to: '/catalogo',    icon: Package,         label: 'Catálogo'   },
+  { to: '/pedidos',     icon: ShoppingBag,     label: 'Pedidos'    },
   { to: '/caja',        icon: Wallet,          label: 'Caja'       },
   { to: '/deudores',    icon: HandCoins,       label: 'Deudores'   },
   { to: '/proveedores', icon: Truck,           label: 'Proveedores' },
   { to: '/documentos',  icon: FileText,        label: 'Documentos' },
+  { to: '/conocimiento', icon: Brain,          label: 'Conocimiento' },
+  { to: '/analisis',    icon: BarChart3,       label: 'Qué preguntan' },
   { to: '/respaldo',    icon: ShieldCheck,     label: 'Respaldo'   },
   { to: '/config',      icon: Settings,        label: 'Config'     },
   { to: '/descargar',   icon: Download,        label: 'App'        },
@@ -61,7 +64,7 @@ export default function Layout({ children }) {
   const navItems = [
     ...NAV_ITEMS_BASE.filter((i) => (DESKTOP
       ? !(i.to === '/sugerencias' || i.to === '/descargar')
-      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
+      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
     ...(user?.rol === 'admin' ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];
 

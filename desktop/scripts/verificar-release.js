@@ -122,6 +122,12 @@ const raiz = process.argv[2];
   for (const m of ['main/respaldo-servicio', 'main/comandos-remotos', 'main/difusion', 'main/programas', 'main/resenas', 'main/bot-engine/services/bot/ausencias.service', 'main/bot-engine/services/bot/resenas.service', 'main/local-api/routes/difusion.routes', 'main/local-api/routes/programas.routes', 'main/resumen-diario', 'main/vigilante-bot', 'main/estado-bot', 'main/bot-engine/services/bot/derivacion.service', 'main/bot-engine/services/bot/horario-atencion', 'main/local-api/routes/respaldo.routes', 'main/local-api/routes/avisos.routes']) require(path.join(raiz, m));
   if (!require(path.join(raiz, 'main/difusion')).esPedidoDeBaja('BAJA') || require(path.join(raiz, 'main/difusion')).esPedidoDeBaja('hola')) throw new Error('la baja de mensajes falla dentro del paquete');
   if (typeof require(path.join(raiz, 'main/db/store')).respaldarA !== 'function') throw new Error('falta la copia consistente de la base');
+  // etapa 5: plantillas, conocimiento (PDF/OCR), fotos, pedidos por WhatsApp, análisis y copiloto
+  for (const m of ['main/plantillas-rubro', 'main/catalogo-fotos', 'main/gestion/stock', 'main/gestion/pedidos-pago', 'main/bot-engine/services/bot/conocimiento.service', 'main/bot-engine/services/bot/pedidos.service', 'main/bot-engine/services/bot/pedidos-bot', 'main/bot-engine/services/bot/analitica.service', 'main/bot-engine/services/bot/copiloto.service', 'main/local-api/routes/plantillas.routes', 'main/local-api/routes/conocimiento.routes', 'main/local-api/routes/catalogo-fotos.routes', 'main/local-api/routes/pedidos.routes', 'main/local-api/routes/analitica.routes']) require(path.join(raiz, m));
+  if (require(path.join(raiz, 'main/plantillas-rubro')).listar().length < 10) throw new Error('faltan plantillas por rubro dentro del paquete');
+  const cono = require(path.join(raiz, 'main/bot-engine/services/bot/conocimiento.service'));
+  if (!cono.buscar([{ titulo: 'FAQ', fragmentos: ['Aceptamos efectivo, transferencia y MercadoPago.'] }], 'aceptan mercadopago', { k: 1 }).length) throw new Error('la búsqueda en el conocimiento falla dentro del paquete');
+  if (/2241497226/.test(require(path.join(raiz, 'main/bot-engine/services/bot/analitica.service')).anonimizar('llamame al 2241497226'))) throw new Error('el análisis no anonimiza dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

@@ -133,6 +133,11 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/proveedores', require('./routes/proveedores.routes')(deps));
   app.use('/api/app/avisos', require('./routes/avisos.routes')(deps));
   app.use('/api/app/programas', require('./routes/programas.routes')(deps));
+  app.use('/api/app/plantillas', require('./routes/plantillas.routes')(deps));
+  app.use('/api/app/conocimiento', require('./routes/conocimiento.routes')(deps));
+  app.use('/api/app/catalogo-fotos', require('./routes/catalogo-fotos.routes')(deps));
+  app.use('/api/app/pedidos', require('./routes/pedidos.routes')(deps));
+  app.use('/api/app/analitica', require('./routes/analitica.routes')(deps));
   if (appHooks.servicioDifusion) app.use('/api/app/difusion', require('./routes/difusion.routes')(deps));
   if (appHooks.servicioRespaldo) app.use('/api/app/respaldo', require('./routes/respaldo.routes')(deps));
   // ── "Ver mi negocio desde la web" (opcional, apagado por defecto) ──

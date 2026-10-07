@@ -27,6 +27,9 @@ import CatalogoPage      from './pages/CatalogoPage';
 import CajaPage          from './pages/CajaPage';
 import DeudoresPage      from './pages/DeudoresPage';
 import RespaldoPage      from './pages/RespaldoPage';
+import ConocimientoPage  from './pages/ConocimientoPage';
+import PedidosPage       from './pages/PedidosPage';
+import AnalisisPage      from './pages/AnalisisPage';
 import ProveedoresPage   from './pages/ProveedoresPage';
 import Descargar         from './pages/Descargar';
 import CuentaPanel       from './pages/CuentaPanel';
@@ -116,6 +119,9 @@ export default function App() {
         <Route path="/caja"       element={DESKTOP ? <ProtectedRoute><CajaPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/deudores"    element={DESKTOP ? <ProtectedRoute><DeudoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/respaldo"    element={DESKTOP ? <ProtectedRoute><RespaldoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/conocimiento" element={DESKTOP ? <ProtectedRoute><ConocimientoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/pedidos"      element={DESKTOP ? <ProtectedRoute><PedidosPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/analisis"     element={DESKTOP ? <ProtectedRoute><AnalisisPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/proveedores" element={DESKTOP ? <ProtectedRoute><ProveedoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 
         {/* Solo admin */}

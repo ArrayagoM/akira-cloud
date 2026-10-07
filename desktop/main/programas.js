@@ -10,16 +10,18 @@ const archivo = (dir) => path.join(dir, 'programas.json');
 const POR_DEFECTO = {
   fidelidad: { activa: false, cada: 10, premio: 'un servicio gratis' },
   resenas: { activa: false, link: '', horasDespues: 20 },
+  pedidos: { activa: false, entrega: 'ambos', costoEnvio: 0, nota: '' },
 };
 
 const texto = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 function leer(userDataDir) {
   let j = {}; try { j = JSON.parse(fs.readFileSync(archivo(userDataDir), 'utf8')); } catch { /* primera vez */ }
-  const f = j.fidelidad || {}; const r = j.resenas || {};
+  const f = j.fidelidad || {}; const r = j.resenas || {}; const pe = j.pedidos || {};
   return {
     fidelidad: { activa: f.activa === true, cada: Number.isInteger(f.cada) && f.cada >= 2 && f.cada <= 100 ? f.cada : POR_DEFECTO.fidelidad.cada, premio: texto(f.premio, 80) || POR_DEFECTO.fidelidad.premio },
     resenas: { activa: r.activa === true, link: esLinkValido(r.link) ? String(r.link).trim() : '', horasDespues: [4, 12, 20, 24, 48].includes(r.horasDespues) ? r.horasDespues : POR_DEFECTO.resenas.horasDespues },
+    pedidos: { activa: pe.activa === true, entrega: ['retiro', 'envio', 'ambos'].includes(pe.entrega) ? pe.entrega : 'ambos', costoEnvio: Number.isFinite(pe.costoEnvio) && pe.costoEnvio >= 0 && pe.costoEnvio <= 10000000 ? Math.round(pe.costoEnvio * 100) / 100 : 0, nota: texto(pe.nota, 200) },
   };
 }
 
@@ -28,7 +30,7 @@ function esLinkValido(l) { try { const u = new URL(String(l || '').trim()); retu
 
 function guardar(userDataDir, cambios = {}) {
   const actual = leer(userDataDir);
-  const f = { ...actual.fidelidad }; const r = { ...actual.resenas };
+  const f = { ...actual.fidelidad }; const r = { ...actual.resenas }; const pe = { ...actual.pedidos };
   if (cambios.fidelidad) {
     const c = cambios.fidelidad;
     if (c.activa !== undefined) f.activa = c.activa === true;
@@ -41,7 +43,14 @@ function guardar(userDataDir, cambios = {}) {
     if (c.horasDespues !== undefined) { const h = Number(c.horasDespues); if (![4, 12, 20, 24, 48].includes(h)) throw new Error('Horario de envío no válido.'); r.horasDespues = h; }
     if (c.activa !== undefined) r.activa = c.activa === true;
   }
-  const nuevo = { fidelidad: f, resenas: r };
+  if (cambios.pedidos) {
+    const c = cambios.pedidos;
+    if (c.activa !== undefined) pe.activa = c.activa === true;
+    if (c.entrega !== undefined) { if (!['retiro', 'envio', 'ambos'].includes(c.entrega)) throw new Error('Forma de entrega no válida.'); pe.entrega = c.entrega; }
+    if (c.costoEnvio !== undefined) { const n = Number(c.costoEnvio); if (!Number.isFinite(n) || n < 0 || n > 10000000) throw new Error('El costo de envío no es válido.'); pe.costoEnvio = Math.round(n * 100) / 100; }
+    if (c.nota !== undefined) pe.nota = texto(c.nota, 200);
+  }
+  const nuevo = { fidelidad: f, resenas: r, pedidos: pe };
   fs.writeFileSync(archivo(userDataDir), JSON.stringify(nuevo));
   return nuevo;
 }

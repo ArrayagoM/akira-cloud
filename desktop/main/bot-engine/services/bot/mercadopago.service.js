@@ -49,14 +49,14 @@ function crearMPService({ accessToken, precioTurno, duracion, negocio, backendUr
       const body  = JSON.stringify({
         items: [{ title: tituloItem, quantity: cant, unit_price: unitPrice, currency_id: 'ARS' }],
         payer: { name: nombre },
-        external_reference: `${chatId}|${fecha}|${hora}|${horaFin || hora}`,
+        external_reference: opciones.referencia || `${chatId}|${fecha}|${hora}|${horaFin || hora}`,
         notification_url: webhookUrl,
         expires: true,
         // expiration_date_from omitido: si se setea = ahora, MP a veces lo
         // considera como aún-futuro por desincronización de relojes y deja el
         // botón "Pagar" en gris. Sin este campo MP defaultea a "ahora" y la
         // preferencia es válida desde el momento en que el cliente abre el link.
-        expiration_date_to: toMPDateAR(new Date(Date.now() + 30 * 60000)),
+        expiration_date_to: toMPDateAR(new Date(Date.now() + (opciones.venceMin || 30) * 60000)),
       });
       const req = https.request(
         { hostname: 'api.mercadopago.com', path: '/checkout/preferences', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` } },

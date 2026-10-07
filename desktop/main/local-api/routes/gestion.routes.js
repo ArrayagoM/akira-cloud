@@ -135,6 +135,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
     }
     const limpia = sanitizarLista(tipo, lista);
     await Config.findOneAndUpdate({ userId }, { [CAMPO[tipo]]: limpia }, { upsert: true, new: true });
+    if (tipo === 'productos') require('../../catalogo-fotos').limpiar(userDataDir, limpia.map((p) => p.imagen)); // borra las fotos que ya no usa ningún producto
     recargarBots();
     return limpia;
   }

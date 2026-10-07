@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import ImportarAsistente from '../components/ImportarAsistente';
+import FotoProducto from '../components/FotoProducto';
 import { bajarArchivo } from '../utils/archivos';
 import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, ChevronDown, Save } from 'lucide-react';
 
@@ -119,7 +120,7 @@ export default function CatalogoPage() {
                 <tr className="text-xs text-gray-500 text-left border-b border-white/10">
                   <th className="px-3 py-2 font-medium">Nombre</th>
                   <th className="px-3 py-2 font-medium w-32">Precio ($)</th>
-                  {tipo === 'productos' ? (<><th className="px-3 py-2 font-medium w-40">Categoría</th><th className="px-3 py-2 font-medium w-24" title="Vacío = sin control de stock">Stock</th><th className="px-3 py-2 font-medium w-20 text-center">Se ofrece</th></>)
+                  {tipo === 'productos' ? (<><th className="px-3 py-2 font-medium w-20" title="El bot manda esta foto cuando el cliente pregunta por el producto">Foto</th><th className="px-3 py-2 font-medium w-40">Categoría</th><th className="px-3 py-2 font-medium w-24" title="Vacío = sin control de stock">Stock</th><th className="px-3 py-2 font-medium w-20 text-center">Se ofrece</th></>)
                     : (<th className="px-3 py-2 font-medium w-32">Duración (min)</th>)}
                   <th className="w-10"></th>
                 </tr>
@@ -130,6 +131,7 @@ export default function CatalogoPage() {
                     <td className="px-3 py-1.5"><input className={entrada} value={x.nombre} onChange={(e) => cambiar(i, 'nombre', e.target.value)} placeholder={`Nombre del ${T.singular}`} /></td>
                     <td className="px-3 py-1.5"><input className={entrada} type="number" min="0" step="0.01" value={x.precio} onChange={(e) => cambiar(i, 'precio', e.target.value === '' ? '' : Number(e.target.value))} /></td>
                     {tipo === 'productos' ? (<>
+                      <td className="px-3 py-1.5"><FotoProducto valor={x.imagen} onCambio={(ref) => cambiar(i, 'imagen', ref)} /></td>
                       <td className="px-3 py-1.5"><input className={entrada} value={x.categoria || ''} onChange={(e) => cambiar(i, 'categoria', e.target.value)} /></td>
                       <td className="px-3 py-1.5"><input className={entrada} type="number" min="0" value={x.stock >= 0 ? x.stock : ''} placeholder="∞" onChange={(e) => cambiar(i, 'stock', e.target.value === '' ? -1 : Number(e.target.value))} /></td>
                       <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={x.disponible !== false} onChange={(e) => cambiar(i, 'disponible', e.target.checked)} /></td>

@@ -22,7 +22,7 @@ E1  Canal de estado PC → nube + alertas por email ........ ✅ (falta el “re
 E2  Datos protegidos y avisos al dueño
 E3  App móvil nativa Android + iOS (monitoreo + push) y PWA
 E4  Clientes: ficha 360, fidelización y reseñas
-E5  Bot e IA: rubros, conocimiento propio, pedidos
+E5  Bot e IA: rubros, conocimiento propio, pedidos ........ ✅
 E6  Dinero y operación: stock, ventas, reportes, facturación
 E7  Equipo: usuarios, profesionales, sucursales
 E8  Integraciones
@@ -93,12 +93,12 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 5.1 | **Plantillas por rubro** (peluquería, consultorio, gimnasio, alquileres…): servicios, horarios, estilo del bot y textos de ejemplo | 🟠 | M | ⬜ |
-| 5.2 | **Base de conocimiento propia**: el dueño sube su PDF de preguntas frecuentes y el bot lo usa | 🟠 | M | ⬜ |
-| 5.3 | **Enviar fotos del catálogo** cuando el cliente pregunta por un producto | 🟡 | S | ⬜ |
-| 5.4 | **Tomar pedidos con carrito**: suma productos, calcula el total y genera el link de pago (usa Stock de E6) | 🟠 | M | ⬜ |
-| 5.5 | **Análisis de conversaciones**: qué preguntan más y qué no supo responder el bot | 🟡 | M | ⬜ |
-| 5.6 | **Copiloto**: sugiere una respuesta al dueño cuando atiende él mismo | 🟡 | M | ⬜ |
+| 5.1 | **Plantillas por rubro** (peluquería, consultorio, gimnasio, alquileres…): servicios, horarios, estilo del bot y textos de ejemplo | 🟠 | M | ✅ 1.0.20 |
+| 5.2 | **Base de conocimiento propia**: el dueño sube su PDF de preguntas frecuentes y el bot lo usa | 🟠 | M | ✅ 1.0.20 |
+| 5.3 | **Enviar fotos del catálogo** cuando el cliente pregunta por un producto | 🟡 | S | ✅ 1.0.20 |
+| 5.4 | **Tomar pedidos con carrito**: suma productos, calcula el total y genera el link de pago (usa Stock de E6) | 🟠 | M | ✅ 1.0.20 |
+| 5.5 | **Análisis de conversaciones**: qué preguntan más y qué no supo responder el bot | 🟡 | M | ✅ 1.0.20 |
+| 5.6 | **Copiloto**: sugiere una respuesta al dueño cuando atiende él mismo | 🟡 | M | ✅ 1.0.20 |
 
 ## E6 — Dinero y operación
 

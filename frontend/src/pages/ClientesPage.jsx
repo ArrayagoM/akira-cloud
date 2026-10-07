@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import ImportarAsistente from '../components/ImportarAsistente';
 import DifusionModal from '../components/DifusionModal';
 import ProgramasPanel from '../components/ProgramasPanel';
+import Copiloto from '../components/Copiloto';
 import { Link } from 'react-router-dom';
 import { bajarArchivo } from '../utils/archivos';
 import api from '../services/api';
@@ -437,6 +438,9 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
                   </div>
                 </section>
               )}
+
+              {/* Copiloto: responder yo con un borrador sugerido */}
+              <Copiloto jid={cliente.jid} nombre={cliente.nombre} />
 
               {/* Últimos mensajes */}
               {detalle?.ultimosMensajes?.length > 0 && (

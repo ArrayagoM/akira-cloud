@@ -112,7 +112,7 @@ async function startBot(userId, slot = 0) {
       } catch { /* credenciales inválidas: Calendar queda desactivado */ }
     }
 
-    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid, { obtenerProgramas: () => require('../programas').leer(baseDir) });
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid, { obtenerProgramas: () => require('../programas').leer(baseDir), leerFotoCatalogo: (ref) => require('../catalogo-fotos').leer(baseDir, ref) });
     instancias.set(slot, bot);
 
     bot.on('log', (msg) => { emitir(uid, 'bot:log', { msg, ts: ts(), slot }); escribirLogBot(slot, msg); });
@@ -269,6 +269,21 @@ const enviarACliente = (jid, texto) => { for (const slot of [...conectados].sort
 const hayConexion = () => conectados.size > 0;
 // Le avisa al bot que a este cliente se le pidió una reseña (así interpreta su respuesta como puntaje).
 const marcarResenaPendiente = (jid, turnoId, link) => { for (const slot of conectados) sobreBot(slot, 'resena:pendiente', { jid, turnoId, link }); };
+// Copiloto: pide un borrador de respuesta a la primera cuenta conectada (o activa).
+async function sugerirRespuesta(jid, opciones = {}) {
+  const slot = [...conectados, ...instancias.keys()][0];
+  const bot = slot !== undefined ? instancias.get(slot) : null;
+  if (!bot?.sugerirRespuesta) throw Object.assign(new Error('El bot no está activo: iniciá el bot para usar el copiloto.'), { status: 409 });
+  return bot.sugerirRespuesta(jid, opciones);
+}
+// El dueño le responde a un cliente: sale por WhatsApp y queda en la charla. → Promise<boolean>
+function responderComoDueno(jid, texto) {
+  for (const slot of [...conectados].sort((a, b) => a - b)) {
+    const bot = instancias.get(slot);
+    if (bot) return new Promise((resolver) => { bot.emit('dueno:responde', { jid, texto, resolver }); setTimeout(() => resolver(false), 15000); });
+  }
+  return Promise.resolve(false);
+}
 const silenciarCliente = (jid, silenciado) => sobreBot(0, 'cliente:silenciar', { jid, silenciado });
 
 async function procesarWebhookMP(payload) {
@@ -298,6 +313,6 @@ async function detenerTodos() {
 
 module.exports = {
   init, mensajesHoy, estadoDetallado, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
-  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno, clientesImportados, enviarACliente, hayConexion, marcarResenaPendiente,
+  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno, clientesImportados, enviarACliente, hayConexion, marcarResenaPendiente, sugerirRespuesta, responderComoDueno,
   procesarWebhookMP, restaurarActivos, detenerTodos, slotsActivos: () => Array.from(instancias.keys()),
 };

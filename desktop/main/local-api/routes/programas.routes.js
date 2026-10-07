@@ -22,7 +22,7 @@ module.exports = function crearRouter({ requerirSesion, userDataDir }) {
   });
 
   router.put('/', (req, res) => {
-    try { res.json(programas.guardar(userDataDir, { fidelidad: req.body?.fidelidad, resenas: req.body?.resenas })); }
+    try { res.json(programas.guardar(userDataDir, { fidelidad: req.body?.fidelidad, resenas: req.body?.resenas, pedidos: req.body?.pedidos })); }
     catch (e) { res.status(400).json({ error: e.message }); }
   });
 

@@ -4,7 +4,7 @@
 
 const Groq = require('groq-sdk');
 
-function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [] }) {
+function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [], pedidosActivos = () => false }) {
   if (!apiKey) {
     log?.('[Groq] ⚠️ GROQ_API_KEY no está configurada — el bot no podrá responder mensajes. Configurala desde el dashboard.');
   }
@@ -41,7 +41,22 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
     }, required: [] },
   }};
 
+  // ── Herramientas del carrito de pedidos (opcional: el dueño las activa en "Programas con tus clientes") ──
+  const toolsCarrito = [
+    { type: 'function', function: { name: 'agregar_al_carrito', description: 'Agrega un producto del catálogo al pedido del cliente. Úsala cuando el cliente diga que quiere comprar/pedir algo. El precio lo pone el sistema.', parameters: { type: 'object', properties: { producto: { type: 'string', description: 'Nombre del producto tal como lo dice el cliente.' }, cantidad: { type: 'integer', description: 'Cantidad (por defecto 1).' } }, required: ['producto'] } } },
+    { type: 'function', function: { name: 'quitar_del_carrito', description: 'Quita un producto (o parte de las unidades) del pedido del cliente.', parameters: { type: 'object', properties: { producto: { type: 'string' }, cantidad: { type: 'integer', description: 'Unidades a quitar. Vacío = quitar todo ese producto.' } }, required: ['producto'] } } },
+    { type: 'function', function: { name: 'ver_carrito', description: 'Muestra el pedido actual del cliente con el total.', parameters: { type: 'object', properties: {}, required: [] } } },
+    { type: 'function', function: { name: 'vaciar_carrito', description: 'Cancela el pedido en armado y lo deja vacío.', parameters: { type: 'object', properties: {}, required: [] } } },
+    { type: 'function', function: { name: 'confirmar_pedido', description: 'Confirma el pedido y genera el pago. SOLO llamar cuando el cliente ya vio el resumen con el total y dijo que quiere confirmarlo, y ya te dijo si es retiro o envío (y la dirección si es envío).', parameters: { type: 'object', properties: { entrega: { type: 'string', enum: ['retiro', 'envio'], description: 'retiro en el local o envío a domicilio' }, direccion: { type: 'string', description: 'Dirección de entrega (solo si es envío).' }, notas: { type: 'string', description: 'Aclaraciones del cliente (opcional).' } }, required: ['entrega'] } } },
+  ];
+
   function herramientas() {
+    const base = herramientasBase();
+    const vendible = Array.isArray(catalogo) && catalogo.some((p) => p && p.disponible !== false && Number(p.precio) > 0);
+    return vendible && pedidosActivos() ? [...base, ...toolsCarrito] : base;
+  }
+
+  function herramientasBase() {
     const tieneCat = Array.isArray(catalogo) && catalogo.length > 0;
 
     // ── Modo SERVICIOS: lavaderos, mecánicos, veterinarias, etc. ──

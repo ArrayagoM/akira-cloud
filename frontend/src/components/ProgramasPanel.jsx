@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Gift, Star, ChevronDown, Loader2, Save } from 'lucide-react';
+import { Gift, Star, ChevronDown, Loader2, Save, ShoppingBag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 
@@ -21,25 +21,26 @@ export default function ProgramasPanel() {
   const [cfg, setCfg] = useState(null);
   const [fid, setFid] = useState(null);
   const [res, setRes] = useState(null);
+  const [ped, setPed] = useState(null);
   const [premios, setPremios] = useState([]);
   const [guardando, setGuardando] = useState('');
 
   const cargar = useCallback(async () => {
-    try { const r = await api.get('/app/programas'); setCfg(r.data); setFid(r.data.fidelidad); setRes(r.data.resenas); setPremios(r.data.premios || []); } catch { /* sin conexión local: no se muestra */ }
+    try { const r = await api.get('/app/programas'); setCfg(r.data); setFid(r.data.fidelidad); setRes(r.data.resenas); setPed(r.data.pedidos); setPremios(r.data.premios || []); } catch { /* sin conexión local: no se muestra */ }
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
   if (!cfg) return null;
 
   const guardar = async (cual, datos, ok) => {
     setGuardando(cual);
-    try { const r = await api.put('/app/programas', { [cual]: datos }); setCfg((c) => ({ ...c, ...r.data })); setFid(r.data.fidelidad); setRes(r.data.resenas); if (ok) toast.success(ok); cargar(); }
+    try { const r = await api.put('/app/programas', { [cual]: datos }); setCfg((c) => ({ ...c, ...r.data })); setFid(r.data.fidelidad); setRes(r.data.resenas); setPed(r.data.pedidos); if (ok) toast.success(ok); cargar(); }
     catch (e) { toast.error(msg(e, 'No se pudo guardar')); } finally { setGuardando(''); }
   };
   const canjear = async (p) => {
     try { await api.post('/app/programas/canjear', { jid: p.jid }); toast.success(`Premio entregado a ${p.nombre || 'el cliente'}`); cargar(); }
     catch (e) { toast.error(msg(e, 'No se pudo anotar')); }
   };
-  const algunoActivo = fid.activa || res.activa;
+  const algunoActivo = fid.activa || res.activa || ped?.activa;
 
   return (
     <div className="card">
@@ -47,7 +48,7 @@ export default function ProgramasPanel() {
         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(249,168,212,0.1)' }}><Gift size={17} style={{ color: '#f9a8d4' }} /></div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-white">Programas con tus clientes</p>
-          <p className="text-xs text-gray-500">Fidelidad (“a la décima visita, una gratis”) y reseñas después del servicio. {algunoActivo ? 'Hay programas activos.' : 'Opcionales, vienen apagados.'}</p>
+          <p className="text-xs text-gray-500">Fidelidad (“a la décima visita, una gratis”), reseñas y pedidos por WhatsApp. {algunoActivo ? 'Hay programas activos.' : 'Opcionales, vienen apagados.'}</p>
         </div>
         {premios.length > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,232,123,0.12)', color: '#00e87b' }}>🎁 {premios.length} para entregar</span>}
         <ChevronDown size={16} className="text-gray-500 transition-transform shrink-0" style={{ transform: abierto ? 'rotate(180deg)' : 'none' }} />
@@ -100,6 +101,31 @@ export default function ProgramasPanel() {
             </div>
             <p className="text-[11px] text-gray-500">¿Cómo conseguís el enlace? En Google, buscá tu negocio → “Pedir reseñas” → copiá el enlace. Solo se pregunta de 9 a 21 h y a clientes que vinieron y no pidieron la baja.</p>
           </section>
+
+          <div className="border-t border-white/10" />
+
+          {/* Pedidos */}
+          {ped && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div><p className="text-sm font-medium text-white flex items-center gap-1.5"><ShoppingBag size={14} /> Pedidos por WhatsApp</p>
+                  <p className="text-xs text-gray-500">El cliente arma su pedido charlando con el bot: suma productos de tu Catálogo, ve el total y recibe el link de MercadoPago (o tu alias para transferir). Los precios y el stock salen siempre del Catálogo. Los ves en Pedidos.</p></div>
+                <Interruptor activo={ped.activa} etiqueta="Pedidos por WhatsApp" disabled={guardando === 'pedidos'} onClick={() => guardar('pedidos', { activa: !ped.activa }, ped.activa ? 'Pedidos desactivados' : 'Pedidos activados')} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-300">
+                <label className="flex items-center gap-1.5 text-xs">Entrega
+                  <select value={ped.entrega} onChange={(e) => setPed({ ...ped, entrega: e.target.value })} className={campo}>
+                    <option value="ambos">Retiro y envío</option><option value="retiro">Solo retiro en el local</option><option value="envio">Solo envío</option>
+                  </select></label>
+                {ped.entrega !== 'retiro' && <label className="flex items-center gap-1.5 text-xs">Costo de envío $
+                  <input type="number" min="0" value={ped.costoEnvio} onChange={(e) => setPed({ ...ped, costoEnvio: e.target.value === '' ? '' : Number(e.target.value) })} className={`${campo} w-28`} aria-label="Costo de envío" /></label>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={ped.nota} onChange={(e) => setPed({ ...ped, nota: e.target.value })} maxLength={200} placeholder="Nota para el cliente (ej: Entregamos de lunes a viernes)" className={`${campo} flex-1 min-w-[240px]`} aria-label="Nota para el cliente" />
+                <button className="btn-secondary text-xs flex items-center gap-1.5" disabled={guardando === 'pedidos'} onClick={() => guardar('pedidos', { entrega: ped.entrega, costoEnvio: ped.costoEnvio === '' ? 0 : ped.costoEnvio, nota: ped.nota }, 'Guardado')}>{guardando === 'pedidos' ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar</button>
+              </div>
+            </section>
+          )}
         </div>
       )}
     </div>

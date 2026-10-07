@@ -219,6 +219,30 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
+  // Copiloto: borrador de respuesta (NO se envía; el dueño lo revisa)
+  router.post('/clientes/:jid/sugerir', async (req, res) => {
+    try {
+      const jid = decodeURIComponent(req.params.jid);
+      const c = await BotCliente.findOne({ userId: req.user._id, jid }, '_id').lean();
+      if (!c) return res.status(404).json({ error: 'Cliente no encontrado' });
+      res.json({ texto: await botService.sugerirRespuesta(jid, { instruccion: String(req.body?.instruccion || '').slice(0, 200) }) });
+    } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo generar el borrador: ' + e.message }); }
+  });
+
+  // El dueño le responde al cliente desde la app
+  router.post('/clientes/:jid/responder', async (req, res) => {
+    try {
+      const jid = decodeURIComponent(req.params.jid);
+      const texto = String(req.body?.texto || '').trim();
+      if (texto.length < 1) return res.status(400).json({ error: 'Escribí el mensaje.' });
+      if (texto.length > 1000) return res.status(400).json({ error: 'El mensaje es muy largo (máximo 1000 caracteres).' });
+      const c = await BotCliente.findOne({ userId: req.user._id, jid }, '_id').lean();
+      if (!c) return res.status(404).json({ error: 'Cliente no encontrado' });
+      if (!(await botService.responderComoDueno(jid, texto))) return res.status(409).json({ error: 'No se pudo enviar: el bot no está conectado a WhatsApp.' });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // Ficha 360: todo lo del cliente en un lugar — lo que debe, sus documentos y su próximo turno.
   router.get('/clientes/:jid/ficha', async (req, res) => {
     try {
