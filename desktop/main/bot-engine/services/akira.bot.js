@@ -4266,6 +4266,14 @@ Revisalo en Akira → Documentos.`);
     // Actualizar silenciado de un cliente en la caché RAM (desde el dashboard)
     // La app le pide al bot que le escriba a un cliente (ej. turno confirmado)
     emitter.on('enviar:texto', ({ jid, texto }) => { if (jid && texto) enviarMensaje(jid, texto).catch(() => {}); });
+    // La app le pide al bot que mande un PDF (presupuesto / recibo) a un cliente; el dueño lo pidió a propósito
+    emitter.on('enviar:documento', async ({ jid, buffer, nombre, caption, resolver }) => {
+      let ok = false;
+      try {
+        if (sock && jid && Buffer.isBuffer(buffer)) { await sock.sendMessage(jid, { document: buffer, mimetype: 'application/pdf', fileName: String(nombre || 'documento.pdf'), caption: String(caption || '').slice(0, 900) }); ok = true; }
+      } catch (e) { log(`⚠️ [Documento] No se pudo enviar a ${jid}: ${e.message}`); }
+      resolver?.(ok);
+    });
     // El dueño le responde a un cliente desde la app: se envía y queda en la charla (así el bot tiene el contexto)
     emitter.on('dueno:responde', async ({ jid, texto, resolver }) => {
       const ok = texto ? await enviarMensaje(jid, String(texto)) : false;

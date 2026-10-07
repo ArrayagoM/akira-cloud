@@ -267,6 +267,14 @@ const clientesImportados = (jids) => { for (const slot of instancias.keys()) sob
 // Le escribe a un cliente por la primera cuenta de WhatsApp conectada (false si ninguna lo está).
 const enviarACliente = (jid, texto) => { for (const slot of [...conectados].sort((a, b) => a - b)) { if (sobreBot(slot, 'enviar:texto', { jid, texto })) return true; } return false; };
 const hayConexion = () => conectados.size > 0;
+// Manda un PDF a un cliente (presupuestos y recibos). → Promise<boolean>
+function enviarDocumento(jid, buffer, nombre, caption) {
+  for (const slot of [...conectados].sort((a, b) => a - b)) {
+    const bot = instancias.get(slot);
+    if (bot) return new Promise((resolver) => { bot.emit('enviar:documento', { jid, buffer, nombre, caption, resolver }); setTimeout(() => resolver(false), 30000); });
+  }
+  return Promise.resolve(false);
+}
 // Le avisa al bot que a este cliente se le pidió una reseña (así interpreta su respuesta como puntaje).
 const marcarResenaPendiente = (jid, turnoId, link) => { for (const slot of conectados) sobreBot(slot, 'resena:pendiente', { jid, turnoId, link }); };
 // Copiloto: pide un borrador de respuesta a la primera cuenta conectada (o activa).
@@ -313,6 +321,6 @@ async function detenerTodos() {
 
 module.exports = {
   init, mensajesHoy, estadoDetallado, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
-  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno, clientesImportados, enviarACliente, hayConexion, marcarResenaPendiente, sugerirRespuesta, responderComoDueno,
+  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno, clientesImportados, enviarACliente, hayConexion, marcarResenaPendiente, sugerirRespuesta, responderComoDueno, enviarDocumento,
   procesarWebhookMP, restaurarActivos, detenerTodos, slotsActivos: () => Array.from(instancias.keys()),
 };

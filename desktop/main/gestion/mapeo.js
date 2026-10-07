@@ -8,7 +8,7 @@
 const caja = require('./caja');
 
 const CAMPOS = {
-  productos: ['nombre', 'precio', 'categoria', 'stock', 'descripcion'],
+  productos: ['nombre', 'precio', 'categoria', 'stock', 'descripcion', 'codigo'],
   servicios: ['nombre', 'precio', 'duracion'],
   movimientos: ['fecha', 'monto', 'tipo', 'categoria', 'descripcion', 'metodo'],
   proveedores: ['nombre', 'telefono', 'cuit', 'rubro', 'notas'],
@@ -50,6 +50,7 @@ const SINONIMOS = {
   stock: ['stock', 'cantidad', 'existencia', 'existencias', 'unidades', 'disponible', 'inventario'],
   descripcion: ['descripcion', 'detalle', 'observaciones', 'notas', 'comentarios'],
   duracion: ['duracion', 'minutos', 'tiempo', 'min', 'duracion min', 'duracion minutos'],
+  codigo: ['codigo', 'codigo de barras', 'cod barras', 'codigo barras', 'ean', 'ean13', 'ean 13', 'sku', 'barcode', 'cod'],
 };
 
 const sinTildes = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -292,6 +293,7 @@ function construirFilas(tipo, filas, mapeo, existentes = []) {
     if (tipo === 'productos') {
       dato.categoria = texto(celda('categoria'));
       dato.descripcion = texto(celda('descripcion'));
+      dato.codigo = texto(celda('codigo')).slice(0, 40);
       const crudoStock = celda('stock');
       const st = parsearEntero(crudoStock);
       if (crudoStock !== '' && crudoStock != null && st == null) avisos.push('Stock no válido: se deja sin control');
@@ -373,12 +375,12 @@ function aplicarImportacion(tipo, existentes, filas, { modo = 'agregar', excluir
     if (indice.has(clave)) {
       const i = indice.get(clave);
       base[i] = tipo === 'productos'
-        ? { ...base[i], nombre: f.dato.nombre, precio: f.dato.precio, categoria: f.dato.categoria || base[i].categoria || '', descripcion: f.dato.descripcion || base[i].descripcion || '', stock: f.dato.stock }
+        ? { ...base[i], nombre: f.dato.nombre, precio: f.dato.precio, categoria: f.dato.categoria || base[i].categoria || '', descripcion: f.dato.descripcion || base[i].descripcion || '', codigo: f.dato.codigo || base[i].codigo || '', stock: f.dato.stock }
         : { ...base[i], nombre: f.dato.nombre, precio: f.dato.precio, duracion: f.dato.duracion };
       actualizados++;
     } else {
       base.push(tipo === 'productos'
-        ? { waProductId: '', nombre: f.dato.nombre, descripcion: f.dato.descripcion || '', precio: f.dato.precio, moneda: 'ARS', categoria: f.dato.categoria || '', stock: f.dato.stock, imagen: '', disponible: true, fuente: 'manual' }
+        ? { waProductId: '', nombre: f.dato.nombre, descripcion: f.dato.descripcion || '', precio: f.dato.precio, moneda: 'ARS', categoria: f.dato.categoria || '', codigo: f.dato.codigo || '', stock: f.dato.stock, imagen: '', disponible: true, fuente: 'manual' }
         : { nombre: f.dato.nombre, precio: f.dato.precio, duracion: f.dato.duracion, intervaloRecordatorioDias: 0, mensajeRecordatorio: '' });
       indice.set(clave, base.length - 1);
       agregados++;

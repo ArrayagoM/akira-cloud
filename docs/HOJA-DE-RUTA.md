@@ -110,10 +110,10 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 6.4 | **Cierre de caja diario** con diferencias contra lo que dice el sistema | 🟡 | S | ✅ 1.0.21 |
 | 6.5 | **Metas del mes** con barra de progreso | ⚪ | S | ✅ 1.0.21 |
 | 6.6 | **Reportes**: servicios más pedidos, clientes frecuentes, horas pico, ausencias, evolución mes a mes, con exportación | 🟠 | M | ⬜ |
-| 6.7 | **Presupuestos y recibos en PDF** con tu logo, enviados por WhatsApp | 🟠 | M | ⬜ |
-| 6.8 | **Conciliación con MercadoPago**: traer los movimientos de la cuenta y cruzarlos con la Caja | 🟠 | M | ⬜ |
+| 6.7 | **Presupuestos y recibos en PDF** con tu logo, enviados por WhatsApp | 🟠 | M | ✅ 1.0.22 |
+| 6.8 | **Conciliación con MercadoPago**: traer los movimientos de la cuenta y cruzarlos con la Caja | 🟠 | M | ✅ 1.0.22 |
 | 6.9 | **Facturación electrónica ARCA** (Factura C / ticket desde un cobro), con proveedor intermediario | 🔴 | L | ⬜ 👤 |
-| 6.10 | **Códigos de barras** para el inventario | 🟡 | M | ⬜ |
+| 6.10 | **Códigos de barras** para el inventario | 🟡 | M | ✅ 1.0.22 |
 
 ## E7 — Equipo y operación
 

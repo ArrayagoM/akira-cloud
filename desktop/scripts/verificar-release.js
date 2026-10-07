@@ -134,6 +134,15 @@ const raiz = process.argv[2];
   if (require(path.join(raiz, 'main/gestion/recurrentes')).fechaEnMes('2026-02', 31) !== '2026-02-28') throw new Error('los gastos fijos fallan dentro del paquete');
   const repo = require(path.join(raiz, 'main/gestion/reportes')).armar({ turnos: [], movimientos: [], desde: '2026-10-01', hasta: '2026-10-07', meses: 2 });
   if ((await require(path.join(raiz, 'main/gestion/exportador-reportes')).exportarXlsx(repo)).length < 1000) throw new Error('la exportación de reportes falla dentro del paquete');
+  // etapa 6 (2): presupuestos y recibos, conciliación con MercadoPago y códigos de barras
+  for (const m of ['main/gestion/comprobantes', 'main/gestion/conciliacion', 'main/gestion/codigo-barras', 'main/logo-negocio', 'main/local-api/routes/comprobantes.routes', 'main/local-api/routes/conciliacion.routes', 'main/local-api/routes/codigos.routes']) require(path.join(raiz, m));
+  const cbar = require(path.join(raiz, 'main/gestion/codigo-barras'));
+  if (cbar.codificar('A').join('') !== '211214' + '111323' + '131123' + '2331112') throw new Error('el código de barras falla dentro del paquete');
+  if ((await cbar.generarEtiquetas([{ nombre: 'Prueba', precio: 1, codigo: 'AK000001' }])).slice(0, 4).toString() !== '%PDF') throw new Error('las etiquetas fallan dentro del paquete');
+  const compLib = require(path.join(raiz, 'main/gestion/comprobantes'));
+  const pdfComp = await compLib.generarPdf({ comprobante: { tipo: 'recibo', numero: 1, fecha: '2026-10-07', clienteNombre: 'Prueba', clienteTelefono: '', items: [{ nombre: 'Algo', precio: 10, cantidad: 1 }], bruto: 10, descuento: 0, descuentoPct: 0, total: 10, metodo: 'efectivo', nota: '' }, negocio: 'Prueba' });
+  if (pdfComp.slice(0, 4).toString() !== '%PDF') throw new Error('los comprobantes en PDF fallan dentro del paquete');
+  if (require(path.join(raiz, 'main/gestion/conciliacion')).normalizarPago({ id: 1, status: 'approved', transaction_amount: 10, date_approved: '2026-10-07T12:00:00Z' }).monto !== 10) throw new Error('la conciliación falla dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

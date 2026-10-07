@@ -6,13 +6,14 @@ import VentaRapida from '../components/VentaRapida';
 import MetasCard from '../components/MetasCard';
 import CierreCajaModal from '../components/CierreCajaModal';
 import RecurrentesPanel from '../components/RecurrentesPanel';
+import ConciliacionModal from '../components/ConciliacionModal';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { bajarArchivo, pesos } from '../utils/archivos';
 import { Link } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Plus, Upload, Download, ChevronDown, Loader2, Pencil, Trash2,
-  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck, HandCoins, Truck, ShoppingBag, Lock,
+  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck, HandCoins, Truck, ShoppingBag, Lock, Scale,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ export default function CajaPage() {
   const [importando, setImportando] = useState(false);
   const [vendiendo, setVendiendo] = useState(false);
   const [cerrando, setCerrando] = useState(false);
+  const [conciliando, setConciliando] = useState(false);
   const [menuExp, setMenuExp] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -147,6 +149,7 @@ export default function CajaPage() {
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setModal({ inicial: { tipo: 'ingreso' } })}><Plus size={14} /> Ingreso</button>
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setModal({ inicial: { tipo: 'gasto' } })}><Plus size={14} /> Gasto</button>
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setCerrando(true)}><Lock size={14} /> Cerrar caja</button>
+            <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setConciliando(true)}><Scale size={14} /> Conciliar MercadoPago</button>
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setImportando(true)}><Upload size={14} /> Importar planilla</button>
             <div className="relative">
               <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setMenuExp((v) => !v)}><Download size={14} /> Exportar <ChevronDown size={12} /></button>
@@ -223,6 +226,7 @@ export default function CajaPage() {
       </div>
 
       {modal && datos && <MovimientoModal id={modal.id} inicial={modal.inicial} categorias={datos.categorias} proveedores={datos.proveedores} onClose={() => setModal(null)} onGuardado={cargar} />}
+      {conciliando && <ConciliacionModal mes={mes} onClose={() => setConciliando(false)} onCambio={cargar} />}
       {cerrando && <CierreCajaModal onClose={() => setCerrando(false)} onCerrado={cargar} />}
       {vendiendo && <VentaRapida onClose={() => setVendiendo(false)} onVendido={cargar} />}
       {importando && <ImportarAsistente tipoInicial="movimientos" tipos={['movimientos']} onClose={() => setImportando(false)} onListo={cargar} />}

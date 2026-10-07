@@ -140,6 +140,9 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/app/ventas', require('./routes/ventas.routes')(deps));
   app.use('/api/app/recurrentes', require('./routes/recurrentes.routes')(deps));
   app.use('/api/app/cierres', require('./routes/cierres.routes')(deps));
+  app.use('/api/app/codigos', require('./routes/codigos.routes')(deps));
+  app.use('/api/app/conciliacion', require('./routes/conciliacion.routes')(deps));
+  app.use('/api/app/comprobantes', require('./routes/comprobantes.routes')(deps));
   app.use('/api/app/metas', require('./routes/metas.routes')(deps));
   app.use('/api/app/reportes', require('./routes/reportes.routes')(deps));
   app.use('/api/app/analitica', require('./routes/analitica.routes')(deps));

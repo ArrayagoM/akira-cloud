@@ -4,8 +4,8 @@ import api from '../services/api';
 import toast from 'react-hot-toast';
 import ImportarAsistente from '../components/ImportarAsistente';
 import FotoProducto from '../components/FotoProducto';
-import { bajarArchivo } from '../utils/archivos';
-import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, ChevronDown, Save } from 'lucide-react';
+import { bajarArchivo, descargar } from '../utils/archivos';
+import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, ChevronDown, Save, Barcode } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
 // Catálogo: productos y servicios del negocio. Es la MISMA lista que usa el bot
@@ -14,7 +14,7 @@ import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, Che
 // ─────────────────────────────────────────────────────────────
 
 const TIPOS = {
-  productos: { label: 'Productos', icon: Package, vacio: { nombre: '', precio: 0, categoria: '', stock: -1, descripcion: '', disponible: true, fuente: 'manual' }, singular: 'producto' },
+  productos: { label: 'Productos', icon: Package, vacio: { nombre: '', precio: 0, categoria: '', stock: -1, descripcion: '', codigo: '', disponible: true, fuente: 'manual' }, singular: 'producto' },
   servicios: { label: 'Servicios', icon: Scissors, vacio: { nombre: '', precio: 0, duracion: 60, intervaloRecordatorioDias: 0, mensajeRecordatorio: '' }, singular: 'servicio' },
 };
 
@@ -53,6 +53,22 @@ export default function CatalogoPage() {
       toast.success('Guardado — tu bot ya usa estos datos');
     } catch (e) { toast.error(e.response?.data?.error || 'No se pudo guardar'); }
     finally { setGuardando(false); }
+  };
+
+  // Códigos de barras: se les asigna uno propio a los productos que no tienen (queda sin guardar hasta apretar "Guardar cambios")
+  const sinCodigo = lista.filter((x) => !String(x.codigo || '').trim()).length;
+  const completarCodigos = async () => {
+    try {
+      const r = await api.post('/app/codigos/generar', { existentes: lista.map((x) => x.codigo).filter(Boolean), cantidad: sinCodigo });
+      let k = 0; setLista((l) => l.map((x) => (String(x.codigo || '').trim() ? x : { ...x, codigo: r.data.codigos[k++] || '' })));
+      toast.success(`${sinCodigo} código(s) asignados: guardá los cambios para conservarlos`);
+    } catch { toast.error('No se pudieron generar los códigos'); }
+  };
+  const imprimirEtiquetas = async () => {
+    try {
+      const r = await api.post('/app/codigos/etiquetas', { productos: lista.map((x) => ({ nombre: x.nombre, precio: x.precio, codigo: x.codigo })) }, { responseType: 'blob', timeout: 60000 });
+      descargar(r.data, 'etiquetas.pdf');
+    } catch (e) { toast.error(e.response?.data instanceof Blob ? 'Ningún producto tiene código de barras todavía' : 'No se pudieron generar las etiquetas'); }
   };
 
   const cambiarTipo = (t) => { if (sucio && !window.confirm('Tenés cambios sin guardar. ¿Descartarlos?')) return; setTipo(t); };
@@ -97,6 +113,12 @@ export default function CatalogoPage() {
               </div>
             )}
           </div>
+          {tipo === 'productos' && lista.length > 0 && (
+            <>
+              {sinCodigo > 0 && <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={completarCodigos} title="Les pone un código propio a los productos que no traen uno"><Barcode size={14} /> Generar códigos ({sinCodigo})</button>}
+              <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={imprimirEtiquetas} title="PDF con etiquetas de código de barras para pegar en los productos"><Barcode size={14} /> Etiquetas</button>
+            </>
+          )}
           {sucio && (
             <button className="btn-primary text-sm flex items-center gap-1.5 ml-auto" disabled={guardando} onClick={guardar}>
               {guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar cambios
@@ -120,7 +142,7 @@ export default function CatalogoPage() {
                 <tr className="text-xs text-gray-500 text-left border-b border-white/10">
                   <th className="px-3 py-2 font-medium">Nombre</th>
                   <th className="px-3 py-2 font-medium w-32">Precio ($)</th>
-                  {tipo === 'productos' ? (<><th className="px-3 py-2 font-medium w-20" title="El bot manda esta foto cuando el cliente pregunta por el producto">Foto</th><th className="px-3 py-2 font-medium w-40">Categoría</th><th className="px-3 py-2 font-medium w-24" title="Vacío = sin control de stock">Stock</th><th className="px-3 py-2 font-medium w-20 text-center">Se ofrece</th></>)
+                  {tipo === 'productos' ? (<><th className="px-3 py-2 font-medium w-20" title="El bot manda esta foto cuando el cliente pregunta por el producto">Foto</th><th className="px-3 py-2 font-medium w-40" title="Para vender con lector de códigos de barras (el lector escribe el código como un teclado)">Código</th><th className="px-3 py-2 font-medium w-40">Categoría</th><th className="px-3 py-2 font-medium w-24" title="Vacío = sin control de stock">Stock</th><th className="px-3 py-2 font-medium w-20 text-center">Se ofrece</th></>)
                     : (<><th className="px-3 py-2 font-medium w-32">Duración (min)</th><th className="px-3 py-2 font-medium w-56" title="Para reservar se cobra solo una parte; el resto se paga en el local">Seña para reservar</th></>)}
                   <th className="w-10"></th>
                 </tr>
@@ -132,6 +154,7 @@ export default function CatalogoPage() {
                     <td className="px-3 py-1.5"><input className={entrada} type="number" min="0" step="0.01" value={x.precio} onChange={(e) => cambiar(i, 'precio', e.target.value === '' ? '' : Number(e.target.value))} /></td>
                     {tipo === 'productos' ? (<>
                       <td className="px-3 py-1.5"><FotoProducto valor={x.imagen} onCambio={(ref) => cambiar(i, 'imagen', ref)} /></td>
+                      <td className="px-3 py-1.5"><input className={entrada} value={x.codigo || ''} maxLength={40} placeholder="Escaneá o escribí" onChange={(e) => cambiar(i, 'codigo', e.target.value)} /></td>
                       <td className="px-3 py-1.5"><input className={entrada} value={x.categoria || ''} onChange={(e) => cambiar(i, 'categoria', e.target.value)} /></td>
                       <td className="px-3 py-1.5"><input className={entrada} type="number" min="0" value={x.stock >= 0 ? x.stock : ''} placeholder="∞" onChange={(e) => cambiar(i, 'stock', e.target.value === '' ? -1 : Number(e.target.value))} /></td>
                       <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={x.disponible !== false} onChange={(e) => cambiar(i, 'disponible', e.target.checked)} /></td>

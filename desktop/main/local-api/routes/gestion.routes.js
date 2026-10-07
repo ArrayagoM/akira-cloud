@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const senas = require('../../gestion/senas');
+const codigoBarras = require('../../gestion/codigo-barras');
 const Config = require('../../bot-engine/models/Config');
 const Log = require('../../bot-engine/models/Log');
 const Movimiento = require('../../bot-engine/models/Movimiento');
@@ -38,6 +39,7 @@ function sanitizarLista(tipo, lista) {
       categoria: String(p.categoria || '').trim(),
       stock: parseInt(p.stock) >= 0 ? parseInt(p.stock) : -1,
       imagen: String(p.imagen || '').trim(),
+      codigo: codigoBarras.sanear(p.codigo),
       disponible: p.disponible !== false,
       fuente: ['manual', 'wa_catalog', 'status'].includes(p.fuente) ? p.fuente : 'manual',
     })).filter((p) => p.nombre);

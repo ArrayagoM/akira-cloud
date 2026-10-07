@@ -18,7 +18,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
     try {
       const userId = uid(req);
       const cfg = await Config.findOne({ userId }).lean();
-      const productos = (cfg?.catalogo || []).filter((p) => p.disponible !== false).map((p) => ({ nombre: p.nombre, precio: p.precio, stock: p.stock >= 0 ? p.stock : -1, categoria: p.categoria || '' }));
+      const productos = (cfg?.catalogo || []).filter((p) => p.disponible !== false).map((p) => ({ nombre: p.nombre, precio: p.precio, stock: p.stock >= 0 ? p.stock : -1, categoria: p.categoria || '', codigo: p.codigo || '' }));
       const recientes = (await Movimiento.find({ userId, origen: 'venta' }).lean())
         .sort((a, b) => String(b.createdAt || b.fecha).localeCompare(String(a.createdAt || a.fecha))).slice(0, 8)
         .map((v) => ({ _id: String(v._id), fecha: v.fecha, monto: v.monto, metodo: v.metodo, descripcion: v.descripcion, items: v.items || [] }));

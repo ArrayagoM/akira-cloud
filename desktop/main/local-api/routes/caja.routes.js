@@ -79,6 +79,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
       const mov = await Movimiento.findOne({ _id: req.params.id, userId: uid(req) });
       if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
       if (mov.origen === 'venta') return res.status(400).json({ error: 'Esta es una venta rápida: si te equivocaste, anulala y cargala de nuevo.' });
+      if (mov.origen === 'recibo') return res.status(400).json({ error: 'Este ingreso viene de un recibo: se corrige desde Presupuestos y recibos.' });
       if (mov.origen === 'pedido') return res.status(400).json({ error: 'Este ingreso viene de un pedido: se corrige desde Pedidos.' });
       if (mov.origen === 'ctacte') return res.status(400).json({ error: 'Este movimiento viene de una cuenta corriente (Deudores o Proveedores): se corrige desde ahí.' });
       const r = caja.sanearMovimiento({ ...mov.toJSON?.() ?? mov, ...req.body });
@@ -100,6 +101,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
       if (String(req.params.id).startsWith('turno-')) return res.status(400).json({ error: 'Este ingreso viene de un turno cobrado: no se borra desde la Caja.' });
       const previo = await Movimiento.findOne({ _id: req.params.id, userId: uid(req) });
       if (previo?.origen === 'venta') { const r = await ventas.anular({ Config, Movimiento }, uid(req), req.params.id); botService?.recargarConfig?.(); return res.json({ ok: true, aviso: r.ok ? 'Venta anulada: el stock volvió al catálogo.' : '' }); }
+      if (previo?.origen === 'recibo') return res.status(400).json({ error: 'Este ingreso viene de un recibo: se anula desde Presupuestos y recibos.' });
       if (previo?.origen === 'pedido') return res.status(400).json({ error: 'Este ingreso viene de un pedido: se cancela desde Pedidos.' });
       if (previo?.origen === 'ctacte') return res.status(400).json({ error: 'Este movimiento viene de una cuenta corriente (Deudores o Proveedores): se borra desde ahí.' });
       const r = await Movimiento.deleteOne({ _id: req.params.id, userId: uid(req) });

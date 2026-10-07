@@ -37,6 +37,14 @@ export default function VentaRapida({ onClose, onVendido }) {
   const pct = Math.min(100, Math.max(0, Number(String(descuento).replace(',', '.')) || 0));
   const total = Math.round((bruto - bruto * pct / 100) * 100) / 100;
 
+  // Lector de códigos: escribe el código como un teclado y termina con Enter
+  const alLeer = (e) => {
+    if (e.key !== 'Enter') return;
+    const k = buscar.trim().toLowerCase(); if (!k) return;
+    const p = (datos?.productos || []).find((z) => z.codigo && z.codigo.toLowerCase() === k);
+    if (p) { e.preventDefault(); if (p.stock === 0) toast.error(`${p.nombre}: sin stock`); cambiar(p.nombre, 1); setBuscar(''); toast.success(p.nombre, { duration: 1200 }); }
+    else if (productos.length === 0) toast.error('No encontré ese código en tu catálogo');
+  };
   const agregarLibre = () => {
     const precio = Number(String(libre.precio).replace(',', '.'));
     if (!libre.nombre.trim() || !(precio > 0)) { toast.error('Poné el nombre y el precio'); return; }
@@ -82,7 +90,7 @@ export default function VentaRapida({ onClose, onVendido }) {
             <div className="space-y-3 min-w-0">
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar producto…" className={`${entrada} w-full pl-8`} />
+                <input value={buscar} onChange={(e) => setBuscar(e.target.value)} onKeyDown={alLeer} autoFocus placeholder="Buscar producto o escanear código de barras…" className={`${entrada} w-full pl-8`} />
               </div>
               {datos.productos.length === 0 ? (
                 <p className="text-sm text-gray-500 py-6 text-center">Todavía no cargaste productos en el Catálogo. Podés vender algo suelto abajo.</p>
