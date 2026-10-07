@@ -37,7 +37,7 @@ export default function PrimerosPasos({ botConectado }) {
     { id: 'groq', hecho: datos.groq, titulo: 'Cargá tu clave de Groq (gratis)', detalle: 'Es la inteligencia artificial que usa el bot. Creás la cuenta en groq.com y pegás la clave.', ir: '/config', cta: 'Ir a Config' },
     { id: 'negocio', hecho: datos.negocio, titulo: 'Contale a Akira de tu negocio', detalle: 'Nombre, servicios, precios y horarios: con eso responde y agenda. Podés arrancar con una plantilla de tu rubro.', ir: '/config', cta: 'Completar', extra: { texto: 'Usar plantilla', accion: () => setPlantillas(true) } },
     { id: 'wa', hecho: !!botConectado, titulo: 'Conectá tu WhatsApp', detalle: 'Tocá "Iniciar bot" en esta pantalla y escaneá el QR desde WhatsApp → Dispositivos vinculados.', ir: null },
-    { id: 'celular', hecho: datos.celular, titulo: 'Cargá tu celular para los avisos', detalle: 'Ahí te avisa cuando se agenda un turno, y te manda el resumen del día si lo activás.', ir: '/config', cta: 'Cargar celular' },
+    { id: 'celular', hecho: datos.celular, titulo: 'Cargá tu celular para los avisos', detalle: 'Ahí te avisa cuando se agenda un turno, y te manda el resumen del día si lo activás.', ir: '/config#avisos-celular', cta: 'Cargar celular' },
     { id: 'prueba', hecho: probado, titulo: 'Probalo escribiéndole desde otro celular', detalle: 'Pedí un turno como si fueras un cliente. Cuando lo hayas probado, marcalo.', ir: null, marcar: true },
     { id: 'respaldo', hecho: datos.respaldo, titulo: 'Activá el respaldo automático', detalle: 'Tus datos viven en esta PC: una copia cifrada los protege si algo se rompe.', ir: '/respaldo', cta: 'Configurar respaldo' },
   ];

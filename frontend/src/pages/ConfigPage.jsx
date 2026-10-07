@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import Layout from '../components/Layout';
 import PlantillasRubro from '../components/PlantillasRubro';
 import api from '../services/api';
@@ -289,6 +289,13 @@ export default function ConfigPage() {
   const { user } = useAuth();
   const { on }   = useSocket(user?._id);
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  // Llegar desde "Primeros pasos" con #avisos-celular: bajar directo a esa sección.
+  useEffect(() => {
+    if (location.hash !== '#avisos-celular') return;
+    const t = setTimeout(() => document.getElementById('avisos-celular')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 500);
+    return () => clearTimeout(t);
+  }, [location.hash]);
   const [config, setConfig]   = useState({});
   const [plantillasAbiertas, setPlantillasAbiertas] = useState(false);
   const plantillaAplicada = useRef(false);
@@ -336,6 +343,7 @@ export default function ConfigPage() {
   const [horarios, setHorarios]                     = useState(HORARIOS_DEFAULT);
   const [celularNotificaciones, setCelularNotif]    = useState('');
   const [savingHorarios, setSavingHorarios]         = useState(false);
+  const [savingCelular, setSavingCelular]           = useState(false);
   const [modoPausa, setModoPausa]                   = useState(false);
   const [savingPausa, setSavingPausa]               = useState(false);
   const [diasBloqueados, setDiasBloqueados]         = useState([]);
@@ -682,6 +690,30 @@ export default function ConfigPage() {
     }
   };
 
+  // El bot necesita el número completo con código de país y sin "+": 5491112345678.
+  // Si escriben los 10 dígitos de un celular argentino (código de área + número), se completa con 549.
+  const normalizarCelular = (txt) => {
+    const d = String(txt || '').replace(/\D/g, '');
+    if (d.length === 10) return '549' + d;
+    if (d.length === 11 && d.startsWith('0')) return '549' + d.slice(1);
+    return d;
+  };
+
+  const saveCelular = async () => {
+    const limpio = normalizarCelular(celularNotificaciones);
+    if (limpio && limpio.length < 11) { toast.error('Escribí el número completo, con código de área (ej: 2241497226)'); return; }
+    setSavingCelular(true);
+    try {
+      await api.put('/config/horarios', { celularNotificaciones: limpio });
+      setCelularNotif(limpio);
+      toast.success(limpio ? 'Celular guardado' : 'Celular quitado');
+    } catch {
+      toast.error('No se pudo guardar el celular');
+    } finally {
+      setSavingCelular(false);
+    }
+  };
+
   const togglePausa = async () => {
     setSavingPausa(true);
     const nuevoEstado = !modoPausa;
@@ -985,6 +1017,31 @@ export default function ConfigPage() {
             </button>
           </form>
         </SeccionCollapsible>
+
+        {/* Avisos al celular — para cualquier rubro (antes estaba escondido dentro de Horarios) */}
+        <div id="avisos-celular" style={{ scrollMarginTop: 80 }}>
+          <SeccionCollapsible titulo="🔔 Avisos al celular" defaultOpen delay={90}>
+            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+              <BellRing size={11} className="inline mr-1" />Tu número de WhatsApp para los avisos
+            </label>
+            <input
+              type="tel"
+              value={celularNotificaciones}
+              onChange={e => setCelularNotif(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveCelular(); }}
+              className="input-base"
+              placeholder="Ej: 2241497226 (código de área + número, sin 0 ni 15)"
+            />
+            <p className="text-xs text-gray-600 mt-1.5">
+              Ahí te avisa cuando se agenda un turno y te manda el resumen del día si lo activás.
+            </p>
+            <button onClick={saveCelular} disabled={savingCelular} className="btn-primary mt-3">
+              {savingCelular
+                ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />Guardando...</>
+                : <><Save size={15} />Guardar celular</>}
+            </button>
+          </SeccionCollapsible>
+        </div>
 
         {/* Groq */}
         <SeccionCollapsible titulo="🤖 Groq API (IA) — REQUERIDO" defaultOpen={!keys.groq} delay={120}>
@@ -1569,21 +1626,6 @@ export default function ConfigPage() {
                   </div>
                 );
               })}
-            </div>
-
-            {/* Celular notificaciones */}
-            <div className="border-t border-gray-800 pt-4">
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
-                <BellRing size={11} className="inline mr-1" />Número para notificaciones (WhatsApp)
-              </label>
-              <input
-                type="tel"
-                value={celularNotificaciones}
-                onChange={e => setCelularNotif(e.target.value)}
-                className="input-base"
-                placeholder="5491112345678 (con código de país, sin +)"
-              />
-              <p className="text-xs text-gray-600 mt-1">Cada vez que el bot confirme un turno, te manda un aviso a este número.</p>
             </div>
 
             <button onClick={saveHorarios} disabled={savingHorarios} className="btn-primary">
