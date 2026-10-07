@@ -681,7 +681,7 @@ export default function ConfigPage() {
   const saveHorarios = async () => {
     setSavingHorarios(true);
     try {
-      await api.put('/config/horarios', { horariosAtencion: horarios, celularNotificaciones });
+      await api.put('/config/horarios', { horariosAtencion: horarios });
       toast.success('Horarios guardados');
     } catch {
       toast.error('Error al guardar horarios');
