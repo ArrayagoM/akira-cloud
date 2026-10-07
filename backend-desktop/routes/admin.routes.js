@@ -81,12 +81,14 @@ router.get('/dashboard', async (req, res) => {
 router.post('/email-prueba', async (req, res) => {
   try {
     const { enviarEmail, ultimoErrorEmail } = require('../services/email.service');
-    const { htmlNovedades, asuntoNovedades } = require('../services/email.novedades');
+    const { CAMPANAS } = require('../services/email.novedades');
     if (!process.env.SMTP_HOST) return res.status(503).json({ ok: false, error: 'SMTP no configurado' });
+    const camp = CAMPANAS[req.body?.campana || 'actualizacion-2026-10'];
+    if (!camp) return res.status(400).json({ ok: false, error: 'Campaña desconocida' });
     const ok = await enviarEmail({
       to: req.user.email,
-      subject: asuntoNovedades(),
-      html: htmlNovedades({ nombre: req.user.nombre || 'Admin', userId: String(req.user._id), version: process.env.DESKTOP_VERSION || '1.0.0' }),
+      subject: camp.asunto(),
+      html: camp.html({ nombre: (req.user.nombre || 'Admin').split(' ')[0], userId: String(req.user._id), version: process.env.DESKTOP_VERSION || '1.0.0' }),
     });
     res.status(ok ? 200 : 502).json({ ok, para: req.user.email, error: ok ? undefined : ultimoErrorEmail() });
   } catch (err) {
@@ -104,8 +106,11 @@ router.post('/email-prueba', async (req, res) => {
 router.post('/email-novedades', async (req, res) => {
   try {
     const { enviarEmail, ultimoErrorEmail } = require('../services/email.service');
-    const { htmlNovedades, asuntoNovedades } = require('../services/email.novedades');
-    const CAMPAÑA = 'instalador-1.0.0';
+    const { CAMPANAS } = require('../services/email.novedades');
+    // La campaña hay que pedirla por nombre: nunca se envía una por defecto a todos los usuarios.
+    const CAMPAÑA = String(req.body?.campana || '');
+    const camp = CAMPANAS[CAMPAÑA];
+    if (!camp) return res.status(400).json({ ok: false, error: `Indicá la campaña: ${Object.keys(CAMPANAS).join(', ')}` });
     const filtro = { status: 'activo', novedadesActivas: { $ne: false }, [`novedadesEnviadas.${CAMPAÑA}`]: { $exists: false } };
     const pendientes = await User.countDocuments(filtro);
     if (req.body?.confirmar !== true) return res.json({ ok: true, enviados: 0, pendientes });
@@ -117,8 +122,8 @@ router.post('/email-novedades', async (req, res) => {
     for (const u of lote) {
       const ok = await enviarEmail({
         to: u.email,
-        subject: asuntoNovedades(),
-        html: htmlNovedades({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0' }),
+        subject: camp.asunto(),
+        html: camp.html({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0' }),
       });
       if (ok) { enviados++; await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: new Date() } }); }
       else { fallidos++; ultimoError = ultimoErrorEmail(); await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: null } }).catch(() => {}); }
