@@ -38,6 +38,15 @@ const DeviceSchema = new mongoose.Schema(
     resumen:     { type: mongoose.Schema.Types.Mixed, default: null },
     resumenEn:   { type: Date, default: null },
 
+    // Estado del bot informado por la PC (ver lib/estado-bot.js) y el incidente de caída abierto, si lo hay.
+    estadoBot:   { type: mongoose.Schema.Types.Mixed, default: null },
+    estadoBotEn: { type: Date, default: null },
+    alertaBot:   {
+      abierta:   { type: Boolean, default: false },
+      desdeEn:   { type: Date, default: null },
+      avisadoEn: { type: Date, default: null },
+    },
+
     revocado:       { type: Boolean, default: false },
     revocadoMotivo: { type: String, default: '' },
     revocadoEn:     { type: Date },

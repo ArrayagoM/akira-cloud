@@ -96,6 +96,11 @@ const UserSchema = new mongoose.Schema(
     // Testers
     esTester: { type: Boolean, default: false },
 
+    // Alertas operativas por email (el bot se cayó / volvió). Se pueden apagar desde la app.
+    alertas: {
+      email: { type: Boolean, default: true },
+    },
+
     // Emails de novedades (instalador, actualizaciones). false = pidió la baja.
     novedadesActivas: { type: Boolean, default: true },
     novedadesEnviadas: { type: Object, default: undefined }, // campaña → fecha de envío (evita duplicados)

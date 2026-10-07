@@ -22,7 +22,7 @@ const guardian = require('../license/guardian');
 
 const PUERTO_PREFERIDO = 47321; // fijo: el origen (y con él el login guardado en localStorage) no cambia entre aperturas
 
-async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botService, alCodigoOAuth, appHooks = {} }) {
+async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botService, alCodigoOAuth, alCambiarEstado, appHooks = {} }) {
   const app = express();
   const server = http.createServer(app);
   let puerto = null;
@@ -31,7 +31,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   const io = new Server(server, { serveClient: false });
 
   const emitirAlUsuario = (userId, evento, datos) => io.to(`user:${userId}`).emit(evento, datos);
-  botService.init({ userDataDir, emitirAlUsuario });
+  botService.init({ userDataDir, emitirAlUsuario, alCambiarEstado });
 
   // ── Importación desde la nube ──────────────────────────────────
   const estadoImp = { corriendo: false, ultimo: null, error: null };

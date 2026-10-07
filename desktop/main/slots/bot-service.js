@@ -25,13 +25,27 @@ const conectados = new Set(); // slots con WhatsApp conectado
 const qrPendientes = new Map(); // slot → { qr, ts }
 const autoRestartTimers = new Map();
 const arranqueEnProceso = new Set();
+// Para informar a la nube el estado real del bot (ver main/estado-bot.js y main/vigilante-bot.js)
+const desconectadoDesde = new Map(); // slot → ms desde que dejó de estar conectado
+const sesionExpirada = new Set();    // slots a los que WhatsApp les pide un QR nuevo
+const huboConexion = new Set();      // slots que ya se conectaron alguna vez en esta ejecución
 
 let baseDir = null;
 let emitir = () => {};
+let cambioDeEstado = () => {};
 
-function init({ userDataDir, emitirAlUsuario }) {
+function init({ userDataDir, emitirAlUsuario, alCambiarEstado }) {
   baseDir = userDataDir;
   emitir = emitirAlUsuario || (() => {});
+  cambioDeEstado = (ev) => { try { alCambiarEstado?.(ev); } catch { /* un aviso fallido nunca debe afectar al bot */ } };
+}
+
+function estadoDetallado({ pausado = false } = {}) {
+  return require('../estado-bot').construirEstado({
+    deseados: new Set(leerActivos()), activos: new Set(instancias.keys()), conectados, sesionExpirada, huboConexion,
+    desde: desconectadoDesde, pausado,
+    tieneSesion: (slot) => { try { return fs.existsSync(path.join(baseDir, 'sessions', sessionDirName(slot), 'creds.json')); } catch { return false; } },
+  });
 }
 
 const ts = () => new Date().toLocaleTimeString('es-AR');
@@ -86,6 +100,7 @@ async function startBot(userId, slot = 0) {
     if (slot >= (estadoLicencia.slotsMax ?? 1)) throw new Error(`Tu plan permite hasta ${estadoLicencia.slotsMax ?? 1} cuenta(s) de WhatsApp.`);
 
     const credenciales = await construirCredenciales(uid, slot);
+    if (!desconectadoDesde.has(slot)) desconectadoDesde.set(slot, Date.now());
 
     const sessionDir = path.join(baseDir, 'sessions', sessionDirName(slot));
     const dataDir = path.join(sessionDir, 'data');
@@ -115,7 +130,9 @@ async function startBot(userId, slot = 0) {
     bot.on('ready', async () => {
       qrPendientes.delete(slot);
       conectados.add(slot);
+      huboConexion.add(slot); desconectadoDesde.delete(slot); sesionExpirada.delete(slot);
       emitir(uid, 'bot:ready', { slot });
+      cambioDeEstado({ slot, estado: 'conectado' });
       await Log.registrar({ userId: uid, tipo: 'bot_connected', mensaje: `Slot ${slot}: WhatsApp conectado y listo` });
     });
 
@@ -129,6 +146,9 @@ async function startBot(userId, slot = 0) {
       // bucle infinito inicia → espera QR → timeout → reinicia.
       const r = String(reason || '').toLowerCase();
       const requiereQR = ['qr requerido', 'sesión inválida', 'sesión corrupta', 'código: 401', 'código: 440', 'código: 500', 'demasiados intentos'].some((x) => r.includes(x));
+      if (!desconectadoDesde.has(slot)) desconectadoDesde.set(slot, Date.now());
+      if (requiereQR) sesionExpirada.add(slot);
+      cambioDeEstado({ slot, estado: 'desconectado', requiereQR });
       if (requiereQR) {
         emitir(uid, 'bot:log', { msg: '⚠️ Sesión expirada — iniciá el bot de nuevo desde el panel para escanear un QR nuevo.', ts: ts(), slot });
         await Log.registrar({ userId: uid, tipo: 'bot_session_expired', nivel: 'warn', mensaje: `Slot ${slot}: Sesión expirada — requiere QR nuevo.` });
@@ -195,6 +215,8 @@ async function stopBot(userId, slot = 0) {
   const uid = String(userId);
   if (autoRestartTimers.has(slot)) { clearTimeout(autoRestartTimers.get(slot)); autoRestartTimers.delete(slot); }
   marcarActivo(slot, false);
+  desconectadoDesde.delete(slot); sesionExpirada.delete(slot);
+  cambioDeEstado({ slot, estado: 'detenido' });
   const bot = instancias.get(slot);
   if (!bot) return { ok: false, msg: 'El bot no está activo' };
   try {
@@ -259,10 +281,11 @@ async function detenerTodos() {
     instancias.delete(slot);
   }
   conectados.clear();
+  desconectadoDesde.clear(); sesionExpirada.clear();
 }
 
 module.exports = {
-  init, mensajesHoy, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
+  init, mensajesHoy, estadoDetallado, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
   recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto,
   procesarWebhookMP, restaurarActivos, detenerTodos, slotsActivos: () => Array.from(instancias.keys()),
 };

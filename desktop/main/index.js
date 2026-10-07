@@ -167,6 +167,17 @@ if (!bloqueo) {
     });
     botService = require('./slots/bot-service');
 
+    // Si el bot se cae no puede avisar por WhatsApp: se muestra un aviso de Windows y se le pide a la nube
+    // una señal de vida inmediata, que es la que manda el email de alerta (ver vigilante-bot.js).
+    const vigilante = require('./vigilante-bot').crearVigilante({
+      estaCaido: (slot) => { const e = botService.estadoDetallado().slots.find((x) => x.slot === slot); return !!e && e.deseado && !e.conectado; },
+      pedirLatido: () => require('./license/guardian').pedirLatido(),
+      notificar: (titulo, cuerpo) => {
+        log('[alerta]', titulo, '-', cuerpo);
+        if (Notification.isSupported()) new Notification({ title: titulo, body: cuerpo, icon: path.join(__dirname, 'assets', 'tray.png') }).show();
+      },
+    });
+
     localApi = await require('./local-api/server').iniciar({
       appHooks,
       userDataDir,
@@ -174,6 +185,7 @@ if (!bloqueo) {
       frontendDir: path.join(__dirname, '..', 'renderer-app'),
       nombreEquipo: os.hostname(),
       botService,
+      alCambiarEstado: (ev) => vigilante.alCambiar(ev),
       // El login con Google termina en el navegador del sistema; el código
       // se canjea dentro de la ventana de la app.
       alCodigoOAuth: (code) => {
@@ -211,7 +223,10 @@ if (!bloqueo) {
     require('./license/guardian')
       .iniciar({
         userDataDir, botService, emitir: localApi.emitirAlUsuario,
-        datosHeartbeat: (userId) => require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() }),
+        datosHeartbeat: async (userId) => ({
+          ...(await require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() })),
+          estadoBot: botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
+        }),
       })
       .catch((e) => log('[guardian] FALLÓ', e));
   }).catch((e) => log('[arranque] FALLÓ', e));

@@ -174,6 +174,19 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user.toJSON() });
 });
 
+// ───────────────────────────────────────────────────────
+//  GET/PUT /api/auth/alertas — preferencias de las alertas operativas por email
+//  (avisan si el bot se cae o vuelve; por defecto activadas)
+// ───────────────────────────────────────────────────────
+router.get('/alertas', requireAuth, (req, res) => {
+  res.json({ email: req.user.alertas?.email !== false });
+});
+router.put('/alertas', requireAuth, async (req, res) => {
+  if (typeof req.body?.email !== 'boolean') return res.status(400).json({ error: 'Valor inválido' });
+  await User.findByIdAndUpdate(req.user._id, { 'alertas.email': req.body.email });
+  res.json({ email: req.body.email });
+});
+
 // ─────────────────────────────────────────────────────────────
 //  POST /api/auth/generar-codigo — genera codigoReferido si el usuario no tiene uno
 // ─────────────────────────────────────────────────────────────

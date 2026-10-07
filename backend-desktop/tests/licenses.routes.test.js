@@ -92,5 +92,20 @@ const usuario = (extra = {}) => ({ _id: 'u1', rol: 'user', plan: 'pro', planExpi
   r = await llamar('post', '/activate', usuario({ _id: 'u9', planExpira: new Date(Date.now() - 1000) }), { deviceId: 'z1' });
   assert(r.status === 403 && r.json.vigente === false, 'plan vencido → 403, no se activa');
 
+  // ── estado del bot en el heartbeat (alertas por email si se cae) ──
+  dispositivos.length = 0;
+  await llamar('post', '/activate', usuario({ email: 'a@b.com', nombre: 'Ana' }), { deviceId: 'pc-E', nombre: 'PC Ana' });
+  const caido = { slots: [{ slot: 0, deseado: true, activo: true, conectado: false, requiereQR: true, desdeMs: 5000 }] };
+  r = await llamar('post', '/heartbeat', usuario({ email: 'a@b.com', nombre: 'Ana' }), { deviceId: 'pc-E', estadoBot: caido });
+  const dE = dispositivos.find((d) => d.deviceId === 'pc-E');
+  assert(r.status === 200 && r.json.vigente, 'un heartbeat con el bot caído igual renueva la licencia (aunque el email no se pueda mandar)');
+  assert(dE.estadoBot?.slots?.[0]?.requiereQR === true && dE.alertaBot?.abierta === true, 'guarda el estado del bot y abre el incidente');
+  r = await llamar('post', '/heartbeat', usuario({ email: 'a@b.com' }), { deviceId: 'pc-E', estadoBot: 'basura' });
+  assert(r.status === 200, 'un estado del bot inválido no rompe el heartbeat');
+  r = await llamar('post', '/heartbeat', usuario({ email: 'a@b.com' }), { deviceId: 'pc-E', estadoBot: { slots: [{ slot: 0, deseado: true, activo: true, conectado: true }] } });
+  assert(r.status === 200 && dE.alertaBot.abierta === false, 'cuando el bot vuelve, se cierra el incidente');
+  r = await llamar('post', '/heartbeat', usuario({ email: 'a@b.com' }), { deviceId: 'pc-E' });
+  assert(r.status === 200 && dE.estadoBot.slots[0].conectado === true, 'un heartbeat sin estado (app vieja) no borra el último estado conocido');
+
   console.log('\n✅ Todos los tests de licenses.routes pasaron.\n');
 })().catch((e) => { console.error('❌', e.message, e.stack); process.exit(1); });

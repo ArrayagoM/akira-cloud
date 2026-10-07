@@ -96,7 +96,7 @@ router.post('/activate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/heartbeat', requireAuth, async (req, res) => {
   try {
-    const { deviceId, version, resumen } = req.body;
+    const { deviceId, version, resumen, estadoBot } = req.body;
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
 
     const user = req.user;
@@ -116,6 +116,13 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
     // resumen === null → el usuario lo desactivó en la app: se borra lo que hubiera en el servidor.
     if (resumen === null) { device.resumen = null; device.resumenEn = null; }
     else if (resumen !== undefined) { const r = sanearResumen(resumen); if (r) { device.resumen = r; device.resumenEn = new Date(); } }
+    // Estado del bot → alertas por email si se cayó / volvió. Un fallo acá nunca debe impedir renovar la licencia.
+    if (estadoBot !== undefined) {
+      try {
+        const { procesarEstadoBot } = require('../services/alertas-estado.service');
+        await procesarEstadoBot({ user, device, estadoBot, enviar: (m) => require('../services/email.service').enviarEmail(m) });
+      } catch (e) { logger.warn('[Licenses] estado del bot: ' + e.message); }
+    }
     await device.save();
 
     const planE = planEfectivo(user);
@@ -159,7 +166,7 @@ router.post('/deactivate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.get('/mine', requireAuth, async (req, res) => {
   const devices = await Device.find({ userId: req.user._id, activo: true, revocado: false })
-    .select('deviceId nombre activadoEn ultimoHeartbeat version resumen resumenEn')
+    .select('deviceId nombre activadoEn ultimoHeartbeat version resumen resumenEn estadoBot estadoBotEn')
     .lean();
   res.json({ devices, limite: dispositivosMaxDePlan(planEfectivo(req.user)) });
 });

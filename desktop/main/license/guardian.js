@@ -86,6 +86,13 @@ async function iniciar({ userDataDir, botService, emitir, datosHeartbeat }) {
   timer = setInterval(() => tick().catch(() => {}), CADA_MS);
 }
 
-function detener() { if (timer) clearInterval(timer); }
+// Señal de vida inmediata (por ejemplo, el bot se cayó o volvió): se agrupan los pedidos cercanos.
+let pedido = null;
+function pedirLatido(demoraMs = 2000) {
+  if (!ctx || pedido) return;
+  pedido = setTimeout(() => { pedido = null; tick().catch(() => {}); }, demoraMs);
+}
 
-module.exports = { iniciar, detener, _tick: tick, estado: () => ({ ...estado, plan: licenseClient.getEstado()?.plan || null, expira: licenseClient.getEstado()?.expira || null }) };
+function detener() { if (timer) clearInterval(timer); if (pedido) { clearTimeout(pedido); pedido = null; } }
+
+module.exports = { iniciar, detener, pedirLatido, _tick: tick, estado: () => ({ ...estado, plan: licenseClient.getEstado()?.plan || null, expira: licenseClient.getEstado()?.expira || null }) };
