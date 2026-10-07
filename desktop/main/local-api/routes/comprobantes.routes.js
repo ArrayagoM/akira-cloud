@@ -10,7 +10,7 @@ const BotCliente = require('../../bot-engine/models/BotCliente');
 const comp = require('../../gestion/comprobantes');
 const logo = require('../../logo-negocio');
 
-module.exports = function crearRouter({ requerirSesion, botService, userDataDir }) {
+module.exports = function crearRouter({ requerirSesion, botService, userDataDir, servicioWebhooks }) {
   const router = express.Router();
   router.use(requerirSesion);
   const uid = (req) => String(req.user._id);
@@ -46,6 +46,7 @@ module.exports = function crearRouter({ requerirSesion, botService, userDataDir 
       const mov = await Movimiento.create({ userId, origen: 'recibo', comprobanteId: String(c._id), tipo: 'ingreso', monto: r.dato.total, fecha: r.dato.fecha, metodo: r.dato.metodo, categoria: 'Ventas', descripcion: `Recibo ${comp.formatoNumero('recibo', numero)}${r.dato.concepto ? ` — ${r.dato.concepto}` : ''}`.slice(0, 200), cliente: r.dato.clienteNombre, documentoId: null });
       await Comprobante.findOneAndUpdate({ _id: c._id, userId }, { $set: { cajaId: String(mov._id) } });
     }
+    servicioWebhooks?.emitir('comprobante.creado', { comprobanteId: String(c._id), tipo: r.dato.tipo, codigo: comp.formatoNumero(r.dato.tipo, numero), cliente: r.dato.clienteNombre, total: r.dato.total, fecha: r.dato.fecha });
     return { ok: true, id: String(c._id), codigo: comp.formatoNumero(r.dato.tipo, numero) };
   }
 

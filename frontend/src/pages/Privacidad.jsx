@@ -39,6 +39,7 @@ export default function Privacidad() {
               <li><strong>Datos de Google Calendar:</strong> solo si autorizás la integración, accedemos a tu calendario para crear y gestionar eventos según las instrucciones configuradas. No almacenamos el contenido de tus eventos.</li>
               <li><strong>Datos de WhatsApp Business:</strong> metadatos de mensajes necesarios para operar el bot (remitente, timestamp). No almacenamos conversaciones privadas completas.</li>
               <li><strong>Datos de pago:</strong> las transacciones son procesadas por MercadoPago. No almacenamos datos de tarjetas.</li>
+              <li><strong>Estadísticas de uso de la app de escritorio (opcional, apagadas por defecto):</strong> si las activás en <em>Integraciones</em>, la app cuenta cuántas veces se abre cada pantalla por día y lo informa junto con la señal de vida de la licencia. Son únicamente contadores de una lista fija de pantallas: nunca incluyen datos de tus clientes, montos, mensajes ni nada de lo que cargás. Podés apagarlas cuando quieras y se dejan de enviar; los contadores se borran del servidor a los 120 días.</li>
             </ul>
           </Section>
 

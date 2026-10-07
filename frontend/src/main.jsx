@@ -83,3 +83,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ErrorBoundary>
   </React.StrictMode>,
 );
+
+// Web instalable en el celular (PWA): solo en el sitio publicado, nunca en la app de escritorio.
+if (!import.meta.env.VITE_DESKTOP && import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* sin service worker el sitio funciona igual */ }); });
+}

@@ -144,10 +144,11 @@ const EMPLEADO = [
   [['GET'], /^\/api\/gestion\/lista$/],
   [['GET'], /^\/api\/app\/catalogo-fotos\//],
   [['GET'], /^\/api\/app\/perfiles\/yo$/],
+  [['POST'], /^\/api\/app\/uso\/pantalla$/],
 ];
 // Lo que se NIEGA al encargado (todo lo demás lo puede)
 const ENCARGADO_NO = [
-  /^\/api\/app\/respaldo(\/|$)/, /^\/api\/app\/perfiles(\/|$)(?!yo$)/, /^\/api\/subscriptions(\/|$)/, /^\/api\/admin(\/|$)/, /^\/api\/sync(\/|$)/, /^\/api\/app\/resumen-web$/,
+  /^\/api\/app\/webhooks(\/|$)/, /^\/api\/app\/uso$/, /^\/api\/app\/exportacion(\/|$)/, /^\/api\/app\/respaldo(\/|$)/, /^\/api\/app\/perfiles(\/|$)(?!yo$)/, /^\/api\/subscriptions(\/|$)/, /^\/api\/admin(\/|$)/, /^\/api\/sync(\/|$)/, /^\/api\/app\/resumen-web$/,
   /^\/api\/bot\/(keys|google|accounts|reset-session)(\/|$)/,
 ];
 const ENCARGADO_SOLO_LEER = [/^\/api\/config$/, /^\/api\/app\/avisos(\/|$)/, /^\/api\/auth\//, /^\/api\/app\/programas(\/|$)/];

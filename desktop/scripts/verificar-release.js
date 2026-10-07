@@ -154,6 +154,14 @@ const raiz = process.argv[2];
   const liqPaq = require(path.join(raiz, 'main/gestion/profesionales')).liquidacion([], [], { desde: '2026-10-01', hasta: '2026-10-07' });
   if ((await require(path.join(raiz, 'main/gestion/exportador-profesionales')).exportarXlsx(liqPaq)).length < 1000) throw new Error('la liquidación de comisiones falla dentro del paquete');
   if (require(path.join(raiz, 'main/gestion/sucursales')).resumen({ movimientos: [], turnos: [], profesionales: [], sucursales: [], mes: '2026-10' }).totales.turnos !== 0) throw new Error('las sucursales fallan dentro del paquete');
+  // etapas 8 y 9: webhooks de salida, exportación automática a carpeta y estadísticas de uso (opcionales)
+  for (const m of ['main/webhooks', 'main/exportacion-auto', 'main/uso-estadisticas', 'main/local-api/routes/webhooks.routes', 'main/local-api/routes/exportacion.routes', 'main/local-api/routes/uso.routes']) require(path.join(raiz, m));
+  const wh = require(path.join(raiz, 'main/webhooks'));
+  if (!wh.urlValida('https://hooks.zapier.com/x') || wh.urlValida('http://ejemplo.com/x') || !/^sha256=[a-f0-9]{64}$/.test(wh.firmar('secreto', '{}'))) throw new Error('los webhooks fallan dentro del paquete');
+  const dirUso = fs.mkdtempSync(path.join(os.tmpdir(), 'akira-uso-'));
+  const usoLib = require(path.join(raiz, 'main/uso-estadisticas'));
+  if (usoLib.paraEnviar(dirUso) !== undefined || usoLib.contar(dirUso, '/caja')) throw new Error('las estadísticas de uso deberían arrancar apagadas');
+  if (!require(path.join(raiz, 'main/exportacion-auto')).leerConfig(dirUso).cadaHoras) throw new Error('la exportación automática falla dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

@@ -67,7 +67,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 3.3 | Cola de **comandos mínimos** (pausar/reanudar bot, modo vacaciones), con vencimiento y firma | 🟠 | M | ✅ 1.0.18 |
 | 3.4 | App: login, pantalla *Estado* (PC en línea, WhatsApp conectado, última actividad) | 🟠 | M | ✅ código listo |
 | 3.5 | App: pantalla *Resumen* y *Ajustes mínimos* | 🟡 | S | ✅ código listo |
-| 3.6 | **PWA**: la web instalable en el celular con el resumen del negocio | 🟡 | S | ⬜ |
+| 3.6 | **PWA**: la web instalable en el celular con el resumen del negocio  — el sitio se puede instalar en el celular (manifiesto + pantalla sin conexión); la app nativa sigue siendo la opción completa | 🟡 | S | ✅ 1.0.24 |
 | 3.7 | App de prueba instalable (APK / TestFlight) | 🟡 | S | ⬜ 👤 |
 | 3.8 | Publicación en Google Play (US$25) y App Store (US$99/año) | 🟠 | L | ⬜ 👤 |
 
@@ -109,7 +109,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 6.3 | **Gastos recurrentes** (alquiler, internet) que se cargan solos cada mes | 🟡 | S | ✅ 1.0.21 |
 | 6.4 | **Cierre de caja diario** con diferencias contra lo que dice el sistema | 🟡 | S | ✅ 1.0.21 |
 | 6.5 | **Metas del mes** con barra de progreso | ⚪ | S | ✅ 1.0.21 |
-| 6.6 | **Reportes**: servicios más pedidos, clientes frecuentes, horas pico, ausencias, evolución mes a mes, con exportación | 🟠 | M | ⬜ |
+| 6.6 | **Reportes**: servicios más pedidos, clientes frecuentes, horas pico, ausencias, evolución mes a mes, con exportación | 🟠 | M | ✅ 1.0.21 |
 | 6.7 | **Presupuestos y recibos en PDF** con tu logo, enviados por WhatsApp | 🟠 | M | ✅ 1.0.22 |
 | 6.8 | **Conciliación con MercadoPago**: traer los movimientos de la cuenta y cruzarlos con la Caja | 🟠 | M | ✅ 1.0.22 |
 | 6.9 | **Facturación electrónica ARCA** (Factura C / ticket desde un cobro), con proveedor intermediario | 🔴 | L | ⬜ 👤 |
@@ -127,8 +127,8 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 8.1 | **Google Sheets**: la Caja y los clientes se reflejan en una planilla | 🟡 | M | ⬜ |
-| 8.2 | **Webhooks y API** para Zapier / Make (usa los roles de 7.1) | 🟡 | M | ⬜ |
+| 8.1 | **Google Sheets**: la Caja y los clientes se reflejan en una planilla  — planillas de Caja, Clientes, Productos y Servicios siempre al día en una carpeta (Google Drive / OneDrive / Dropbox) que se abren con Sheets o Excel; la conexión directa con la API de Google queda para más adelante | 🟡 | M | ✅ 1.0.24 |
+| 8.2 | **Webhooks y API** para Zapier / Make (usa los roles de 7.1)  — webhooks de salida firmados (HMAC) con reintentos, para Zapier / Make / n8n; Akira solo informa, no recibe órdenes de afuera | 🟡 | M | ✅ 1.0.24 |
 | 8.3 | **Tienda Nube / Mercado Libre**: stock y ventas sincronizados | 🟠 | L | ⬜ |
 | 8.4 | **Instagram y Messenger**: el mismo bot atiende esos mensajes | 🟠 | L | ⬜ |
 | 8.5 | **Mercado Pago Point** (posnet): cobros con tarjeta que entran solos a la Caja | 🟡 | L | ⬜ |
@@ -137,8 +137,8 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 9.1 | **Estadísticas de uso** de tus propios usuarios (qué funciones usan; sin datos de sus clientes) | 🟡 | S | ⬜ |
-| 9.2 | **Centro de ayuda** con búsqueda y videos cortos | 🟡 | M | ⬜ |
+| 9.1 | **Estadísticas de uso** de tus propios usuarios (qué funciones usan; sin datos de sus clientes)  — opcional (apagado por defecto), solo contadores de pantallas; se ve en Admin → “Uso de la app” | 🟡 | S | ✅ 1.0.24 |
+| 9.2 | **Centro de ayuda** con búsqueda y videos cortos  — Ayuda dentro de la app, con buscador y 35 respuestas paso a paso (los videos cortos quedan para cuando se graben) | 🟡 | M | ✅ 1.0.24 |
 | 9.3 | **Instalador firmado** (Microsoft Store/MSIX ≈ US$19 u OV) | 🟠 | M | ⬜ 👤 |
 | 9.4 | **Versión para Linux y Mac** | 🟠 | L | ⬜ |
 

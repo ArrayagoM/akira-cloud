@@ -9,7 +9,7 @@ const ventas = require('../../gestion/ventas');
 const stock = require('../../gestion/stock');
 const Sucursal = require('../../bot-engine/models/Sucursal');
 
-module.exports = function crearRouter({ requerirSesion, botService }) {
+module.exports = function crearRouter({ requerirSesion, botService, servicioWebhooks }) {
   const router = express.Router();
   router.use(requerirSesion);
   const uid = (req) => String(req.user._id);
@@ -32,7 +32,10 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
       const sucursalId = req.body?.sucursalId && (await Sucursal.findOne({ _id: String(req.body.sucursalId), userId: uid(req) })) ? String(req.body.sucursalId) : '';
       const r = await ventas.vender({ Config, Movimiento }, uid(req), { ...(req.body || {}), por: req.perfil?.nombre || '', sucursalId });
       if (!r.ok) return res.status(r.sinStock ? 409 : 400).json({ error: r.error, faltantes: r.faltantes || [] });
-      if (!r.yaEstaba) botService?.recargarConfig?.(); // el bot tiene que ver el stock nuevo
+      if (!r.yaEstaba) {
+        botService?.recargarConfig?.(); // el bot tiene que ver el stock nuevo
+        servicioWebhooks?.emitir('venta.registrada', { ventaId: String(r.venta._id), total: r.venta.monto, metodo: r.venta.metodo, fecha: r.venta.fecha, items: r.venta.items || [], descuento: r.venta.descuento || 0, por: r.venta.por || '' });
+      }
       res.json({ ok: true, yaEstaba: r.yaEstaba, id: String(r.venta._id), total: r.venta.monto, aviso: stock.textoPocoStock(r.bajos), faltantes: r.faltantes });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

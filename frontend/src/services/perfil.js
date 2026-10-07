@@ -24,8 +24,8 @@ export function usePerfil() {
 }
 
 // Menú permitido por rol (el servidor igual lo hace cumplir: esto es solo para no mostrar lo que no se puede usar)
-const EMPLEADO = new Set(['/dashboard', '/agenda', '/clientes', '/chats', '/vender', '/catalogo', '/pedidos']);
-const ENCARGADO_NO = new Set(['/respaldo', '/config', '/equipo', '/planes']);
+const EMPLEADO = new Set(['/dashboard', '/agenda', '/clientes', '/chats', '/vender', '/catalogo', '/pedidos', '/ayuda']);
+const ENCARGADO_NO = new Set(['/respaldo', '/config', '/equipo', '/planes', '/integraciones']);
 export function puedeVerMenu(perfil, ruta) {
   if (!perfil || perfil.rol === 'propietario') return true;
   if (perfil.rol === 'empleado') return EMPLEADO.has(ruta);

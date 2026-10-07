@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminEmails from '../components/AdminEmails';
+import AdminUso from '../components/AdminUso';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
 function AdminStat({ icon, label, value, color = 'text-white' }) {
@@ -443,6 +444,7 @@ export default function AdminPanel() {
     { id: 'logs',      label: 'Logs',         icon: <AlertTriangle size={15} /> },
     { id: 'referidos', label: 'Referidos',    icon: <GitBranch size={15} /> },
     { id: 'emails',    label: 'Emails',       icon: <Mail size={15} /> },
+    { id: 'uso',       label: 'Uso de la app', icon: <TrendingUp size={15} /> },
     { id: 'ideas',     label: 'Ideas 💡',     icon: <Lightbulb size={15} /> },
   ];
 
@@ -891,6 +893,8 @@ export default function AdminPanel() {
 
         {/* ── TAB: Ideas ── */}
         {tab === 'emails' && <AdminEmails />}
+
+        {tab === 'uso' && <AdminUso />}
 
         {tab === 'ideas' && (
           <div className="space-y-4">

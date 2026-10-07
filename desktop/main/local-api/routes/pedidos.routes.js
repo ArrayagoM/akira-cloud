@@ -11,7 +11,7 @@ const pp = require('../../gestion/pedidos-pago');
 const stockLib = require('../../gestion/stock');
 const caja = require('../../gestion/caja');
 
-module.exports = function crearRouter({ requerirSesion, botService }) {
+module.exports = function crearRouter({ requerirSesion, botService, servicioWebhooks }) {
   const router = express.Router();
   router.use(requerirSesion);
   const M = { Pedido, Config, Movimiento };
@@ -35,6 +35,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
     if (!r.ok) return res.status(r.error === 'Pedido no encontrado' ? 404 : 409).json({ error: r.error });
     if (!r.yaEstaba) {
       recargar();
+      servicioWebhooks?.emitir('pedido.pagado', { pedidoId: String(r.pedido._id), numero: r.pedido.numero, cliente: r.pedido.nombre || '', telefono: r.pedido.telefono || '', total: r.pedido.total, entrega: r.pedido.entrega, items: r.pedido.items, metodo }); 
       aviso(r.pedido, `¡Recibimos tu pago, ${r.pedido.nombre || ''}! 🎉 Tu pedido *#${r.pedido.numero}* está confirmado.${r.pedido.entrega === 'envio' ? ` Te lo enviamos a ${r.pedido.direccion}.` : ' Ya podés retirarlo en el local.'} ¡Gracias por tu compra!`);
     }
     res.json({ ok: true, pedido: limpio(r.pedido), pocoStock: stockLib.textoPocoStock(r.bajos), faltantes: r.faltantes });

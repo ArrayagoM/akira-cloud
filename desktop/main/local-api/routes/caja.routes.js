@@ -24,7 +24,7 @@ const CATEGORIAS = {
   ingreso: ['Ventas', 'Cobros en efectivo', 'Otros ingresos'],
 };
 
-module.exports = function crearRouter({ requerirSesion, botService }) {
+module.exports = function crearRouter({ requerirSesion, botService, servicioWebhooks }) {
   const router = express.Router();
   router.use(requerirSesion);
 
@@ -76,6 +76,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
         proveedorNombre = prov.nombre;
       }
       const mov = await Movimiento.create({ ...r.dato, proveedorNombre, userId, origen: r.dato.documentoId ? 'documento' : 'manual' });
+      servicioWebhooks?.emitir('movimiento.creado', { movimientoId: String(mov._id), tipo: mov.tipo, monto: mov.monto, fecha: mov.fecha, metodo: mov.metodo, categoria: mov.categoria, descripcion: mov.descripcion || '', sucursalId: mov.sucursalId || '' });
       res.json({ ok: true, movimiento: mov });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

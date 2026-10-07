@@ -221,6 +221,15 @@ if (!bloqueo) {
     const sesionAlmacen = require('./license/session-store');
     const uidActual = () => String(sesionAlmacen.leer(userDataDir)?.userId || '');
     const guardianMod = require('./license/guardian');
+    // Exportación automática de planillas a una carpeta (Drive / OneDrive / Dropbox; opcional; ver exportacion-auto.js)
+    appHooks.servicioExportacion = require('./exportacion-auto').crearServicio({
+      userDataDir,
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      modelos: { Movimiento: require('./bot-engine/models/Movimiento'), Turno: require('./bot-engine/models/Turno'), BotCliente: require('./bot-engine/models/BotCliente'), Config: ConfigModelo },
+      log,
+    });
+    // Webhooks de salida hacia Zapier / Make / n8n (opcional; ver webhooks.js)
+    appHooks.servicioWebhooks = require('./webhooks').crearServicio({ userDataDir, log });
     // Gastos fijos y vencimientos: se cargan solos a la Caja y avisan unos días antes (ver recurrentes-servicio.js)
     appHooks.servicioRecurrentes = require('./recurrentes-servicio').crearServicio({
       obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
@@ -276,6 +285,7 @@ if (!bloqueo) {
     appHooks.servicioCelular.programar();
     appHooks.servicioResenas.programar();
     appHooks.servicioRecurrentes.programar();
+    appHooks.servicioExportacion.programar();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -303,6 +313,7 @@ if (!bloqueo) {
         userDataDir, botService, emitir: localApi.emitirAlUsuario,
         datosHeartbeat: async (userId) => ({
           ...(await require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() })),
+          ...(require('./uso-estadisticas').paraEnviar(userDataDir) !== undefined ? { uso: require('./uso-estadisticas').paraEnviar(userDataDir) } : {}), // estadísticas anónimas, solo si el usuario las activó
           estadoBot: {
             ...botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
             vacaciones: !!(await require('./bot-engine/models/Config').findOne({ userId: String(userId) }))?.modoPausa,
@@ -315,5 +326,5 @@ if (!bloqueo) {
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

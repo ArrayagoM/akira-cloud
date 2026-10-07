@@ -34,6 +34,8 @@ import ComprobantesPage  from './pages/ComprobantesPage';
 import EquipoPage        from './pages/EquipoPage';
 import ProfesionalesPage from './pages/ProfesionalesPage';
 import SucursalesPage    from './pages/SucursalesPage';
+import IntegracionesPage from './pages/IntegracionesPage';
+import AyudaPage         from './pages/AyudaPage';
 import VenderPage        from './pages/VenderPage';
 import PerfilGate        from './components/PerfilGate';
 import AnalisisPage      from './pages/AnalisisPage';
@@ -134,6 +136,8 @@ export default function App() {
         <Route path="/equipo"       element={DESKTOP ? <ProtectedRoute><EquipoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/profesionales" element={DESKTOP ? <ProtectedRoute><ProfesionalesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/sucursales"   element={DESKTOP ? <ProtectedRoute><SucursalesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/integraciones" element={DESKTOP ? <ProtectedRoute><IntegracionesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/ayuda"        element={DESKTOP ? <ProtectedRoute><AyudaPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/vender"       element={DESKTOP ? <ProtectedRoute><VenderPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/analisis"     element={DESKTOP ? <ProtectedRoute><AnalisisPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/proveedores" element={DESKTOP ? <ProtectedRoute><ProveedoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />

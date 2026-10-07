@@ -95,6 +95,7 @@ function crearPedidosBot(d) {
     const r = await pedidosPago.marcarPagado({ Pedido, Config, Movimiento }, d.userId, pedidoId, { metodo: 'mercadopago', comprobante: String(pago.id) });
     if (!r.ok || r.yaEstaba) return r;
     d.recargarConfig?.(); // el stock cambió: el bot recarga el catálogo
+    d.emitirEvento?.('pedido.pagado', { pedidoId: String(p._id), numero: p.numero, cliente: p.nombre || '', telefono: p.telefono || '', total: p.total, entrega: p.entrega, items: p.items, metodo: 'mercadopago' });
     await d.enviarMensaje(p.jid, `¡Recibimos tu pago, ${p.nombre || ''}! 🎉 Tu pedido *#${p.numero}* está confirmado.${p.entrega === 'envio' ? ` Te lo enviamos a ${p.direccion}.` : ' Ya podés retirarlo en el local.'} ¡Gracias por tu compra!`);
     d.notificarDueno(`💰 *Pedido #${p.numero} pagado* por MercadoPago: ${ped.pesos(p.total)} — ${p.nombre || d.extraerNumero(p.jid)}.\n${p.entrega === 'envio' ? `📍 Enviar a: ${p.direccion}` : '🏪 Lo retira en el local'}${stockLib.textoPocoStock(r.bajos) ? `\n${stockLib.textoPocoStock(r.bajos)}` : ''}`);
     return r;

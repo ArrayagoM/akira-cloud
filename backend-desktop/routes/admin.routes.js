@@ -17,6 +17,13 @@ router.use(requireAuth, requireAdmin);
 // ─────────────────────────────────────────────────────────────
 //  GET /api/admin/dashboard
 // ─────────────────────────────────────────────────────────────
+// Uso de la app por pantalla (solo de quienes activaron las estadísticas): qué se usa y qué no
+router.get('/uso', async (req, res) => {
+  try {
+    res.json(await require('../services/uso.service').resumenAdmin({ UsoDia: require('../models/UsoDia'), Device, dias: req.query.dias }));
+  } catch (e) { logger.error('[Admin] uso: ' + e.message); res.status(500).json({ error: 'No se pudo calcular el uso' }); }
+});
+
 router.get('/dashboard', async (req, res) => {
   try {
     const hace24h = new Date(Date.now() - 24*60*60*1000);

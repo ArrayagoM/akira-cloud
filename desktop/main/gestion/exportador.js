@@ -10,6 +10,7 @@ const COLUMNAS = {
     { header: 'Categoría', key: 'categoria', width: 20 },
     { header: 'Stock', key: 'stock', width: 10 },
     { header: 'Descripción', key: 'descripcion', width: 44 },
+    { header: 'Código de barras', key: 'codigo', width: 20 },
   ],
   servicios: [
     { header: 'Nombre', key: 'nombre', width: 34 },
@@ -56,7 +57,7 @@ const aFila = (tipo, e) => (tipo === 'proveedores'
   : tipo === 'clientes'
     ? { nombre: e.nombre || '', telefono: e.telefono || '', email: e.email || '', etiquetas: (e.etiquetas || []).join(', '), notas: e.notas || '' }
     : tipo === 'productos'
-  ? { nombre: e.nombre, precio: e.precio, categoria: e.categoria || '', stock: e.stock >= 0 ? e.stock : '', descripcion: e.descripcion || '' }
+  ? { nombre: e.nombre, precio: e.precio, categoria: e.categoria || '', stock: e.stock >= 0 ? e.stock : '', descripcion: e.descripcion || '', codigo: e.codigo || '' }
   : { nombre: e.nombre, precio: e.precio, duracion: e.duracion || 60 });
 
 // Solo para CSV: evita que Excel interprete una celda como fórmula (=, +, -, @) al abrir texto de terceros.

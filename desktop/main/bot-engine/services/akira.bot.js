@@ -1227,6 +1227,7 @@ Revisalo en Akira → Documentos.`);
     mp, conMP: !!MP_ACCESS_TOKEN, negocio: NEGOCIO, miNombre: MI_NOMBRE, alias: ALIAS_TRANSFERENCIA, cbu: CBU_TRANSFERENCIA, banco: BANCO_TRANSFERENCIA,
     enviarMensaje: (jid, t) => enviarMensaje(jid, t), notificarDueno: (t) => notificarDueno(t), extraerNumero: (j) => extraerNumero(j),
     recargarConfig: () => emitter.emit('config:reload'), log,
+    emitirEvento: (tipo, datos) => emitter.emit('negocio:evento', { tipo, datos }), // webhooks del dueño (ver main/webhooks.js)
   });
   const manejarCarrito = (nombre, args, jid, usuario, push) => pedidosBot.manejar(nombre, args, jid, usuario, push);
   const confirmarPagoPedido = (pedidoId, pago) => pedidosBot.confirmarPago(pedidoId, pago);
@@ -3385,6 +3386,7 @@ Revisalo en Akira → Documentos.`);
           },
           { new: true },
         ).catch((e) => { log(`[Webhook] confirmar Turno ERROR: ${e.message}`); return null; });
+        if (turnoConfirmado) emitter.emit('negocio:evento', { tipo: 'turno.confirmado', datos: { turnoId: String(turnoConfirmado._id), cliente: res2.nombre || '', telefono: tel || '', inicio: turnoConfirmado.fechaInicio, fin: turnoConfirmado.fechaFin, servicio: String(turnoConfirmado.resumen || ''), cobrado: res2.total || 0, saldo: res2.saldo || 0 } });
       }
 
       // Si NO había turnoId o el Turno pendiente ya no existe (Render restart

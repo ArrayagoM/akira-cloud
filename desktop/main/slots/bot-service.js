@@ -33,11 +33,13 @@ const huboConexion = new Set();      // slots que ya se conectaron alguna vez en
 let baseDir = null;
 let emitir = () => {};
 let cambioDeEstado = () => {};
+let eventoNegocio = () => {};
 
-function init({ userDataDir, emitirAlUsuario, alCambiarEstado }) {
+function init({ userDataDir, emitirAlUsuario, alCambiarEstado, alEventoNegocio }) {
   baseDir = userDataDir;
   emitir = emitirAlUsuario || (() => {});
   cambioDeEstado = (ev) => { try { alCambiarEstado?.(ev); } catch { /* un aviso fallido nunca debe afectar al bot */ } };
+  eventoNegocio = (tipo, datos) => { try { alEventoNegocio?.(tipo, datos); } catch { /* un webhook fallido nunca debe afectar al bot */ } };
 }
 
 function estadoDetallado({ pausado = false } = {}) {
@@ -161,6 +163,9 @@ async function startBot(userId, slot = 0) {
       emitir(uid, 'bot:error', { msg: err.message, slot });
       await Log.registrar({ userId: uid, tipo: 'error', nivel: 'error', mensaje: err.message });
     });
+
+    // Eventos del negocio para los webhooks del dueño (turno confirmado, pedido pagado)
+    bot.on('negocio:evento', (e) => eventoNegocio(e?.tipo, e?.datos));
 
     // ── Catálogo ──
     bot.on('catalog:update', async (catalogo) => {

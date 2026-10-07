@@ -96,7 +96,7 @@ router.post('/activate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/heartbeat', requireAuth, async (req, res) => {
   try {
-    const { deviceId, version, resumen, estadoBot } = req.body;
+    const { deviceId, version, resumen, estadoBot, uso } = req.body;
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
 
     const user = req.user;
@@ -126,6 +126,11 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
           notificarPush: (p) => require('../services/push.service').notificarUsuario(user._id, p),
         });
       } catch (e) { logger.warn('[Licenses] estado del bot: ' + e.message); }
+    }
+    // Estadísticas de uso (opcionales, solo si el usuario las activó): contadores de pantallas, nada de datos de sus clientes
+    if (uso !== undefined) {
+      try { await require('../services/uso.service').guardarUso({ UsoDia: require('../models/UsoDia'), userId: user._id, deviceId, version, datos: uso }); }
+      catch (e) { logger.warn('[Licenses] uso: ' + e.message); }
     }
     await device.save();
 
