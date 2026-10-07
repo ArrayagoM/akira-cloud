@@ -108,6 +108,13 @@ const raiz = process.argv[2];
   if (pdfCaja.slice(0, 4).toString() !== '%PDF' || pdfCaja.length < 1000) throw new Error('el PDF de la Caja no se generó bien');
   const xlsCaja = await expCaja.exportarXlsx(datosCaja);
   if (xlsCaja.length < 1000) throw new Error('el Excel de la Caja no se generó bien');
+  // listas de deudores/proveedores y lógica de cuentas corrientes
+  const expDeu = require(path.join(raiz, 'main/gestion/exportador-deudas')); const ctLib = require(path.join(raiz, 'main/gestion/ctacte'));
+  const lista = { items: [{ nombre: 'Prueba', telefono: '2241000000', saldo: 100, antiguedadDias: 3, ultimoMovimiento: '2026-10-05' }], total: 100, negocio: 'Prueba' };
+  if ((await expDeu.pdf('deudores', lista)).slice(0, 4).toString() !== '%PDF') throw new Error('el PDF de deudores no se generó bien');
+  if ((await expDeu.xlsx('proveedores', lista)).length < 1000) throw new Error('el Excel de proveedores no se generó bien');
+  if (ctLib.telClave('+54 9 2241 49-7226') !== '2241497226') throw new Error('la lógica de cuentas corrientes falla dentro del paquete');
+  for (const m of ['main/local-api/routes/deudores.routes', 'main/local-api/routes/proveedores.routes', 'main/local-api/routes/caja.routes']) require(path.join(raiz, m));
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

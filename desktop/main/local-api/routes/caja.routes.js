@@ -9,6 +9,9 @@ const Movimiento = require('../../bot-engine/models/Movimiento');
 const Turno = require('../../bot-engine/models/Turno');
 const Documento = require('../../bot-engine/models/Documento');
 const Config = require('../../bot-engine/models/Config');
+const Proveedor = require('../../bot-engine/models/Proveedor');
+const CtaCte = require('../../bot-engine/models/CtaCte');
+const ctacte = require('../../gestion/ctacte');
 const caja = require('../../gestion/caja');
 const exp = require('../../gestion/exportador-caja');
 
@@ -38,7 +41,12 @@ module.exports = function crearRouter({ requerirSesion }) {
       const { movimientos, resumen, porCobrar } = await armarMes(userId, mes);
       const usadas = (await Movimiento.find({ userId }).lean()).reduce((a, m) => { (a[m.tipo] = a[m.tipo] || new Set()).add(m.categoria); return a; }, {});
       const cat = (t) => [...new Set([...(CATEGORIAS[t] || []), ...(usadas[t] || [])])];
-      res.json({ mes, movimientos, resumen, porCobrar, categorias: { gasto: cat('gasto'), ingreso: cat('ingreso') } });
+      // Lo que te deben (clientes) y lo que debés (proveedores): saldos totales, no solo del mes.
+      const cc = (await CtaCte.find({ userId }).lean()).filter((m) => m.tipo === 'cargo' || m.tipo === 'pago');
+      const clave = (m) => (m.entidad === 'proveedor' ? `prov:${m.proveedorId}` : m.entidadClave);
+      const por = (ent) => ctacte.totalSaldo(ctacte.saldos(cc.filter((m) => m.entidad === ent).map((m) => ({ ...m, entidadClave: clave(m) }))));
+      const proveedores = (await Proveedor.find({ userId }).lean()).filter((p) => p.activo !== false).map((p) => ({ _id: String(p._id), nombre: p.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
+      res.json({ mes, movimientos, resumen, porCobrar, cuentas: { teDeben: por('cliente'), debes: por('proveedor') }, proveedores, categorias: { gasto: cat('gasto'), ingreso: cat('ingreso') } });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -53,7 +61,13 @@ module.exports = function crearRouter({ requerirSesion }) {
         if (await Movimiento.findOne({ userId, documentoId: String(doc._id) })) return res.status(409).json({ error: 'Este documento ya está registrado en la Caja' });
         if (doc.estado === 'nuevo') { doc.estado = 'revisado'; await doc.save(); }
       }
-      const mov = await Movimiento.create({ ...r.dato, userId, origen: r.dato.documentoId ? 'documento' : 'manual' });
+      let proveedorNombre = '';
+      if (r.dato.proveedorId) {
+        const prov = await Proveedor.findOne({ _id: r.dato.proveedorId, userId });
+        if (!prov || prov.activo === false) return res.status(404).json({ error: 'Proveedor no encontrado' });
+        proveedorNombre = prov.nombre;
+      }
+      const mov = await Movimiento.create({ ...r.dato, proveedorNombre, userId, origen: r.dato.documentoId ? 'documento' : 'manual' });
       res.json({ ok: true, movimiento: mov });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -63,9 +77,16 @@ module.exports = function crearRouter({ requerirSesion }) {
       if (String(req.params.id).startsWith('turno-')) return res.status(400).json({ error: 'Este ingreso viene de un turno cobrado: se corrige desde la Agenda.' });
       const mov = await Movimiento.findOne({ _id: req.params.id, userId: uid(req) });
       if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
+      if (mov.origen === 'ctacte') return res.status(400).json({ error: 'Este movimiento viene de una cuenta corriente (Deudores o Proveedores): se corrige desde ahí.' });
       const r = caja.sanearMovimiento({ ...mov.toJSON?.() ?? mov, ...req.body });
       if (!r.ok) return res.status(400).json({ error: r.error });
-      Object.assign(mov, { ...r.dato, documentoId: mov.documentoId || null });
+      let proveedorNombre = '';
+      if (r.dato.proveedorId) {
+        const prov = await Proveedor.findOne({ _id: r.dato.proveedorId, userId: uid(req) });
+        if (!prov) return res.status(404).json({ error: 'Proveedor no encontrado' });
+        proveedorNombre = prov.nombre;
+      }
+      Object.assign(mov, { ...r.dato, proveedorNombre, documentoId: mov.documentoId || null });
       await mov.save();
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -74,6 +95,8 @@ module.exports = function crearRouter({ requerirSesion }) {
   router.delete('/movimiento/:id', async (req, res) => {
     try {
       if (String(req.params.id).startsWith('turno-')) return res.status(400).json({ error: 'Este ingreso viene de un turno cobrado: no se borra desde la Caja.' });
+      const previo = await Movimiento.findOne({ _id: req.params.id, userId: uid(req) });
+      if (previo?.origen === 'ctacte') return res.status(400).json({ error: 'Este movimiento viene de una cuenta corriente (Deudores o Proveedores): se borra desde ahí.' });
       const r = await Movimiento.deleteOne({ _id: req.params.id, userId: uid(req) });
       if (!r.deletedCount) return res.status(404).json({ error: 'Movimiento no encontrado' });
       res.json({ ok: true });

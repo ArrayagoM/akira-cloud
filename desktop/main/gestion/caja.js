@@ -48,6 +48,7 @@ function sanearMovimiento(b = {}) {
       descripcion: texto(b.descripcion, 200),
       cliente: texto(b.cliente, 80),
       documentoId: b.documentoId ? String(b.documentoId).slice(0, 40) : null,
+      proveedorId: b.tipo === 'gasto' && b.proveedorId ? String(b.proveedorId).slice(0, 40) : null, // gasto de una compra a ese proveedor
     },
   };
 }

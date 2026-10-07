@@ -5,9 +5,10 @@ import MovimientoModal from '../components/MovimientoModal';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { bajarArchivo, pesos } from '../utils/archivos';
+import { Link } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Plus, Upload, Download, ChevronDown, Loader2, Pencil, Trash2,
-  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck,
+  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck, HandCoins, Truck,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -104,11 +105,13 @@ export default function CajaPage() {
         {cargando || !datos ? (
           <div className="flex justify-center py-20"><Loader2 className="animate-spin text-gray-500" /></div>
         ) : (<>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <Tarjeta icono={TrendingUp} titulo="Ingresos" valor={pesos(r.ingresos)} color="#34d399" />
             <Tarjeta icono={TrendingDown} titulo="Gastos" valor={pesos(r.gastos)} color="#f87171" />
             <Tarjeta icono={Wallet} titulo="Resultado del mes" valor={`${r.resultado < 0 ? '-' : ''}${pesos(Math.abs(r.resultado))}`} color={r.resultado >= 0 ? '#34d399' : '#f87171'} detalle={r.resultado >= 0 ? 'Ganancia' : 'Pérdida'} />
-            <Tarjeta icono={Clock} titulo="Por cobrar" valor={pesos(datos.porCobrar.total)} color="#fbbf24" detalle={datos.porCobrar.cantidad ? `${datos.porCobrar.cantidad} turno(s) esperando el pago` : 'Nada pendiente'} />
+            <Tarjeta icono={Clock} titulo="Turnos por cobrar" valor={pesos(datos.porCobrar.total)} color="#fbbf24" detalle={datos.porCobrar.cantidad ? `${datos.porCobrar.cantidad} turno(s) esperando el pago` : 'Nada pendiente'} />
+            <Link to="/deudores" className="block hover:opacity-90"><Tarjeta icono={HandCoins} titulo="Te deben (clientes)" valor={pesos(datos.cuentas?.teDeben)} color="#fbbf24" detalle="Ver deudores →" /></Link>
+            <Link to="/proveedores" className="block hover:opacity-90"><Tarjeta icono={Truck} titulo="Debés (proveedores)" valor={pesos(datos.cuentas?.debes)} color="#f87171" detalle="Ver proveedores →" /></Link>
           </div>
 
           {r.cantidad > 0 && (
@@ -180,12 +183,14 @@ export default function CajaPage() {
                           <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-400">{m.categoria}</span>
                           {deTurno && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-sky-300 bg-sky-500/10 inline-flex items-center gap-1"><CalendarCheck size={10} />Turno cobrado</span>}
                           {m.origen === 'documento' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-amber-300 bg-amber-500/10">Comprobante</span>}
+                          {m.origen === 'ctacte' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-violet-300 bg-violet-500/10">{m.tipo === 'ingreso' ? 'Cobro de deuda' : 'Pago a proveedor'}</span>}
+                          {m.proveedorNombre && m.origen !== 'ctacte' && <span className="ml-1 text-xs text-gray-500">· {m.proveedorNombre}</span>}
                           {m.cliente && <span className="ml-2 text-xs text-gray-500">{m.cliente}</span>}
                         </td>
                         <td className="px-3 py-2 text-gray-400">{METODOS[m.metodo] || m.metodo}</td>
                         <td className="px-3 py-2 text-right font-medium" style={{ color: ing ? '#34d399' : '#f87171' }}>{ing ? '+' : '-'} {pesos(m.monto)}</td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
-                          {!deTurno && (<>
+                          {!deTurno && m.origen !== 'ctacte' && (<>
                             <button className="p-1 text-gray-500 hover:text-white" aria-label="Editar" onClick={() => setModal({ id: m._id, inicial: m })}><Pencil size={14} /></button>
                             <button className="p-1 text-gray-500 hover:text-red-400" aria-label="Borrar" onClick={() => borrar(m)}><Trash2 size={14} /></button>
                           </>)}
@@ -201,7 +206,7 @@ export default function CajaPage() {
         </>)}
       </div>
 
-      {modal && datos && <MovimientoModal id={modal.id} inicial={modal.inicial} categorias={datos.categorias} onClose={() => setModal(null)} onGuardado={cargar} />}
+      {modal && datos && <MovimientoModal id={modal.id} inicial={modal.inicial} categorias={datos.categorias} proveedores={datos.proveedores} onClose={() => setModal(null)} onGuardado={cargar} />}
       {importando && <ImportarAsistente tipoInicial="movimientos" tipos={['movimientos']} onClose={() => setImportando(false)} onListo={cargar} />}
     </Layout>
   );

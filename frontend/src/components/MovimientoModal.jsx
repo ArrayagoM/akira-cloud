@@ -8,7 +8,7 @@ import api from '../services/api';
 const METODOS = [['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['mercadopago', 'MercadoPago'], ['tarjeta', 'Tarjeta'], ['otro', 'Otro']];
 const hoyLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-export default function MovimientoModal({ inicial = {}, id = null, categorias = { gasto: [], ingreso: [] }, titulo, onClose, onGuardado }) {
+export default function MovimientoModal({ inicial = {}, id = null, categorias = { gasto: [], ingreso: [] }, proveedores = [], titulo, onClose, onGuardado }) {
   const [f, setF] = useState({ tipo: 'gasto', monto: '', fecha: hoyLocal(), categoria: '', descripcion: '', metodo: 'efectivo', ...inicial, monto: inicial.monto ?? '' });
   const [guardando, setGuardando] = useState(false);
   const set = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
@@ -61,6 +61,14 @@ export default function MovimientoModal({ inicial = {}, id = null, categorias = 
             </select>
           </label>
         </div>
+        {!esIngreso && proveedores.length > 0 && (
+          <label className="text-xs text-gray-500 block mt-3">Proveedor (opcional)
+            <select className={entrada} value={f.proveedorId || ''} onChange={(e) => set('proveedorId', e.target.value || null)}>
+              <option value="">— ninguno —</option>
+              {proveedores.map((p) => <option key={p._id} value={p._id}>{p.nombre}</option>)}
+            </select>
+          </label>
+        )}
         <label className="text-xs text-gray-500 block mt-3">Descripción
           <input className={entrada} maxLength={200} value={f.descripcion} onChange={(e) => set('descripcion', e.target.value)} placeholder={esIngreso ? 'Ej: Venta de shampoo' : 'Ej: Factura de luz octubre'} />
         </label>

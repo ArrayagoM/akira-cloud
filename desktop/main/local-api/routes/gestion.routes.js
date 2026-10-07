@@ -12,14 +12,16 @@ const express = require('express');
 const Config = require('../../bot-engine/models/Config');
 const Log = require('../../bot-engine/models/Log');
 const Movimiento = require('../../bot-engine/models/Movimiento');
+const Proveedor = require('../../bot-engine/models/Proveedor');
+const CtaCte = require('../../bot-engine/models/CtaCte');
 const caja = require('../../gestion/caja');
 const { leerArchivo } = require('../../gestion/lector-archivos');
 const mapeoLib = require('../../gestion/mapeo');
 const { exportarXlsx, exportarCsv } = require('../../gestion/exportador');
 
 const CAMPO = { productos: 'catalogo', servicios: 'serviciosList' };
-const TIPOS_IMPORT = ['productos', 'servicios', 'movimientos']; // 'movimientos' = Caja (ver caja.routes.js)
-const OBLIGATORIOS = { productos: ['nombre', 'precio'], servicios: ['nombre', 'precio'], movimientos: ['fecha', 'monto'] };
+const TIPOS_IMPORT = ['productos', 'servicios', 'movimientos', 'proveedores']; // 'movimientos' = Caja (ver caja.routes.js)
+const OBLIGATORIOS = { productos: ['nombre', 'precio'], servicios: ['nombre', 'precio'], movimientos: ['fecha', 'monto'], proveedores: ['nombre'] };
 const TTL_MS = 30 * 60 * 1000;
 const MAX_VISTA = 300;
 
@@ -61,11 +63,31 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
 
   async function leerLista(userId, tipo) {
     if (tipo === 'movimientos') return JSON.parse(JSON.stringify(await Movimiento.find({ userId: String(userId) }).lean()));
+    if (tipo === 'proveedores') return JSON.parse(JSON.stringify(await Proveedor.find({ userId: String(userId) }).lean()));
     const cfg = await Config.findOne({ userId });
     const lista = cfg?.[CAMPO[tipo]];
     return Array.isArray(lista) ? JSON.parse(JSON.stringify(lista)) : [];
   }
   async function guardarLista(userId, tipo, lista) {
+    if (tipo === 'proveedores') {
+      // Altas y cambios de la importación; al deshacer, los que no estaban se borran (o se archivan si ya tienen historial).
+      const uid = String(userId);
+      const actuales = await Proveedor.find({ userId: uid }).lean();
+      const porId = new Map(actuales.map((p) => [String(p._id), p]));
+      const quedan = new Set(lista.filter((p) => p._id).map((p) => String(p._id)));
+      for (const p of actuales) {
+        if (quedan.has(String(p._id))) continue;
+        const usado = (await CtaCte.find({ userId: uid, proveedorId: String(p._id) }).lean()).length || (await Movimiento.find({ userId: uid }).lean()).some((m) => String(m.proveedorId) === String(p._id));
+        if (usado) await Proveedor.findOneAndUpdate({ _id: p._id, userId: uid }, { $set: { activo: false } }); else await Proveedor.deleteOne({ _id: p._id, userId: uid });
+      }
+      for (const p of lista) {
+        const dato = { nombre: String(p.nombre || '').trim(), telefono: String(p.telefono || ''), cuit: String(p.cuit || ''), rubro: String(p.rubro || ''), notas: String(p.notas || ''), activo: p.activo !== false };
+        if (!dato.nombre) continue;
+        if (p._id && porId.has(String(p._id))) await Proveedor.findOneAndUpdate({ _id: p._id, userId: uid }, { $set: dato });
+        else if (!p._id) await Proveedor.create({ ...dato, userId: uid });
+      }
+      return lista;
+    }
     if (tipo === 'movimientos') {
       // Caja: solo se suman movimientos nuevos (los que no traen _id) o se quitan los que ya no están (deshacer).
       const uid = String(userId);
@@ -121,7 +143,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         importacionId: id, origen: r.origen, aviso: r.aviso || '', tipoSugerido,
         hojas: r.hojas.map((h, i) => ({
           indice: i, nombre: h.nombre, columnas: h.columnas, totalFilas: h.filas.length, muestra: h.filas.slice(0, 5),
-          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas), movimientos: mapeoLib.sugerirMapeo('movimientos', h.columnas, h.filas) },
+          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas), movimientos: mapeoLib.sugerirMapeo('movimientos', h.columnas, h.filas), proveedores: mapeoLib.sugerirMapeo('proveedores', h.columnas, h.filas) },
         })),
       });
     } catch (e) { res.status(400).json({ error: e.message }); }
@@ -175,7 +197,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   router.post('/deshacer', async (req, res) => {
     try {
       const id = String(req.body?.deshacerId || '');
-      if (!/^\d+-(productos|servicios|movimientos)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
+      if (!/^\d+-(productos|servicios|movimientos|proveedores)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
       const archivo = path.join(dirSnap, `${id}.json`);
       if (!fs.existsSync(archivo)) return res.status(404).json({ error: 'Ya no se puede deshacer esa importación.' });
       const snap = JSON.parse(fs.readFileSync(archivo, 'utf8'));

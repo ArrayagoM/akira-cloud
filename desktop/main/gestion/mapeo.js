@@ -11,6 +11,16 @@ const CAMPOS = {
   productos: ['nombre', 'precio', 'categoria', 'stock', 'descripcion'],
   servicios: ['nombre', 'precio', 'duracion'],
   movimientos: ['fecha', 'monto', 'tipo', 'categoria', 'descripcion', 'metodo'],
+  proveedores: ['nombre', 'telefono', 'cuit', 'rubro', 'notas'],
+};
+
+// Sinónimos para planillas de proveedores.
+const SINONIMOS_PROV = {
+  nombre: ['nombre', 'proveedor', 'proveedores', 'razon social', 'empresa', 'denominacion'],
+  telefono: ['telefono', 'tel', 'celular', 'whatsapp', 'contacto', 'movil'],
+  cuit: ['cuit', 'cuil', 'documento', 'nro cuit'],
+  rubro: ['rubro', 'categoria', 'actividad', 'tipo', 'producto', 'productos'],
+  notas: ['notas', 'observaciones', 'comentarios', 'detalle', 'direccion', 'domicilio'],
 };
 
 // Sinónimos de encabezados para planillas de gastos/ingresos (Caja).
@@ -84,7 +94,7 @@ const pareceNumero = (v) => v !== '' && v != null && parsearPrecio(v) != null &&
 // Devuelve { nombre: índiceDeColumna | null, precio: …, … } para el tipo pedido.
 function sugerirMapeo(tipo, columnas, filas) {
   const campos = CAMPOS[tipo] || CAMPOS.productos;
-  const sinonimos = tipo === 'movimientos' ? SINONIMOS_MOV : SINONIMOS;
+  const sinonimos = tipo === 'movimientos' ? SINONIMOS_MOV : tipo === 'proveedores' ? SINONIMOS_PROV : SINONIMOS;
   const norm = columnas.map(normalizar);
   const mapeo = Object.fromEntries(campos.map((c) => [c, null]));
   const usadas = new Set();
@@ -192,8 +202,31 @@ function construirFilasMov(filas, mapeo, existentes = []) {
 }
 
 // Convierte filas crudas en filas validadas. `existentes` = lista actual del catálogo/servicios.
+// Planilla de proveedores: el nombre es lo único obligatorio; si ya existe uno con ese nombre se actualiza.
+function construirFilasProv(filas, mapeo, existentes = []) {
+  const claves = new Set(existentes.map((e) => claveNombre(e.nombre)));
+  const vistos = new Map(); const salida = [];
+  filas.forEach((f, i) => {
+    const celda = (campo) => (mapeo[campo] == null ? '' : f[mapeo[campo]]);
+    if (f.every((c) => c === '' || c == null)) return;
+    const errores = []; const avisos = [];
+    const nombre = texto(celda('nombre')).slice(0, 80);
+    if (!nombre) errores.push('Falta el nombre');
+    let cuit = String(celda('cuit') ?? '').replace(/\D/g, '');
+    if (cuit && cuit.length !== 11) { avisos.push(`CUIT "${texto(celda('cuit'))}" no tiene 11 números: se deja vacío`); cuit = ''; }
+    const dato = { nombre, telefono: texto(celda('telefono')).slice(0, 30), cuit, rubro: texto(celda('rubro')).slice(0, 40), notas: texto(celda('notas')).slice(0, 500) };
+    const clave = claveNombre(nombre);
+    const estado = errores.length ? 'error' : claves.has(clave) ? 'actualiza' : 'nuevo';
+    if (clave && !errores.length) vistos.set(clave, i + 1);
+    salida.push({ fila: i + 1, estado, errores, avisos, dato, clave });
+  });
+  for (const f of salida) { if (f.estado !== 'error' && vistos.get(f.clave) !== f.fila) { f.estado = 'duplicado'; f.avisos.push(`Repetido: se usa la fila ${vistos.get(f.clave)}`); } delete f.clave; }
+  return salida;
+}
+
 function construirFilas(tipo, filas, mapeo, existentes = []) {
   if (tipo === 'movimientos') return construirFilasMov(filas, mapeo, existentes);
+  if (tipo === 'proveedores') return construirFilasProv(filas, mapeo, existentes);
   const claves = new Map();
   existentes.forEach((e, i) => claves.set(claveNombre(e.nombre), i));
   const vistos = new Map();
@@ -252,6 +285,20 @@ function resumen(filas) {
 function aplicarImportacion(tipo, existentes, filas, { modo = 'agregar', excluir = [] } = {}) {
   const fuera = new Set(excluir);
   const validas = filas.filter((f) => (f.estado === 'nuevo' || f.estado === 'actualiza') && !fuera.has(f.fila));
+  if (tipo === 'proveedores') {
+    const lista = (modo === 'reemplazar' ? [] : existentes).map((e) => ({ ...e }));
+    const indice = new Map(); lista.forEach((e, i) => indice.set(claveNombre(e.nombre), i));
+    let agregados = 0; let actualizados = 0;
+    for (const f of validas) {
+      const clave = claveNombre(f.dato.nombre);
+      if (indice.has(clave)) {
+        const i = indice.get(clave); const e = lista[i];
+        lista[i] = { ...e, nombre: f.dato.nombre, telefono: f.dato.telefono || e.telefono || '', cuit: f.dato.cuit || e.cuit || '', rubro: f.dato.rubro || e.rubro || '', notas: f.dato.notas || e.notas || '', activo: true };
+        actualizados++;
+      } else { lista.push({ ...f.dato, activo: true }); indice.set(clave, lista.length - 1); agregados++; }
+    }
+    return { lista, agregados, actualizados, omitidos: filas.length - validas.length };
+  }
   if (tipo === 'movimientos') {
     // En la Caja nunca se reemplaza ni se actualiza: solo se suman movimientos nuevos.
     const lista = existentes.map((e) => ({ ...e }));
