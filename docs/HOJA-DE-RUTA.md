@@ -27,7 +27,7 @@ E6  Dinero y operación: stock, ventas, reportes, facturación
 E7  Equipo: usuarios, profesionales, sucursales ........ ✅
 E8  Integraciones
 E9  Plataforma: ayuda, estadísticas, firma, Linux/Mac
-E10 Landing + SEO/GEO (al final, describiendo lo que ya funciona)
+E10 Landing + SEO/GEO (al final, describiendo lo que ya funciona) ........ ✅ (faltan los 👤)
 ```
 
 ---

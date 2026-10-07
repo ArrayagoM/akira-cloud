@@ -35,7 +35,8 @@ export default function Privacidad() {
             <p>Cuando utilizás Akira, podemos recopilar la siguiente información:</p>
             <ul>
               <li><strong>Datos de cuenta:</strong> nombre, dirección de correo electrónico y contraseña cifrada al registrarte.</li>
-              <li><strong>Datos de uso:</strong> interacciones con el panel de control, logs de actividad del bot, mensajes procesados (sin almacenar el contenido completo de conversaciones privadas).</li>
+              <li><strong>Datos de uso de la licencia:</strong> la versión instalada, el estado del bot (conectado o no) y la fecha de la última señal de vida del programa, para validar tu suscripción y avisarte si el bot se desconecta.</li>
+              <li><strong>Datos del negocio que quedan en tu computadora:</strong> tus clientes, conversaciones, turnos, caja, catálogo y documentos se guardan en la PC donde instalás Akira, no en nuestros servidores. Las claves que cargás (por ejemplo, de MercadoPago o de Groq) se cifran con el almacén de claves de Windows.</li>
               <li><strong>Datos de Google Calendar:</strong> solo si autorizás la integración, accedemos a tu calendario para crear y gestionar eventos según las instrucciones configuradas. No almacenamos el contenido de tus eventos.</li>
               <li><strong>Datos de WhatsApp Business:</strong> metadatos de mensajes necesarios para operar el bot (remitente, timestamp). No almacenamos conversaciones privadas completas.</li>
               <li><strong>Datos de pago:</strong> las transacciones son procesadas por MercadoPago. No almacenamos datos de tarjetas.</li>
@@ -70,10 +71,13 @@ export default function Privacidad() {
           <Section title="4. Compartición de datos">
             <p>No vendemos ni alquilamos tu información personal a terceros. Solo compartimos datos con:</p>
             <ul>
-              <li><strong>Groq Inc.:</strong> para procesar mensajes con IA (sin datos de identificación personal del usuario final).</li>
-              <li><strong>MercadoPago:</strong> para procesar pagos de suscripciones.</li>
-              <li><strong>MongoDB Atlas:</strong> proveedor de base de datos con cifrado en reposo.</li>
-              <li><strong>Vercel:</strong> hosting del frontend.</li>
+              <li><strong>Groq Inc.:</strong> el texto de las conversaciones se envía a Groq, con la clave del propio usuario, para generar las respuestas del bot. No pasa por nuestros servidores.</li>
+              <li><strong>MercadoPago:</strong> para procesar los pagos de la suscripción y, si el usuario lo configura, los cobros a sus propios clientes (con la cuenta del usuario).</li>
+              <li><strong>MongoDB Atlas:</strong> base de datos con cifrado en reposo donde se guarda tu cuenta, tu licencia y tu suscripción (no los datos de tus clientes).</li>
+              <li><strong>Vercel:</strong> hosting del sitio web, del servidor de licencias y de la descarga del programa.</li>
+              <li><strong>Resend:</strong> envío de emails (verificación de cuenta, avisos y alertas).</li>
+              <li><strong>Expo:</strong> envío de notificaciones al celular, solo si instalás la app móvil.</li>
+              <li><strong>Google:</strong> solo si conectás Google Calendar (ver sección 3).</li>
             </ul>
             <p>Todos los proveedores están sujetos a acuerdos de confidencialidad y solo procesan datos en la medida necesaria para prestar el servicio.</p>
           </Section>

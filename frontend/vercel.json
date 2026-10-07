@@ -8,7 +8,7 @@
       "destination": "https://akira-licencias.vercel.app/api/:path*"
     },
     {
-      "source": "/((?!api/|robots\\.txt|sitemap\\.xml|favicon|og-image|assets/).*)",
+      "source": "/((?!api/|robots\\.txt|sitemap\\.xml|llms|manifest|sw\\.js|offline\\.html|icons/|favicon|og-image|assets/).*)",
       "destination": "/index.html"
     }
   ],

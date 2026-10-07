@@ -41,12 +41,13 @@ export default function Terminos() {
 
           <Section title="2. Descripción del servicio">
             <p>
-              Akira es una plataforma SaaS que permite a negocios y emprendedores automatizar la atención al cliente
-              mediante un bot de WhatsApp Business con inteligencia artificial, gestión de agenda a través de Google Calendar,
-              administración de catálogo de productos y análisis del negocio.
+              Akira es un programa para Windows (con cuenta y licencia en línea) que permite a negocios y emprendedores automatizar
+              la atención al cliente mediante un bot de WhatsApp con inteligencia artificial, gestión de agenda y turnos
+              (con Google Calendar opcional), cobros, catálogo, caja y reportes del negocio. El bot y los datos del negocio funcionan
+              en la computadora del usuario, que debe estar encendida y con internet para que el bot responda.
             </p>
             <p>
-              El Servicio se ofrece en distintos planes de suscripción (Trial, Starter, Pro, Agencia)
+              El Servicio se ofrece en distintos planes de suscripción (Trial, Básico, Pro, Agencia)
               con diferentes capacidades según el plan contratado.
             </p>
           </Section>

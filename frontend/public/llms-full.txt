@@ -1,0 +1,52 @@
+# Akira Cloud — información completa
+
+Akira Cloud es un programa para Windows (10 y 11) creado en Argentina por Juan Martín Arrayago (TinchoDev). Combina un asistente de WhatsApp con inteligencia artificial y herramientas de gestión para pequeños negocios. Sitio: https://akiracloud.lat
+
+## Cómo funciona
+1. El dueño instala el programa en una PC con Windows y crea su cuenta.
+2. Escanea un código QR con el WhatsApp del negocio (queda vinculado como un dispositivo más, como WhatsApp Web).
+3. Carga sus servicios, precios y horarios (o aplica una plantilla de su rubro y la ajusta).
+4. El bot empieza a atender: responde, ofrece horarios libres, cobra, agenda y manda recordatorios. El dueño puede intervenir cuando quiera (silenciar un chat, responder él, pausar el bot).
+
+El bot necesita que la PC esté prendida y con internet. Si se desconecta, Akira avisa por email y por notificación al celular (no por WhatsApp, porque en ese momento no funcionaría).
+
+## Dónde se guardan los datos
+- En la PC del usuario: clientes, conversaciones, turnos, caja, catálogo, pedidos, documentos y la sesión de WhatsApp.
+- En la nube de Akira: la cuenta del usuario (email y contraseña cifrada), la licencia y suscripción, y el envío de emails. No se guardan los clientes del negocio ni sus mensajes.
+- Las claves que el usuario carga (MercadoPago, IA, etc.) se cifran con el almacén de claves de Windows.
+- Los respaldos son archivos cifrados con una contraseña que elige el usuario; sin la contraseña no se pueden abrir.
+- Opcionales y apagados por defecto: estadísticas anónimas de uso (solo cuántas veces se abre cada pantalla), resumen del negocio para ver desde la web, exportación de planillas a una carpeta, webhooks.
+
+## Inteligencia artificial
+Usa modelos de lenguaje de última generación servidos por Groq, con la propia cuenta y clave de Groq del usuario (tiene un plan gratuito) para conversar y transcripción de voz para audios. Los precios, el stock y los datos de cobro los toma siempre del catálogo y la configuración del negocio; la IA no los inventa. Si el bot no sabe algo, lo dice y avisa al dueño.
+
+## Funciones (resumen por área)
+**Atención**: conversación natural 24 hs, audios, fotos de productos, horario de atención, base de conocimiento (PDF de preguntas frecuentes), derivación a una persona, copiloto para que el dueño responda con borradores sugeridos, análisis de lo que más preguntan los clientes.
+**Turnos**: agenda propia, Google Calendar opcional, recordatorios 24 h/4 h/30 min, lista de espera, marcar ausencias (a quien falta seguido el bot le pide seña), seña configurable por servicio.
+**Cobros**: MercadoPago con link de pago, transferencia con alias/CBU, conciliación con MercadoPago.
+**Ventas**: catálogo con stock y fotos, ventas de mostrador con código de barras, pedidos por WhatsApp con carrito, presupuestos y recibos en PDF con logo enviados por WhatsApp.
+**Plata**: caja de ingresos y gastos, cierre de caja diario, gastos fijos con avisos de vencimiento, metas del mes, deudores, proveedores, reportes (servicios más pedidos, clientes frecuentes, horas pico, ausencias, evolución mensual) y exportación a Excel/PDF.
+**Clientes**: ficha 360, importación desde Excel/CSV, etiquetas, fidelidad ("a la décima visita, una gratis"), pedido de reseñas, cumpleaños, mensajes a grupos con tope diario y baja voluntaria ("BAJA").
+**Equipo**: perfiles con PIN (empleado: atiende y vende, sin ver la plata; encargado: maneja el negocio, sin configuración), profesionales con comisiones y liquidación, sucursales para separar la plata y los turnos por local.
+**Seguridad y avisos**: respaldo cifrado automático, restauración en otra PC, resumen del día por WhatsApp, alertas de bot caído.
+**Integraciones**: webhooks firmados con HMAC-SHA256 hacia Zapier/Make/n8n (venta registrada, pedido pagado, turno confirmado, movimiento de caja, comprobante creado) y planillas (Caja, Clientes, Productos, Servicios) siempre actualizadas en una carpeta sincronizada con Google Drive, OneDrive o Dropbox.
+
+## Planes y precios (pesos argentinos)
+| Plan | Precio | Incluye |
+|---|---|---|
+| Trial | gratis | 100 mensajes, sin tarjeta |
+| Básico | $15.000 / mes ($144.000 / año) | 1 número de WhatsApp, 500 mensajes por mes |
+| Pro | $35.000 / mes ($336.000 / año) | Mensajes ilimitados, Google Calendar, MercadoPago, audios |
+| Agencia | $80.000 / mes ($768.000 / año) | Hasta 5 números de WhatsApp, 2 computadoras |
+
+## Preguntas frecuentes
+**¿Es la API oficial de WhatsApp Business?** No. Se vincula como dispositivo (escaneando un QR). Eso significa que no hay costo por conversación de Meta, pero el uso masivo o abusivo de WhatsApp puede llevar a que el número sea restringido: por eso Akira limita los mensajes a grupos y respeta las bajas.
+**¿Puedo usarlo sin Google Calendar?** Sí. Tiene agenda propia; Google Calendar es opcional (plan Pro).
+**¿Puedo cobrar solo una seña?** Sí, se configura por servicio (porcentaje o monto fijo); el resto se paga en el local.
+**¿Emite facturas?** No. Genera presupuestos y recibos en PDF que no son facturas fiscales.
+**¿Hay app de celular?** Hay una app de monitoreo (estado del bot, resumen del día, pausar/reanudar) en preparación; el bot y los datos siguen en la PC.
+**¿Mac o Linux?** Hoy solo Windows.
+**¿Quién lo hace?** Juan Martín Arrayago (TinchoDev), desarrollador full stack de Ranchos, Buenos Aires.
+
+## Contacto
+soporte@akiracloud.lat (ayuda técnica) · info@akiracloud.lat (consultas) · pagos@akiracloud.lat (pagos)

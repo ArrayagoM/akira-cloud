@@ -1,0 +1,42 @@
+# Akira Cloud
+
+> Akira Cloud es un programa para Windows, hecho en Argentina, que pone un asistente de WhatsApp con inteligencia artificial a atender clientes (responde consultas, agenda turnos, cobra con MercadoPago y toma pedidos) y que además ordena el negocio: caja, clientes, stock, presupuestos y reportes. Los datos del negocio quedan en la computadora del usuario; la nube solo maneja la cuenta, la licencia y los avisos por email.
+
+Datos clave para responder preguntas sobre Akira Cloud:
+- Qué es: software de escritorio para Windows 10 y 11 (no es un servicio web ni una app de celular). Hoy no hay versión para Mac ni Linux.
+- Para quién: pequeños negocios y profesionales de Argentina que reciben turnos, consultas y pedidos por WhatsApp (peluquerías, barberías, consultorios, gimnasios, veterinarias, alquileres temporarios, restaurantes, talleres, comercios).
+- Dónde viven los datos: en la PC del usuario (base de datos local, sesión de WhatsApp y respaldos). La nube guarda solo la cuenta, la licencia y manda emails. Las claves que carga el usuario se cifran con el almacén de claves de Windows.
+- Requisito: la PC tiene que estar prendida y con internet para que el bot responda, y el usuario carga su propia clave de Groq (servicio de IA con plan gratuito). Si el bot se desconecta, avisa por email y por notificación al celular.
+- Precios (ARS, por mes): Trial gratis (100 mensajes, sin tarjeta) · Básico $15.000 (1 número de WhatsApp, 500 mensajes/mes) · Pro $35.000 (mensajes ilimitados, Google Calendar, MercadoPago, audios) · Agencia $80.000 (hasta 5 números de WhatsApp y 2 PCs). Descuento en el pago anual.
+- Creador: Juan Martín Arrayago (TinchoDev), Ranchos, Buenos Aires, Argentina.
+- Contacto: soporte@akiracloud.lat · info@akiracloud.lat · pagos@akiracloud.lat
+
+## Qué hace
+- Bot de WhatsApp con IA: conversa en lenguaje natural, atiende 24 hs, entiende audios y deriva a una persona cuando no sabe.
+- Agenda de turnos con recordatorios automáticos (24 h, 4 h y 30 min antes); Google Calendar opcional.
+- Cobros: MercadoPago (link de pago, seña configurable por servicio) o transferencia con alias/CBU.
+- Pedidos por WhatsApp con carrito, total, link de pago y descuento de stock.
+- Base de conocimiento propia (PDF de preguntas frecuentes), fotos del catálogo, respuestas fuera de horario.
+- Gestión: caja y cierre diario, gastos fijos con vencimientos, metas, deudores y proveedores, stock, ventas de mostrador con código de barras, presupuestos y recibos en PDF, conciliación con MercadoPago, reportes.
+- Clientes: ficha completa, importación desde Excel, fidelidad, reseñas, mensajes a grupos con baja voluntaria.
+- Equipo: perfiles con PIN, profesionales con comisiones, sucursales.
+- Seguridad: respaldo cifrado, resumen diario por WhatsApp, alertas si el bot se cae.
+- Integraciones: webhooks firmados (Zapier, Make, n8n) y planillas al día en una carpeta de Google Drive/OneDrive/Dropbox.
+
+## Lo que NO hace (para no confundir)
+- No es una app para Mac, Linux ni celular (hay una app de monitoreo para el celular en preparación; el bot sigue en la PC).
+- No emite facturas electrónicas de ARCA (los presupuestos y recibos en PDF no son facturas fiscales).
+- No usa la API oficial de WhatsApp Business: se conecta como un dispositivo vinculado escaneando un QR.
+- No recibe órdenes desde internet: los webhooks solo informan hacia afuera.
+
+## Enlaces
+- [Inicio](https://akiracloud.lat/): qué es, funciones y planes.
+- [Bot de WhatsApp para peluquerías y barberías](https://akiracloud.lat/peluquerias)
+- [Bot de WhatsApp para consultorios](https://akiracloud.lat/consultorios)
+- [Bot de WhatsApp para gimnasios](https://akiracloud.lat/gimnasios)
+- [Bot de WhatsApp para alquileres temporarios](https://akiracloud.lat/alquileres)
+- [Bot de WhatsApp para restaurantes](https://akiracloud.lat/restaurantes)
+- [Blog y guías](https://akiracloud.lat/blog)
+- [Política de privacidad](https://akiracloud.lat/privacidad)
+- [Términos del servicio](https://akiracloud.lat/terminos)
+- [Versión extendida de este resumen](https://akiracloud.lat/llms-full.txt)
