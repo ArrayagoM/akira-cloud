@@ -70,6 +70,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 3.6 | **PWA**: la web instalable en el celular con el resumen del negocio  — el sitio se puede instalar en el celular (manifiesto + pantalla sin conexión); la app nativa sigue siendo la opción completa | 🟡 | S | ✅ 1.0.24 |
 | 3.7 | App de prueba instalable (APK / TestFlight) | 🟡 | S | ⬜ 👤 |
 | 3.8 | Publicación en Google Play (US$25) y App Store (US$99/año) | 🟠 | L | ⬜ 👤 |
+| 3.9 | **Mostrar la app en la web cuando esté publicada**: botones de App Store / Google Play en la landing, en `/descargar`, en el Centro de ayuda y en `llms.txt` / `llms-full.txt` (hoy dicen "en preparación"), más una nota en el blog y el dato en el JSON-LD | 🟠 | S | ⬜ (depende de 3.8) |
 
 > **Estado de la app móvil:** el código está en `mobile/` (Expo), probado en el navegador contra la lógica real del
 > servidor (ingreso, estado, pausar/reanudar, vacaciones, resumen, ajustes). Para instalarla en un celular falta
