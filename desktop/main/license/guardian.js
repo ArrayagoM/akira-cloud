@@ -47,7 +47,8 @@ async function tick() {
   estado.ultimoIntento = new Date().toISOString();
 
   try {
-    const e = await licenseClient.heartbeat();
+    const extra = await ctx.datosHeartbeat?.(s.userId).catch(() => ({})) || {};
+    const e = await licenseClient.heartbeat(extra);
     offlineGrace.guardar(ctx.userDataDir, e);
     estado.ultimoCheckOk = estado.ultimoIntento;
     estado.aviso = null;
@@ -69,8 +70,8 @@ async function tick() {
 
 // Al abrir la app: valida primero y, si corresponde, reactiva los bots activos
 // sin que nadie abra la ventana.
-async function iniciar({ userDataDir, botService, emitir }) {
-  ctx = { userDataDir, botService, emitir };
+async function iniciar({ userDataDir, botService, emitir, datosHeartbeat }) {
+  ctx = { userDataDir, botService, emitir, datosHeartbeat };
   const s = sessionStore.leer(userDataDir);
   if (!s) return;
 

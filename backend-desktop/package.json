@@ -1,7 +1,7 @@
 {
   "name": "akira-cloud-backend-desktop",
   "version": "1.0.0",
-  "description": "Akira Cloud — backend liviano para el software de escritorio (auth + licencias + suscripción + gating). Deploy: Vercel.",
+  "description": "Akira Cloud â€” backend liviano para el software de escritorio (auth + licencias + suscripciÃ³n + gating). Deploy: Vercel.",
   "main": "api/index.js",
   "engines": {
     "node": ">=20.0.0"
@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nodemon local-dev.js",
     "start": "node local-dev.js",
-    "test": "node tests/planes.test.js && node tests/quota.service.test.js && node tests/referidos.test.js && node tests/license.service.test.js && node tests/licenses.routes.test.js"
+    "test": "node tests/planes.test.js && node tests/quota.service.test.js && node tests/referidos.test.js && node tests/license.service.test.js && node tests/licenses.routes.test.js && node tests/email-webhook.test.js && node tests/resumen-negocio.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -31,6 +31,13 @@ const DeviceSchema = new mongoose.Schema(
     activadoEn:   { type: Date, default: Date.now },
     ultimoHeartbeat: { type: Date, default: Date.now },
 
+    // Versión de la app instalada en este equipo (la informa el heartbeat).
+    version:     { type: String, default: '' },
+    // Resumen opcional del negocio (solo contadores; ver lib/resumen-negocio.js). Solo existe si el
+    // usuario activó "ver mi negocio desde la web" en la app; al desactivarlo se borra.
+    resumen:     { type: mongoose.Schema.Types.Mixed, default: null },
+    resumenEn:   { type: Date, default: null },
+
     revocado:       { type: Boolean, default: false },
     revocadoMotivo: { type: String, default: '' },
     revocadoEn:     { type: Date },

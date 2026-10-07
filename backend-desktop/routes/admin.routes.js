@@ -89,6 +89,7 @@ router.post('/email-prueba', async (req, res) => {
       to: req.user.email,
       subject: camp.asunto(),
       html: camp.html({ nombre: (req.user.nombre || 'Admin').split(' ')[0], userId: String(req.user._id), version: process.env.DESKTOP_VERSION || '1.0.0' }),
+      meta: { tipo: 'prueba', campana: String(req.body?.campana || 'actualizacion-2026-10'), userId: req.user._id },
     });
     res.status(ok ? 200 : 502).json({ ok, para: req.user.email, error: ok ? undefined : ultimoErrorEmail() });
   } catch (err) {
@@ -124,6 +125,7 @@ router.post('/email-novedades', async (req, res) => {
         to: u.email,
         subject: camp.asunto(),
         html: camp.html({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0' }),
+        meta: { tipo: 'campana', campana: CAMPAÑA, userId: u._id },
       });
       if (ok) { enviados++; await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: new Date() } }); }
       else { fallidos++; ultimoError = ultimoErrorEmail(); await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: null } }).catch(() => {}); }
@@ -131,6 +133,70 @@ router.post('/email-novedades', async (req, res) => {
     res.json({ ok: true, enviados, fallidos, pendientes: Math.max(0, pendientes - enviados - fallidos), error: ultimoError });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/admin/emails — registro de emails enviados + entrega (panel Admin → Emails)
+//  ?campana=&estado=&tipo=&q=&limite=
+// ─────────────────────────────────────────────────────────────
+router.get('/emails', async (req, res) => {
+  try {
+    const EmailLog = require('../models/EmailLog');
+    const { campana, estado, tipo, q } = req.query;
+    const limite = Math.min(Math.max(parseInt(req.query.limite) || 100, 1), 500);
+    const filtro = {};
+    if (campana) filtro.campana = String(campana);
+    if (estado) filtro.estado = String(estado);
+    if (tipo) filtro.tipo = String(tipo);
+    if (q) filtro.para = new RegExp(String(q).slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+    const [filas, porEstado, porCampana] = await Promise.all([
+      EmailLog.find(filtro).sort({ enviadoEn: -1 }).limit(limite).lean(),
+      EmailLog.aggregate([{ $group: { _id: '$estado', n: { $sum: 1 } } }]),
+      EmailLog.aggregate([{ $match: { tipo: { $in: ['campana', 'prueba'] } } }, { $group: { _id: { campana: '$campana', estado: '$estado' }, n: { $sum: 1 }, ultimo: { $max: '$enviadoEn' } } }]),
+    ]);
+    const cuenta = Object.fromEntries(porEstado.map((x) => [x._id, x.n]));
+    const camp = {};
+    for (const x of porCampana) {
+      const c = (camp[x._id.campana || '(sin campaña)'] ||= { campana: x._id.campana || '(sin campaña)', total: 0, entregado: 0, enviado: 0, rebotado: 0, spam: 0, fallido: 0, ultimo: null });
+      c.total += x.n; c[x._id.estado] = (c[x._id.estado] || 0) + x.n;
+      if (!c.ultimo || x.ultimo > c.ultimo) c.ultimo = x.ultimo;
+    }
+    res.json({
+      resumen: { total: Object.values(cuenta).reduce((a, b) => a + b, 0), enviado: cuenta.enviado || 0, entregado: cuenta.entregado || 0, rebotado: cuenta.rebotado || 0, spam: cuenta.spam || 0, fallido: cuenta.fallido || 0 },
+      campanas: Object.values(camp).sort((a, b) => String(b.ultimo).localeCompare(String(a.ultimo))),
+      disponibles: Object.keys(require('../services/email.novedades').CAMPANAS),
+      webhookConfigurado: !!process.env.RESEND_WEBHOOK_SECRET,
+      filas,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/emails/reconstruir — arma el registro de campañas viejas a partir
+//  de lo que ya se guardó en cada usuario (se sabe que se enviaron, no si se entregaron).
+//  Es idempotente: no duplica lo que ya está registrado.
+// ─────────────────────────────────────────────────────────────
+router.post('/emails/reconstruir', async (req, res) => {
+  try {
+    const EmailLog = require('../models/EmailLog');
+    const { CAMPANAS } = require('../services/email.novedades');
+    let creados = 0;
+    for (const campana of Object.keys(CAMPANAS)) {
+      const usuarios = await User.find({ [`novedadesEnviadas.${campana}`]: { $type: 'date' } }).select('email nombre novedadesEnviadas').lean();
+      for (const u of usuarios) {
+        const existe = await EmailLog.findOne({ para: String(u.email).toLowerCase(), campana, tipo: 'campana' }).lean();
+        if (existe) continue;
+        await EmailLog.create({ para: u.email, asunto: CAMPANAS[campana].asunto(), tipo: 'campana', campana, userId: u._id, estado: 'enviado', enviadoEn: u.novedadesEnviadas[campana], reconstruido: true });
+        creados++;
+      }
+    }
+    res.json({ ok: true, creados });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

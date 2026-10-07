@@ -7,9 +7,10 @@ import {
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
   Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck,
   Lightbulb, TrendingUp, RotateCcw, Zap, WifiOff, Wifi,
-  Info, Filter
+  Info, Filter, Mail
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import AdminEmails from '../components/AdminEmails';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
 function AdminStat({ icon, label, value, color = 'text-white' }) {
@@ -441,6 +442,7 @@ export default function AdminPanel() {
     { id: 'bots',      label: 'Bots',         icon: <Bot size={15} /> },
     { id: 'logs',      label: 'Logs',         icon: <AlertTriangle size={15} /> },
     { id: 'referidos', label: 'Referidos',    icon: <GitBranch size={15} /> },
+    { id: 'emails',    label: 'Emails',       icon: <Mail size={15} /> },
     { id: 'ideas',     label: 'Ideas 💡',     icon: <Lightbulb size={15} /> },
   ];
 
@@ -888,6 +890,8 @@ export default function AdminPanel() {
       </div>
 
         {/* ── TAB: Ideas ── */}
+        {tab === 'emails' && <AdminEmails />}
+
         {tab === 'ideas' && (
           <div className="space-y-4">
             {/* Filtros */}

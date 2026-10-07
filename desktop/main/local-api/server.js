@@ -131,6 +131,16 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/caja', require('./routes/caja.routes')(deps));
   app.use('/api/deudores', require('./routes/deudores.routes')(deps));
   app.use('/api/proveedores', require('./routes/proveedores.routes')(deps));
+  // ── "Ver mi negocio desde la web" (opcional, apagado por defecto) ──
+  app.get('/api/app/resumen-web', sesion.requerirSesion, (_req, res) => res.json({ activo: require('../resumen-web').activo(userDataDir) }));
+  app.put('/api/app/resumen-web', sesion.requerirSesion, async (req, res) => {
+    const resumenWeb = require('../resumen-web');
+    resumenWeb.guardar(userDataDir, req.body?.activo === true);
+    // Se aplica enseguida: al activar se envía el primer resumen; al desactivar, el servidor borra lo que tenía.
+    require('../license/guardian')._tick().catch(() => {});
+    res.json({ activo: resumenWeb.activo(userDataDir) });
+  });
+
   // ── Actualizaciones de la app (solo con sesión iniciada) ──
   const versionInstalada = require('electron').app?.getVersion?.() || '';
   app.get('/api/app/actualizacion', sesion.requerirSesion, (_req, res) => {

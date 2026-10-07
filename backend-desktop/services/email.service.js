@@ -16,7 +16,20 @@ function crearTransporter() {
 
 let ultimoError = null;
 
-async function enviarEmail({ to, subject, html }) {
+// Deja constancia del envío en el panel de admin. Nunca rompe el envío si falla.
+async function registrar(meta, { to, subject, ok, error }) {
+  try {
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) return;
+    await require('../models/EmailLog').create({
+      para: String(to), asunto: subject, tipo: meta.tipo || 'sistema', campana: meta.campana || '',
+      userId: meta.userId || null, estado: ok ? 'enviado' : 'fallido', error: ok ? '' : String(error || '').slice(0, 300),
+    });
+  } catch (e) { logger.warn('[Email] no se pudo registrar el envío: ' + e.message); }
+}
+
+// meta (opcional): { tipo: 'campana'|'prueba'|'sistema', campana, userId } para el registro del panel.
+async function enviarEmail({ to, subject, html, meta = {} }) {
   const transporter = crearTransporter();
   if (!transporter) {
     logger.warn(`[Email] SMTP no configurado. Email a ${to} no enviado. Asunto: ${subject}`);
@@ -30,10 +43,12 @@ async function enviarEmail({ to, subject, html }) {
       html,
     });
     logger.info(`[Email] ✅ Email enviado a ${to}`);
+    await registrar(meta, { to, subject, ok: true });
     return true;
   } catch (err) {
     ultimoError = err.message;
     logger.error(`[Email] ❌ Error enviando a ${to}: ${err.message}`);
+    await registrar(meta, { to, subject, ok: false, error: err.message });
     return false;
   }
 }

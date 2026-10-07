@@ -114,7 +114,7 @@ const raiz = process.argv[2];
   if ((await expDeu.pdf('deudores', lista)).slice(0, 4).toString() !== '%PDF') throw new Error('el PDF de deudores no se generó bien');
   if ((await expDeu.xlsx('proveedores', lista)).length < 1000) throw new Error('el Excel de proveedores no se generó bien');
   if (ctLib.telClave('+54 9 2241 49-7226') !== '2241497226') throw new Error('la lógica de cuentas corrientes falla dentro del paquete');
-  for (const m of ['main/local-api/routes/deudores.routes', 'main/local-api/routes/proveedores.routes', 'main/local-api/routes/caja.routes']) require(path.join(raiz, m));
+  for (const m of ['main/local-api/routes/deudores.routes', 'main/local-api/routes/proveedores.routes', 'main/local-api/routes/caja.routes', 'main/resumen-web']) require(path.join(raiz, m));
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

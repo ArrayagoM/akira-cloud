@@ -96,7 +96,7 @@ router.post('/activate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/heartbeat', requireAuth, async (req, res) => {
   try {
-    const { deviceId } = req.body;
+    const { deviceId, version, resumen } = req.body;
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
 
     const user = req.user;
@@ -111,6 +111,11 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
     }
 
     device.ultimoHeartbeat = new Date();
+    const { sanearResumen, sanearVersion } = require('../lib/resumen-negocio');
+    const ver = sanearVersion(version); if (ver) device.version = ver;
+    // resumen === null → el usuario lo desactivó en la app: se borra lo que hubiera en el servidor.
+    if (resumen === null) { device.resumen = null; device.resumenEn = null; }
+    else if (resumen !== undefined) { const r = sanearResumen(resumen); if (r) { device.resumen = r; device.resumenEn = new Date(); } }
     await device.save();
 
     const planE = planEfectivo(user);
@@ -154,7 +159,7 @@ router.post('/deactivate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.get('/mine', requireAuth, async (req, res) => {
   const devices = await Device.find({ userId: req.user._id, activo: true, revocado: false })
-    .select('deviceId nombre activadoEn ultimoHeartbeat')
+    .select('deviceId nombre activadoEn ultimoHeartbeat version resumen resumenEn')
     .lean();
   res.json({ devices, limite: dispositivosMaxDePlan(planEfectivo(req.user)) });
 });

@@ -97,6 +97,9 @@ app.use(
   }),
 );
 
+// Aviso de entrega de emails (Resend): necesita el cuerpo SIN parsear para verificar la firma.
+app.use('/api/email/webhook', express.raw({ type: '*/*', limit: '200kb' }), require('./routes/email-webhook.routes'));
+
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());

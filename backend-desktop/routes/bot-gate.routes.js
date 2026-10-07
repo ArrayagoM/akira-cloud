@@ -44,6 +44,20 @@ router.get('/features', requireAuth, (req, res) => {
   });
 });
 
+// GET /api/bot/uso — mensajes usados este mes y límite del plan (para mostrarlo en la web).
+router.get('/uso', requireAuth, async (req, res) => {
+  try {
+    const { mesActual } = require('../services/quota.service');
+    const User = require('../models/User');
+    const u = await User.findById(req.user._id).select('mensajesMes mesContadorMensajes').lean();
+    const mes = mesActual();
+    const limite = featuresDePlan(planEfectivo(req.user)).mensajesMes;
+    res.json({ mes, usados: u?.mesContadorMensajes === mes ? (u.mensajesMes || 0) : 0, limite: Number.isFinite(limite) ? limite : null });
+  } catch (err) {
+    res.status(500).json({ error: 'No se pudo leer el uso' });
+  }
+});
+
 // POST /api/bot/quota/check — { } (userId sale del JWT de sesión, no del body,
 // para que un dispositivo no pueda reportar cupo a nombre de otro usuario)
 router.post('/quota/check', requireAuth, async (req, res) => {

@@ -10,6 +10,7 @@ import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, Wif
 import OnboardingChecklist from '../components/OnboardingChecklist';
 import InstalarApp from '../components/InstalarApp';
 import ReferralCard from '../components/ReferralCard';
+import ResumenWebCard from '../components/ResumenWebCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400', accentBg = 'rgba(0,232,123,0.08)' }) {
@@ -472,6 +473,8 @@ export default function Dashboard() {
             color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'}
             accentBg={botStatus.conectado ? 'rgba(0,232,123,0.08)' : 'rgba(74,98,120,0.15)'} />
         </div>
+
+        <ResumenWebCard />
 
         {/* ── Panel multi-cuenta Agencia ── */}
         {isAgencia && (

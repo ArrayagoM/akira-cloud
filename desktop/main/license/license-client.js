@@ -90,9 +90,9 @@ async function activar({ deviceId, fingerprint, nombre, reemplazar = false }) {
   return guardarEstadoLicencia(resp);
 }
 
-async function heartbeat() {
+async function heartbeat(extra = {}) {
   if (!estado.deviceId) throw new Error('license-client: falta deviceId — llamar activar() primero');
-  const resp = await request('/api/licenses/heartbeat', 'POST', { deviceId: estado.deviceId });
+  const resp = await request('/api/licenses/heartbeat', 'POST', { ...extra, deviceId: estado.deviceId });
   return guardarEstadoLicencia(resp);
 }
 

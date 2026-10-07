@@ -209,7 +209,10 @@ if (!bloqueo) {
 
     // Revalida la licencia y reactiva los bots activos aunque nadie abra la ventana.
     require('./license/guardian')
-      .iniciar({ userDataDir, botService, emitir: localApi.emitirAlUsuario })
+      .iniciar({
+        userDataDir, botService, emitir: localApi.emitirAlUsuario,
+        datosHeartbeat: (userId) => require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() }),
+      })
       .catch((e) => log('[guardian] FALLÓ', e));
   }).catch((e) => log('[arranque] FALLÓ', e));
 
