@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
 import DesktopSync from './DesktopSync';
 import LicenciaAviso from './LicenciaAviso';
+import ActualizacionAviso, { VersionApp } from './ActualizacionAviso';
 
 // Versión de escritorio (Electron): sin Ideas/soporte, que dependen de la plataforma en la nube. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
 const DESKTOP = !!import.meta.env.VITE_DESKTOP;
@@ -155,6 +156,7 @@ export default function Layout({ children }) {
             </div>
           </div>
 
+          {DESKTOP && <VersionApp />}
           {/* LOGOUT BUTTON — simple y directo */}
           <button
             type="button"
@@ -245,6 +247,7 @@ export default function Layout({ children }) {
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-7 mobile-safe-bottom">
           {DESKTOP && <LicenciaAviso />}
+          {DESKTOP && <ActualizacionAviso />}
           {DESKTOP && <DesktopSync />}
           {children}
         </main>

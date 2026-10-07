@@ -22,7 +22,7 @@ const guardian = require('../license/guardian');
 
 const PUERTO_PREFERIDO = 47321; // fijo: el origen (y con él el login guardado en localStorage) no cambia entre aperturas
 
-async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botService, alCodigoOAuth }) {
+async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botService, alCodigoOAuth, appHooks = {} }) {
   const app = express();
   const server = http.createServer(app);
   let puerto = null;
@@ -128,6 +128,19 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
   app.use('/api/gestion', require('./routes/gestion.routes')(deps));
+  // ── Actualizaciones de la app (solo con sesión iniciada) ──
+  const versionInstalada = require('electron').app?.getVersion?.() || '';
+  app.get('/api/app/actualizacion', sesion.requerirSesion, (_req, res) => {
+    res.json(appHooks.actualizador ? appHooks.actualizador.estado() : { versionActual: versionInstalada, disponible: null, descargada: null, descargando: false, progreso: 0, soloEnInstalada: true });
+  });
+  app.post('/api/app/buscar-actualizacion', sesion.requerirSesion, async (_req, res) => {
+    if (!appHooks.actualizador) return res.json({ resultado: 'no-disponible', versionActual: versionInstalada });
+    res.json(await appHooks.actualizador.buscarManual());
+  });
+  app.post('/api/app/actualizar', sesion.requerirSesion, (_req, res) => {
+    const ok = !!appHooks.actualizador?.instalarAhora();
+    res.status(ok ? 200 : 409).json({ ok, error: ok ? undefined : 'No hay ninguna actualización lista para instalar.' });
+  });
   app.use('/api/sync', require('./routes/sync.routes')(deps));
   app.get('/api/license/estado', (_req, res) => res.json({ ...guardian.estado(), activacion: sesion.estado().errorActivacion }));
   // "Usar este equipo": desactiva el otro y activa este (el usuario ya confirmó en pantalla).
@@ -172,6 +185,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   return {
     puerto,
     emitirAlUsuario,
+    emitirATodos: (evento, datos) => io.emit(evento, datos),
     url: `http://127.0.0.1:${puerto}`,
     cerrar: () => { if (mpTimer) clearInterval(mpTimer); io.close(); server.close(); },
   };

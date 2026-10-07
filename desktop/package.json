@@ -1,7 +1,7 @@
 {
   "name": "akira-desktop",
   "productName": "Akira",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Akira â€” software de escritorio. Corre el bot de WhatsApp completo (IA, calendario, cobros, memoria de clientes) en la PC del negocio. El servidor solo valida la licencia.",
   "main": "main/index.js",
   "private": true,

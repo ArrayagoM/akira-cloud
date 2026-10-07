@@ -45,6 +45,7 @@ let ventana = null;
 let tray = null;
 let botService = null;
 let localApi = null;
+const appHooks = { actualizador: null }; // la API local lo usa para mostrar/instalar actualizaciones
 let actualizador = null;
 let pedirMostrar = false; // alguien intentó abrir la app antes de que la ventana existiera
 let avisoBandejaMostrado = false;
@@ -167,6 +168,7 @@ if (!bloqueo) {
     botService = require('./slots/bot-service');
 
     localApi = await require('./local-api/server').iniciar({
+      appHooks,
       userDataDir,
       serverUrl: SERVER_URL,
       frontendDir: path.join(__dirname, '..', 'renderer-app'),
@@ -194,11 +196,14 @@ if (!bloqueo) {
         actualizador = require('./updater').crearUpdater({
           autoUpdater,
           log,
+          versionActual: app.getVersion(),
+          alCambiar: (est) => localApi?.emitirATodos('app:actualizacion', est),
           notificar: (titulo, cuerpo) => {
             if (Notification.isSupported()) new Notification({ title: titulo, body: cuerpo, icon: path.join(__dirname, 'assets', 'tray.png') }).show();
           },
         });
         actualizador.iniciar();
+        appHooks.actualizador = actualizador;
       } catch (e) { log('[updater] no disponible', e); }
     }
 
