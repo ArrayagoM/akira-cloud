@@ -115,6 +115,12 @@ const raiz = process.argv[2];
   if ((await expDeu.xlsx('proveedores', lista)).length < 1000) throw new Error('el Excel de proveedores no se generó bien');
   if (ctLib.telClave('+54 9 2241 49-7226') !== '2241497226') throw new Error('la lógica de cuentas corrientes falla dentro del paquete');
   for (const m of ['main/local-api/routes/deudores.routes', 'main/local-api/routes/proveedores.routes', 'main/local-api/routes/caja.routes', 'main/resumen-web']) require(path.join(raiz, m));
+  // respaldo cifrado (scrypt + AES-GCM + gzip), resumen diario, avisos de caída, derivación y horario
+  const resp = require(path.join(raiz, 'main/respaldo'));
+  if (resp.descifrar(resp.cifrar(Buffer.from('prueba'), 'clave-de-prueba'), 'clave-de-prueba').toString() !== 'prueba') throw new Error('el cifrado del respaldo falla dentro del paquete');
+  if (resp.desempaquetar(resp.empaquetar([{ nombre: 'a/b.txt', datos: Buffer.from('x') }]))[0].nombre !== 'a/b.txt') throw new Error('el empaquetado del respaldo falla dentro del paquete');
+  for (const m of ['main/respaldo-servicio', 'main/resumen-diario', 'main/vigilante-bot', 'main/estado-bot', 'main/bot-engine/services/bot/derivacion.service', 'main/bot-engine/services/bot/horario-atencion', 'main/local-api/routes/respaldo.routes', 'main/local-api/routes/avisos.routes']) require(path.join(raiz, m));
+  if (typeof require(path.join(raiz, 'main/db/store')).respaldarA !== 'function') throw new Error('falta la copia consistente de la base');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

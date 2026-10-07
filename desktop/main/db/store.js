@@ -172,6 +172,11 @@ function obtenerTodos(table) {
   return filas.map(filaAJson);
 }
 
+// Copia consistente de la base mientras la app sigue funcionando (API de backup de SQLite).
+async function respaldarA(destino) {
+  await requireDb().backup(destino);
+}
+
 function cerrar() {
   if (db) {
     db.close();
@@ -187,6 +192,7 @@ module.exports = {
   eliminar,
   obtenerPorId,
   obtenerTodos,
+  respaldarA,
   cerrar,
   errorDuplicado,
   revivirFechas,

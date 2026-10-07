@@ -257,6 +257,11 @@ const recargarConfig = (slot = 0) => sobreBot(slot, 'config:reload');
 const recargarCalendar = (slot = 0) => sobreBot(slot, 'calendar:reload');
 const triggerCatalogSync = (slot = 0) => sobreBot(slot, 'catalog:sync');
 const enviarTexto = (slot, jid, texto) => sobreBot(slot, 'enviar:texto', { jid, texto });
+// Le escribe al dueño por la primera cuenta de WhatsApp que esté conectada. Devuelve false si ninguna lo está.
+const avisarDueno = (texto) => {
+  for (const slot of [...conectados].sort((a, b) => a - b)) { if (sobreBot(slot, 'avisar:dueno', texto)) return true; }
+  return false;
+};
 const silenciarCliente = (jid, silenciado) => sobreBot(0, 'cliente:silenciar', { jid, silenciado });
 
 async function procesarWebhookMP(payload) {
@@ -286,6 +291,6 @@ async function detenerTodos() {
 
 module.exports = {
   init, mensajesHoy, estadoDetallado, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
-  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto,
+  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno,
   procesarWebhookMP, restaurarActivos, detenerTodos, slotsActivos: () => Array.from(instancias.keys()),
 };

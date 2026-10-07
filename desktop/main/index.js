@@ -6,7 +6,7 @@
 // plataforma servido desde ahí.
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, shell, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -27,6 +27,12 @@ process.on('uncaughtException', (e) => log('[uncaughtException]', e));
 process.on('unhandledRejection', (e) => log('[unhandledRejection]', e));
 log('--- arranque', app.getVersion(), process.platform, os.release());
 
+// Si el usuario pidió restaurar un respaldo, se aplica ACÁ, antes de abrir la base (se guarda una copia de lo anterior).
+try {
+  const restaurado = require('./respaldo').aplicarRestauracionPendiente(userDataDir);
+  if (restaurado) log('[respaldo] restaurado desde un respaldo del', restaurado.manifiesto?.creado, '- copia de lo anterior en', restaurado.resguardo);
+} catch (e) { log('[respaldo] no se pudo aplicar la restauración', e); }
+
 const store = require('./db/store');
 store.abrir(path.join(userDataDir, 'akira.db')); // DEBE ir antes de cualquier require de un modelo
 
@@ -45,7 +51,7 @@ let ventana = null;
 let tray = null;
 let botService = null;
 let localApi = null;
-const appHooks = { actualizador: null }; // la API local lo usa para mostrar/instalar actualizaciones
+const appHooks = { actualizador: null, userDataDir }; // la API local lo usa para mostrar/instalar actualizaciones, respaldos y diálogos
 let actualizador = null;
 let pedirMostrar = false; // alguien intentó abrir la app antes de que la ventana existiera
 let avisoBandejaMostrado = false;
@@ -178,6 +184,34 @@ if (!bloqueo) {
       },
     });
 
+    // Respaldo automático cifrado de los datos del negocio (ver respaldo.js)
+    const servicioRespaldo = require('./respaldo-servicio').crearServicio({
+      userDataDir, snapshotDb: (destino) => store.respaldarA(destino), credenciales: require('./security/credentials-store'), version: app.getVersion(), log,
+      carpetaSugerida: path.join(app.getPath('documents'), 'Respaldos de Akira'),
+    });
+    appHooks.servicioRespaldo = servicioRespaldo;
+    // Resumen del día al celular del dueño (opcional; ver resumen-diario.js)
+    const ConfigModelo = require('./bot-engine/models/Config');
+    const servicioResumenDiario = require('./resumen-diario').crearServicio({
+      userDataDir,
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      mensajesHoy: () => botService.mensajesHoy(),
+      obtenerNegocio: async (uid) => (await ConfigModelo.findOne({ userId: String(uid) }))?.negocio || '',
+      enviar: async (texto) => {
+        const uid = require('./license/session-store').leer(userDataDir)?.userId;
+        const cel = String((await ConfigModelo.findOne({ userId: String(uid) }))?.celularNotificaciones || '').replace(/\D/g, '');
+        if (cel.length < 10) return { ok: false, motivo: 'sin-celular' };
+        return botService.avisarDueno(texto) ? { ok: true } : { ok: false, motivo: 'bot-desconectado' };
+      },
+      log,
+    });
+    appHooks.servicioResumenDiario = servicioResumenDiario;
+    const elegir = async (opciones) => { const r = await dialog.showOpenDialog(ventana || undefined, opciones); return r.canceled ? null : r.filePaths[0]; };
+    appHooks.elegirCarpeta = () => elegir({ title: 'Carpeta para los respaldos', properties: ['openDirectory', 'createDirectory'] });
+    appHooks.elegirArchivo = () => elegir({ title: 'Elegí un respaldo de Akira', properties: ['openFile'], filters: [{ name: 'Respaldo de Akira', extensions: ['akbk'] }] });
+    appHooks.abrirCarpeta = (c) => shell.openPath(c);
+    appHooks.reiniciar = () => { app.isQuitting = true; Promise.resolve(botService?.detenerTodos()).finally(() => { app.relaunch(); app.exit(0); }); };
+
     localApi = await require('./local-api/server').iniciar({
       appHooks,
       userDataDir,
@@ -198,6 +232,8 @@ if (!bloqueo) {
 
     crearVentana();
     crearTray();
+    servicioRespaldo.programar();
+    servicioResumenDiario.programar();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -234,5 +270,5 @@ if (!bloqueo) {
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

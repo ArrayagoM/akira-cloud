@@ -12,6 +12,8 @@ import InstalarApp from '../components/InstalarApp';
 import ReferralCard from '../components/ReferralCard';
 import ResumenWebCard from '../components/ResumenWebCard';
 import AlertasCard from '../components/AlertasCard';
+import ResumenDiarioCard from '../components/ResumenDiarioCard';
+import PrimerosPasos from '../components/PrimerosPasos';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400', accentBg = 'rgba(0,232,123,0.08)' }) {
@@ -475,6 +477,8 @@ export default function Dashboard() {
             accentBg={botStatus.conectado ? 'rgba(0,232,123,0.08)' : 'rgba(74,98,120,0.15)'} />
         </div>
 
+        <PrimerosPasos botConectado={botStatus.conectado} />
+        <ResumenDiarioCard />
         <AlertasCard />
         <ResumenWebCard />
 

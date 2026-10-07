@@ -46,12 +46,13 @@ E10 Landing + SEO/GEO (al final, describiendo lo que ya funciona)
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 2.1 | **Respaldo automático y restauración**: copia cifrada diaria de la base local (primero a una carpeta elegida; luego a tu Google Drive) + botón “Restaurar” | 🔴 | M | ⬜ |
-| 2.2 | **Resumen del día** al dueño a la hora elegida (turnos de hoy, cuánto entró, quién debe, documentos sin revisar) por WhatsApp; email de respaldo si WhatsApp está caído | 🟠 | S | ⬜ |
-| 2.3 | **Derivar a una persona**: si el cliente está molesto o pide algo raro, avisa al dueño con el resumen de la charla y el bot deja de responder ese chat | 🟡 | S | ⬜ |
-| 2.4 | **Respuestas fuera de horario** distintas (“te respondemos mañana a las 9”) | 🟡 | S | ⬜ |
-| 2.5 | **Tutorial interactivo** la primera vez que se abre la app | 🟠 | S | ⬜ |
-| 2.6 | **Recordatorio de vencimientos** del dueño (monotributo, alquiler, impuestos) | 🟡 | S | ⬜ |
+| 2.1 | **Respaldo automático y restauración**: copia cifrada diaria de la base local en una carpeta elegida (puede ser la de Google Drive/OneDrive/pendrive) + botón “Restaurar” | 🔴 | M | ✅ 1.0.17 |
+| 2.1b | Subida directa a tu Google Drive (sin depender de la app de escritorio de Drive) | 🟡 | M | ⬜ 👤 |
+| 2.2 | **Resumen del día** al dueño a la hora elegida (turnos de hoy, cuánto entró, quién debe, documentos sin revisar) por WhatsApp. Si WhatsApp está caído se reintenta; el push del celular (E3) lo cubre | 🟠 | S | ✅ 1.0.17 |
+| 2.3 | **Derivar a una persona**: si el cliente está molesto o pide algo raro, avisa al dueño con el resumen de la charla y el bot deja de responder ese chat | 🟡 | S | ✅ 1.0.17 |
+| 2.4 | **Respuestas fuera de horario** distintas (“te respondemos mañana a las 9”) | 🟡 | S | ✅ 1.0.17 |
+| 2.5 | **Tutorial interactivo**: lista de “Primeros pasos” que se tilda sola según lo configurado | 🟠 | S | ✅ 1.0.17 |
+| 2.6 | **Recordatorio de vencimientos** del dueño (monotributo, alquiler, impuestos) — se hace junto con 6.3 (gastos recurrentes): es la misma función | 🟡 | S | ⬜ → E6 |
 
 ## E3 — App móvil nativa (Android + iOS) — *solo monitoreo y ajustes mínimos*
 

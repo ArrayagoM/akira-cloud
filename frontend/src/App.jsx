@@ -26,6 +26,7 @@ import DocumentosPage    from './pages/DocumentosPage';
 import CatalogoPage      from './pages/CatalogoPage';
 import CajaPage          from './pages/CajaPage';
 import DeudoresPage      from './pages/DeudoresPage';
+import RespaldoPage      from './pages/RespaldoPage';
 import ProveedoresPage   from './pages/ProveedoresPage';
 import Descargar         from './pages/Descargar';
 import CuentaPanel       from './pages/CuentaPanel';
@@ -114,6 +115,7 @@ export default function App() {
         <Route path="/catalogo"   element={DESKTOP ? <ProtectedRoute><CatalogoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/caja"       element={DESKTOP ? <ProtectedRoute><CajaPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/deudores"    element={DESKTOP ? <ProtectedRoute><DeudoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/respaldo"    element={DESKTOP ? <ProtectedRoute><RespaldoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/proveedores" element={DESKTOP ? <ProtectedRoute><ProveedoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 
         {/* Solo admin */}

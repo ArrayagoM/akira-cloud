@@ -34,6 +34,8 @@ const { crearDocumentosService } = require('./bot/documentos.service');
 const crearWaitlistService = require('./bot/waitlist.service');
 const winstonLogger = require('../config/logger');
 const perfilClienteSvc = require('./bot/perfil-cliente.service');
+const derivacionSvc = require('./bot/derivacion.service');
+const { notaFueraDeHorario } = require('./bot/horario-atencion');
 const systemBot = require('./system.bot');
 const { registrarMensajeYVerificarCupo } = require('./bot/quota.service');
 
@@ -978,6 +980,7 @@ Revisalo en Akira → Documentos.`);
       role: 'system',
       content:
         sysContent +
+        notaFueraDeHorario(HORARIOS_ATENCION, DIAS_BLOQUEADOS, new Date(), { modoPausa: MODO_PAUSA, dueno: MI_NOMBRE }) +
         '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
     };
 
@@ -3014,7 +3017,9 @@ Revisalo en Akira → Documentos.`);
         }
       }
 
-      if (quiereConDueno(bodyLower)) {
+      // Derivar a una persona: lo pide explícitamente o está molesto / hace un reclamo (ver derivacion.service.js).
+      const motivoDeriv = derivacionSvc.motivoDerivacion(bodyLower, MI_NOMBRE) || (quiereConDueno(bodyLower) ? 'pide-persona' : null);
+      if (motivoDeriv) {
         const u = clientesSvc.cargarMemoria(jid);
         if (u) {
           u.silenciado = true;
@@ -3033,13 +3038,8 @@ Revisalo en Akira → Documentos.`);
             30 * 60 * 1000,
           );
         }
-        notificarDueno(
-          `👤 *${u?.nombre || extraerNumero(jid)}* quiere hablar con vos directamente. Respondele en WhatsApp.`,
-        );
-        await enviarMensaje(
-          jid,
-          `¡Dale, ${u?.nombre || ''}! Le aviso a ${MI_NOMBRE} para que te contacte. 🙌`,
-        );
+        notificarDueno(derivacionSvc.mensajeParaDueno({ nombre: u?.nombre, numero: extraerNumero(jid), motivo: motivoDeriv, historial: u?.historial }));
+        await enviarMensaje(jid, derivacionSvc.respuestaAlCliente({ nombre: u?.nombre, dueno: MI_NOMBRE, motivo: motivoDeriv }));
         return;
       }
 
@@ -4113,6 +4113,8 @@ Revisalo en Akira → Documentos.`);
     // Actualizar silenciado de un cliente en la caché RAM (desde el dashboard)
     // La app le pide al bot que le escriba a un cliente (ej. turno confirmado)
     emitter.on('enviar:texto', ({ jid, texto }) => { if (jid && texto) enviarMensaje(jid, texto).catch(() => {}); });
+    // La app le pide al bot que le escriba al DUEÑO (a su celular de notificaciones): resumen del día, avisos…
+    emitter.on('avisar:dueno', (texto) => { if (texto) notificarDueno(String(texto)); });
 
     emitter.on('cliente:silenciar', ({ jid, silenciado }) => {
       const u = clientesSvc.cargarMemoria(jid);
