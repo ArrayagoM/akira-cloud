@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
+const senas = require('../../gestion/senas');
 const Config = require('../../bot-engine/models/Config');
 const Log = require('../../bot-engine/models/Log');
 const Movimiento = require('../../bot-engine/models/Movimiento');
@@ -44,6 +45,7 @@ function sanitizarLista(tipo, lista) {
   return lista.map((s) => ({
     nombre: String(s.nombre || '').trim(),
     precio: Math.max(0, parseFloat(s.precio) || 0),
+    ...(senas.sanear(s.sena, parseFloat(s.precio) || 0) ? { sena: senas.sanear(s.sena, parseFloat(s.precio) || 0) } : {}),
     duracion: Math.min(1440, Math.max(5, parseInt(s.duracion) || 60)),
     intervaloRecordatorioDias: Math.max(0, parseInt(s.intervaloRecordatorioDias) || 0),
     mensajeRecordatorio: String(s.mensajeRecordatorio || '').trim().slice(0, 500),

@@ -121,7 +121,7 @@ export default function CatalogoPage() {
                   <th className="px-3 py-2 font-medium">Nombre</th>
                   <th className="px-3 py-2 font-medium w-32">Precio ($)</th>
                   {tipo === 'productos' ? (<><th className="px-3 py-2 font-medium w-20" title="El bot manda esta foto cuando el cliente pregunta por el producto">Foto</th><th className="px-3 py-2 font-medium w-40">Categoría</th><th className="px-3 py-2 font-medium w-24" title="Vacío = sin control de stock">Stock</th><th className="px-3 py-2 font-medium w-20 text-center">Se ofrece</th></>)
-                    : (<th className="px-3 py-2 font-medium w-32">Duración (min)</th>)}
+                    : (<><th className="px-3 py-2 font-medium w-32">Duración (min)</th><th className="px-3 py-2 font-medium w-56" title="Para reservar se cobra solo una parte; el resto se paga en el local">Seña para reservar</th></>)}
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -136,7 +136,18 @@ export default function CatalogoPage() {
                       <td className="px-3 py-1.5"><input className={entrada} type="number" min="0" value={x.stock >= 0 ? x.stock : ''} placeholder="∞" onChange={(e) => cambiar(i, 'stock', e.target.value === '' ? -1 : Number(e.target.value))} /></td>
                       <td className="px-3 py-1.5 text-center"><input type="checkbox" checked={x.disponible !== false} onChange={(e) => cambiar(i, 'disponible', e.target.checked)} /></td>
                     </>) : (
-                      <td className="px-3 py-1.5"><input className={entrada} type="number" min="5" step="5" value={x.duracion} onChange={(e) => cambiar(i, 'duracion', e.target.value === '' ? '' : Number(e.target.value))} /></td>
+                      <>
+                        <td className="px-3 py-1.5"><input className={entrada} type="number" min="5" step="5" value={x.duracion} onChange={(e) => cambiar(i, 'duracion', e.target.value === '' ? '' : Number(e.target.value))} /></td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex gap-1.5">
+                            <select className={`${entrada} !w-28`} value={x.sena?.tipo || 'total'} aria-label="Tipo de seña"
+                              onChange={(e) => cambiar(i, 'sena', e.target.value === 'total' ? null : { tipo: e.target.value, valor: x.sena?.valor || (e.target.value === 'porcentaje' ? 30 : 1000) })}>
+                              <option value="total">Todo</option><option value="porcentaje">Porcentaje</option><option value="monto">Monto fijo</option>
+                            </select>
+                            {x.sena && <input className={`${entrada} !w-20`} type="number" min="1" value={x.sena.valor} aria-label="Valor de la seña" onChange={(e) => cambiar(i, 'sena', { ...x.sena, valor: e.target.value === '' ? '' : Number(e.target.value) })} />}
+                          </div>
+                        </td>
+                      </>
                     )}
                     <td className="px-2 py-1.5"><button className="text-gray-500 hover:text-red-400" onClick={() => borrar(i)} aria-label="Borrar"><Trash2 size={15} /></button></td>
                   </tr>

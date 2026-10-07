@@ -2,13 +2,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '../components/Layout';
 import ImportarAsistente from '../components/ImportarAsistente';
 import MovimientoModal from '../components/MovimientoModal';
+import VentaRapida from '../components/VentaRapida';
+import MetasCard from '../components/MetasCard';
+import CierreCajaModal from '../components/CierreCajaModal';
+import RecurrentesPanel from '../components/RecurrentesPanel';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { bajarArchivo, pesos } from '../utils/archivos';
 import { Link } from 'react-router-dom';
 import {
   ChevronLeft, ChevronRight, Plus, Upload, Download, ChevronDown, Loader2, Pencil, Trash2,
-  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck, HandCoins, Truck,
+  TrendingUp, TrendingDown, Wallet, Clock, Search, CalendarCheck, HandCoins, Truck, ShoppingBag, Lock,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -61,6 +65,8 @@ export default function CajaPage() {
   const [buscar, setBuscar] = useState('');
   const [modal, setModal] = useState(null);       // { id?, inicial }
   const [importando, setImportando] = useState(false);
+  const [vendiendo, setVendiendo] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
   const [menuExp, setMenuExp] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -71,8 +77,8 @@ export default function CajaPage() {
   useEffect(() => { setCargando(true); cargar(); }, [cargar]);
 
   const borrar = async (m) => {
-    if (!window.confirm(`¿Borrar este ${m.tipo}? (${pesos(m.monto)} · ${m.categoria})`)) return;
-    try { await api.delete(`/caja/movimiento/${m._id}`); toast.success('Movimiento borrado'); cargar(); }
+    if (!window.confirm(m.origen === 'venta' ? `¿Anular esta venta? El stock vuelve al catálogo. (${pesos(m.monto)})` : `¿Borrar este ${m.tipo}? (${pesos(m.monto)} · ${m.categoria})`)) return;
+    try { await api.delete(`/caja/movimiento/${m._id}`); toast.success(m.origen === 'venta' ? 'Venta anulada: el stock volvió al catálogo' : 'Movimiento borrado'); cargar(); }
     catch (e) { toast.error(e.response?.data?.error || 'No se pudo borrar'); }
   };
 
@@ -114,6 +120,8 @@ export default function CajaPage() {
             <Link to="/proveedores" className="block hover:opacity-90"><Tarjeta icono={Truck} titulo="Debés (proveedores)" valor={pesos(datos.cuentas?.debes)} color="#f87171" detalle="Ver proveedores →" /></Link>
           </div>
 
+          <MetasCard />
+
           {r.cantidad > 0 && (
             <div className="card">
               <p className="text-sm font-medium text-white mb-3">Día por día</p>
@@ -135,8 +143,10 @@ export default function CajaPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-primary text-sm flex items-center gap-1.5" onClick={() => setModal({ inicial: { tipo: 'ingreso' } })}><Plus size={14} /> Ingreso</button>
+            <button className="btn-primary text-sm flex items-center gap-1.5" onClick={() => setVendiendo(true)}><ShoppingBag size={14} /> Vender</button>
+            <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setModal({ inicial: { tipo: 'ingreso' } })}><Plus size={14} /> Ingreso</button>
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setModal({ inicial: { tipo: 'gasto' } })}><Plus size={14} /> Gasto</button>
+            <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setCerrando(true)}><Lock size={14} /> Cerrar caja</button>
             <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setImportando(true)}><Upload size={14} /> Importar planilla</button>
             <div className="relative">
               <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={() => setMenuExp((v) => !v)}><Download size={14} /> Exportar <ChevronDown size={12} /></button>
@@ -160,6 +170,8 @@ export default function CajaPage() {
             </div>
           </div>
 
+          <RecurrentesPanel alCambiar={cargar} />
+
           {datos.movimientos.length === 0 ? (
             <div className="card text-center py-12">
               <Wallet className="mx-auto text-gray-600 mb-3" size={34} />
@@ -182,6 +194,9 @@ export default function CajaPage() {
                           <span className="text-white">{m.descripcion || m.categoria}</span>
                           <span className="ml-2 text-[11px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-400">{m.categoria}</span>
                           {deTurno && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-sky-300 bg-sky-500/10 inline-flex items-center gap-1"><CalendarCheck size={10} />Turno cobrado</span>}
+                          {m.origen === 'venta' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-emerald-300 bg-emerald-500/10 inline-flex items-center gap-1"><ShoppingBag size={10} />Venta rápida</span>}
+                          {m.origen === 'recurrente' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-sky-300 bg-sky-500/10">Gasto fijo</span>}
+                          {m.origen === 'pedido' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-emerald-300 bg-emerald-500/10">Pedido</span>}
                           {m.origen === 'documento' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-amber-300 bg-amber-500/10">Comprobante</span>}
                           {m.origen === 'ctacte' && <span className="ml-1 text-[11px] px-1.5 py-0.5 rounded-full text-violet-300 bg-violet-500/10">{m.tipo === 'ingreso' ? 'Cobro de deuda' : 'Pago a proveedor'}</span>}
                           {m.proveedorNombre && m.origen !== 'ctacte' && <span className="ml-1 text-xs text-gray-500">· {m.proveedorNombre}</span>}
@@ -190,7 +205,8 @@ export default function CajaPage() {
                         <td className="px-3 py-2 text-gray-400">{METODOS[m.metodo] || m.metodo}</td>
                         <td className="px-3 py-2 text-right font-medium" style={{ color: ing ? '#34d399' : '#f87171' }}>{ing ? '+' : '-'} {pesos(m.monto)}</td>
                         <td className="px-2 py-2 text-right whitespace-nowrap">
-                          {!deTurno && m.origen !== 'ctacte' && (<>
+                          {m.origen === 'venta' && <button className="p-1 text-gray-500 hover:text-red-400" aria-label="Anular venta" title="Anular venta (devuelve el stock)" onClick={() => borrar(m)}><Trash2 size={14} /></button>}
+                          {!deTurno && m.origen !== 'ctacte' && m.origen !== 'venta' && m.origen !== 'pedido' && (<>
                             <button className="p-1 text-gray-500 hover:text-white" aria-label="Editar" onClick={() => setModal({ id: m._id, inicial: m })}><Pencil size={14} /></button>
                             <button className="p-1 text-gray-500 hover:text-red-400" aria-label="Borrar" onClick={() => borrar(m)}><Trash2 size={14} /></button>
                           </>)}
@@ -207,6 +223,8 @@ export default function CajaPage() {
       </div>
 
       {modal && datos && <MovimientoModal id={modal.id} inicial={modal.inicial} categorias={datos.categorias} proveedores={datos.proveedores} onClose={() => setModal(null)} onGuardado={cargar} />}
+      {cerrando && <CierreCajaModal onClose={() => setCerrando(false)} onCerrado={cargar} />}
+      {vendiendo && <VentaRapida onClose={() => setVendiendo(false)} onVendido={cargar} />}
       {importando && <ImportarAsistente tipoInicial="movimientos" tipos={['movimientos']} onClose={() => setImportando(false)} onListo={cargar} />}
     </Layout>
   );

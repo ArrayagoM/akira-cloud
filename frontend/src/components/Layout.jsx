@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Fragment } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
-  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck, Brain, ShoppingBag, BarChart3,
+  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck, Brain, ShoppingBag, BarChart3, PieChart,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
@@ -16,24 +16,26 @@ import ActualizacionAviso, { VersionApp } from './ActualizacionAviso';
 // Versión de escritorio (Electron): sin Ideas/soporte, que dependen de la plataforma en la nube. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
 const DESKTOP = !!import.meta.env.VITE_DESKTOP;
 
+// `grupo` ordena el menú de la app de escritorio en secciones (en la web no se muestran títulos).
 const NAV_ITEMS_BASE = [
-  { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/agenda',      icon: CalendarDays,    label: 'Agenda'     },
-  { to: '/clientes',    icon: Users,           label: 'Clientes'   },
-  { to: '/chats',       icon: MessageSquare,   label: 'Chats'      },
-  { to: '/catalogo',    icon: Package,         label: 'Catálogo'   },
-  { to: '/pedidos',     icon: ShoppingBag,     label: 'Pedidos'    },
-  { to: '/caja',        icon: Wallet,          label: 'Caja'       },
-  { to: '/deudores',    icon: HandCoins,       label: 'Deudores'   },
-  { to: '/proveedores', icon: Truck,           label: 'Proveedores' },
-  { to: '/documentos',  icon: FileText,        label: 'Documentos' },
-  { to: '/conocimiento', icon: Brain,          label: 'Conocimiento' },
-  { to: '/analisis',    icon: BarChart3,       label: 'Qué preguntan' },
-  { to: '/respaldo',    icon: ShieldCheck,     label: 'Respaldo'   },
-  { to: '/config',      icon: Settings,        label: 'Config'     },
-  { to: '/descargar',   icon: Download,        label: 'App'        },
-  { to: '/planes',      icon: CreditCard,      label: 'Planes'     },
-  { to: '/sugerencias', icon: Lightbulb,       label: 'Ideas'      },
+  { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard',  grupo: 'Atención' },
+  { to: '/agenda',      icon: CalendarDays,    label: 'Agenda',     grupo: 'Atención' },
+  { to: '/clientes',    icon: Users,           label: 'Clientes',   grupo: 'Atención' },
+  { to: '/chats',       icon: MessageSquare,   label: 'Chats',      grupo: 'Atención' },
+  { to: '/catalogo',    icon: Package,         label: 'Catálogo',   grupo: 'Ventas' },
+  { to: '/pedidos',     icon: ShoppingBag,     label: 'Pedidos',    grupo: 'Ventas' },
+  { to: '/caja',        icon: Wallet,          label: 'Caja',       grupo: 'Dinero' },
+  { to: '/reportes',    icon: PieChart,        label: 'Reportes',   grupo: 'Dinero' },
+  { to: '/deudores',    icon: HandCoins,       label: 'Deudores',   grupo: 'Dinero' },
+  { to: '/proveedores', icon: Truck,           label: 'Proveedores', grupo: 'Dinero' },
+  { to: '/documentos',  icon: FileText,        label: 'Documentos', grupo: 'Dinero' },
+  { to: '/conocimiento', icon: Brain,          label: 'Conocimiento', grupo: 'Tu bot' },
+  { to: '/analisis',    icon: BarChart3,       label: 'Qué preguntan', grupo: 'Tu bot' },
+  { to: '/respaldo',    icon: ShieldCheck,     label: 'Respaldo',   grupo: 'Cuenta' },
+  { to: '/config',      icon: Settings,        label: 'Config',     grupo: 'Cuenta' },
+  { to: '/descargar',   icon: Download,        label: 'App',        grupo: 'Cuenta' },
+  { to: '/planes',      icon: CreditCard,      label: 'Planes',     grupo: 'Cuenta' },
+  { to: '/sugerencias', icon: Lightbulb,       label: 'Ideas',      grupo: 'Cuenta' },
 ];
 
 const PLAN_BADGE = {
@@ -64,7 +66,7 @@ export default function Layout({ children }) {
   const navItems = [
     ...NAV_ITEMS_BASE.filter((i) => (DESKTOP
       ? !(i.to === '/sugerencias' || i.to === '/descargar')
-      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
+      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis', '/reportes'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
     ...(user?.rol === 'admin' ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];
 
@@ -109,8 +111,11 @@ export default function Layout({ children }) {
           {navItems.map((item, i) => {
             const Icon  = item.icon;
             const active = isActive(item.to);
+            const titulo = DESKTOP && item.grupo && item.grupo !== navItems[i - 1]?.grupo ? item.grupo : null;
             return (
-              <Link key={item.to} to={item.to}
+              <Fragment key={item.to}>
+              {titulo && <p className={`px-3 text-[10px] uppercase tracking-widest text-gray-600 ${i === 0 ? 'mt-0' : 'mt-3'} mb-0.5`}>{titulo}</p>}
+              <Link to={item.to}
                 className="relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
                 style={{
                   color: active ? 'var(--accent)' : 'var(--text2)',
@@ -128,6 +133,7 @@ export default function Layout({ children }) {
                   <span className="ml-auto text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'var(--accent)', color: '#000' }}>{docsNuevos}</span>
                 )}
               </Link>
+              </Fragment>
             );
           })}
 

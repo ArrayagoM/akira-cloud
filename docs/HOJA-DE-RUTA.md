@@ -52,7 +52,7 @@ E10 Landing + SEO/GEO (al final, describiendo lo que ya funciona)
 | 2.3 | **Derivar a una persona**: si el cliente está molesto o pide algo raro, avisa al dueño con el resumen de la charla y el bot deja de responder ese chat | 🟡 | S | ✅ 1.0.17 |
 | 2.4 | **Respuestas fuera de horario** distintas (“te respondemos mañana a las 9”) | 🟡 | S | ✅ 1.0.17 |
 | 2.5 | **Tutorial interactivo**: lista de “Primeros pasos” que se tilda sola según lo configurado | 🟠 | S | ✅ 1.0.17 |
-| 2.6 | **Recordatorio de vencimientos** del dueño (monotributo, alquiler, impuestos) — se hace junto con 6.3 (gastos recurrentes): es la misma función | 🟡 | S | ⬜ → E6 |
+| 2.6 | **Recordatorio de vencimientos** del dueño (monotributo, alquiler, impuestos) — se hace junto con 6.3 (gastos recurrentes): es la misma función | 🟡 | S | ✅ 1.0.21 |
 
 ## E3 — App móvil nativa (Android + iOS) — *solo monitoreo y ajustes mínimos*
 
@@ -104,11 +104,11 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 6.1 | **Stock y ventas rápidas**: “vender” en dos toques, descuenta stock, suma a la Caja y avisa cuando queda poco | 🟠 | M | ⬜ |
-| 6.2 | **Señas configurables por servicio** | 🟡 | S | ⬜ |
-| 6.3 | **Gastos recurrentes** (alquiler, internet) que se cargan solos cada mes | 🟡 | S | ⬜ |
-| 6.4 | **Cierre de caja diario** con diferencias contra lo que dice el sistema | 🟡 | S | ⬜ |
-| 6.5 | **Metas del mes** con barra de progreso | ⚪ | S | ⬜ |
+| 6.1 | **Stock y ventas rápidas**: “vender” en dos toques, descuenta stock, suma a la Caja y avisa cuando queda poco | 🟠 | M | ✅ 1.0.21 |
+| 6.2 | **Señas configurables por servicio** | 🟡 | S | ✅ 1.0.21 |
+| 6.3 | **Gastos recurrentes** (alquiler, internet) que se cargan solos cada mes | 🟡 | S | ✅ 1.0.21 |
+| 6.4 | **Cierre de caja diario** con diferencias contra lo que dice el sistema | 🟡 | S | ✅ 1.0.21 |
+| 6.5 | **Metas del mes** con barra de progreso | ⚪ | S | ✅ 1.0.21 |
 | 6.6 | **Reportes**: servicios más pedidos, clientes frecuentes, horas pico, ausencias, evolución mes a mes, con exportación | 🟠 | M | ⬜ |
 | 6.7 | **Presupuestos y recibos en PDF** con tu logo, enviados por WhatsApp | 🟠 | M | ⬜ |
 | 6.8 | **Conciliación con MercadoPago**: traer los movimientos de la cuenta y cruzarlos con la Caja | 🟠 | M | ⬜ |

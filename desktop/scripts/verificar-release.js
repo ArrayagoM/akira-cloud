@@ -128,6 +128,12 @@ const raiz = process.argv[2];
   const cono = require(path.join(raiz, 'main/bot-engine/services/bot/conocimiento.service'));
   if (!cono.buscar([{ titulo: 'FAQ', fragmentos: ['Aceptamos efectivo, transferencia y MercadoPago.'] }], 'aceptan mercadopago', { k: 1 }).length) throw new Error('la búsqueda en el conocimiento falla dentro del paquete');
   if (/2241497226/.test(require(path.join(raiz, 'main/bot-engine/services/bot/analitica.service')).anonimizar('llamame al 2241497226'))) throw new Error('el análisis no anonimiza dentro del paquete');
+  // etapa 6: ventas rápidas, gastos fijos, cierre de caja, metas, reportes y señas
+  for (const m of ['main/gestion/ventas', 'main/gestion/recurrentes', 'main/gestion/cierre', 'main/gestion/metas', 'main/gestion/reportes', 'main/gestion/senas', 'main/gestion/exportador-reportes', 'main/recurrentes-servicio', 'main/local-api/routes/ventas.routes', 'main/local-api/routes/recurrentes.routes', 'main/local-api/routes/cierres.routes', 'main/local-api/routes/metas.routes', 'main/local-api/routes/reportes.routes']) require(path.join(raiz, m));
+  if (require(path.join(raiz, 'main/gestion/senas')).calcular({ sena: { tipo: 'porcentaje', valor: 30 } }, 1000).cobrar !== 300) throw new Error('el cálculo de señas falla dentro del paquete');
+  if (require(path.join(raiz, 'main/gestion/recurrentes')).fechaEnMes('2026-02', 31) !== '2026-02-28') throw new Error('los gastos fijos fallan dentro del paquete');
+  const repo = require(path.join(raiz, 'main/gestion/reportes')).armar({ turnos: [], movimientos: [], desde: '2026-10-01', hasta: '2026-10-07', meses: 2 });
+  if ((await require(path.join(raiz, 'main/gestion/exportador-reportes')).exportarXlsx(repo)).length < 1000) throw new Error('la exportación de reportes falla dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

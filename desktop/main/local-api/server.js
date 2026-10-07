@@ -123,7 +123,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/admin', aNube); // panel de administración: vive en la nube (solo rol admin)
 
   // ── Lo que corre local ─────────────────────────────────────────
-  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, estadoImport: () => estadoImp, ejecutarImport };
+  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, servicioRecurrentes: appHooks.servicioRecurrentes, estadoImport: () => estadoImp, ejecutarImport };
   app.use('/api/config', require('./routes/config.routes')(deps));
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
@@ -137,6 +137,11 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/app/conocimiento', require('./routes/conocimiento.routes')(deps));
   app.use('/api/app/catalogo-fotos', require('./routes/catalogo-fotos.routes')(deps));
   app.use('/api/app/pedidos', require('./routes/pedidos.routes')(deps));
+  app.use('/api/app/ventas', require('./routes/ventas.routes')(deps));
+  app.use('/api/app/recurrentes', require('./routes/recurrentes.routes')(deps));
+  app.use('/api/app/cierres', require('./routes/cierres.routes')(deps));
+  app.use('/api/app/metas', require('./routes/metas.routes')(deps));
+  app.use('/api/app/reportes', require('./routes/reportes.routes')(deps));
   app.use('/api/app/analitica', require('./routes/analitica.routes')(deps));
   if (appHooks.servicioDifusion) app.use('/api/app/difusion', require('./routes/difusion.routes')(deps));
   if (appHooks.servicioRespaldo) app.use('/api/app/respaldo', require('./routes/respaldo.routes')(deps));

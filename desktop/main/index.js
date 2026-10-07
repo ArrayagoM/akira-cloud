@@ -221,6 +221,17 @@ if (!bloqueo) {
     const sesionAlmacen = require('./license/session-store');
     const uidActual = () => String(sesionAlmacen.leer(userDataDir)?.userId || '');
     const guardianMod = require('./license/guardian');
+    // Gastos fijos y vencimientos: se cargan solos a la Caja y avisan unos días antes (ver recurrentes-servicio.js)
+    appHooks.servicioRecurrentes = require('./recurrentes-servicio').crearServicio({
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      modelos: { Recurrente: require('./bot-engine/models/Recurrente'), Movimiento: require('./bot-engine/models/Movimiento') },
+      avisar: async (texto) => {
+        const uid = require('./license/session-store').leer(userDataDir)?.userId;
+        const cel = String((await ConfigModelo.findOne({ userId: String(uid) }))?.celularNotificaciones || '').replace(/\D/g, '');
+        return cel.length >= 10 ? !!botService.avisarDueno(texto) : false;
+      },
+      log,
+    });
     appHooks.servicioCelular = require('./comandos-remotos').crearServicio({
       userDataDir, log,
       llamar: (cuerpo) => licenseClient.request('/api/licenses/comandos', 'POST', { ...cuerpo, deviceId: require('./device').obtenerDeviceId(userDataDir) }),
@@ -264,6 +275,7 @@ if (!bloqueo) {
     servicioResumenDiario.programar();
     appHooks.servicioCelular.programar();
     appHooks.servicioResenas.programar();
+    appHooks.servicioRecurrentes.programar();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -303,5 +315,5 @@ if (!bloqueo) {
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

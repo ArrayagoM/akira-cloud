@@ -29,6 +29,7 @@ import DeudoresPage      from './pages/DeudoresPage';
 import RespaldoPage      from './pages/RespaldoPage';
 import ConocimientoPage  from './pages/ConocimientoPage';
 import PedidosPage       from './pages/PedidosPage';
+import ReportesPage      from './pages/ReportesPage';
 import AnalisisPage      from './pages/AnalisisPage';
 import ProveedoresPage   from './pages/ProveedoresPage';
 import Descargar         from './pages/Descargar';
@@ -121,6 +122,7 @@ export default function App() {
         <Route path="/respaldo"    element={DESKTOP ? <ProtectedRoute><RespaldoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/conocimiento" element={DESKTOP ? <ProtectedRoute><ConocimientoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/pedidos"      element={DESKTOP ? <ProtectedRoute><PedidosPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/reportes"     element={DESKTOP ? <ProtectedRoute><ReportesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/analisis"     element={DESKTOP ? <ProtectedRoute><AnalisisPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/proveedores" element={DESKTOP ? <ProtectedRoute><ProveedoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 

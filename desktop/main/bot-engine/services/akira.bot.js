@@ -43,6 +43,7 @@ const conocimientoSvc = require('./bot/conocimiento.service');
 const pedidosSvc = require('./bot/pedidos.service');
 const analiticaSvc = require('./bot/analitica.service');
 const copilotoSvc = require('./bot/copiloto.service');
+const senasLib = require('../../gestion/senas');
 const { crearPedidosBot } = require('./bot/pedidos-bot');
 const programasLib = require('../../programas');
 const systemBot = require('./system.bot');
@@ -1933,7 +1934,10 @@ Revisalo en Akira → Documentos.`);
           s.nombre.toLowerCase().includes((args.servicio || '').toLowerCase()),
         );
         const durMin = servicioConf?.duracion || 60;
-        const total = servicioConf?.precio || PRECIO_TURNO;
+        const precioServicio = servicioConf?.precio || PRECIO_TURNO;
+        // Seña por servicio (opcional): se cobra por MercadoPago solo una parte; el resto se abona en el local
+        const senaCalc = senasLib.calcular(servicioConf, precioServicio);
+        const total = senaCalc.cobrar;
         const [y, m, d] = args.fecha.split('-').map(Number);
         const [hh, mm] = args.hora.split(':').map(Number);
         const hI = hh;
@@ -1995,6 +1999,8 @@ Revisalo en Akira → Documentos.`);
               email: usuario.email,
               cant: 1,
               total,
+              precioTotal: senaCalc.total,
+              saldo: senaCalc.saldo,
               servicio: args.servicio,
               infoItem: args.info_item,
               turnoId: turnoPendiente._id.toString(),
@@ -2002,10 +2008,10 @@ Revisalo en Akira → Documentos.`);
             };
             db.guardar(RESERVAS_PATH, reservasPendientes);
             push(
-              `Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS. Link: ${pref.init_point}. Vence en 30 min.`,
+              `Link generado. ${args.servicio} — ${args.info_item} — ${args.fecha} ${args.hora}–${hFnStr}. $${total} ARS${senasLib.textoSena(senaCalc)}. Link: ${pref.init_point}. Vence en 30 min.`,
             );
             notificarDueno(
-              `🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💳 Esperando pago MP ($${total})\n📱 +${tel}`,
+              `🔔 *Servicio pendiente de pago*\n🔧 ${args.servicio}\n🚗 ${args.info_item}\n👤 ${usuario.nombre}\n📅 ${args.fecha} ${args.hora}–${hFnStr}\n💳 Esperando pago MP ($${total})${senaCalc.esSena ? ` — seña de $${senaCalc.total}` : ''}\n📱 +${tel}`,
             );
           } else {
             // Si MP falla, liberar el slot pendiente
@@ -3373,6 +3379,8 @@ Revisalo en Akira → Documentos.`);
             'pago.monto':       res2.total || PRECIO_TURNO,
             'pago.metodo':      'mercadopago',
             'pago.comprobante': String(pago.id),
+            'pago.saldo':       res2.saldo || 0,
+            'pago.precioTotal': res2.precioTotal || res2.total || PRECIO_TURNO,
             descripcion:        `WhatsApp: +${tel} | Pago MP ID: ${pago.id} | $${res2.total || PRECIO_TURNO}`,
           },
           { new: true },
@@ -3430,6 +3438,8 @@ Revisalo en Akira → Documentos.`);
             'pago.monto':       res2.total || PRECIO_TURNO,
             'pago.metodo':      'mercadopago',
             'pago.comprobante': String(pago.id),
+            'pago.saldo':       res2.saldo || 0,
+            'pago.precioTotal': res2.precioTotal || res2.total || PRECIO_TURNO,
           },
           { new: true },
         ).catch(() => null);
@@ -3492,13 +3502,14 @@ Revisalo en Akira → Documentos.`);
 
       // Notificar al dueño — turno confirmado y pagado
       notificarDueno(
-        `✅ *Turno confirmado y pagado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} ARS (MP)\n💳 ID Pago: ${pago.id}\n📱 +${tel}`,
+        `✅ *Turno confirmado y pagado*\n👤 ${res2.nombre}\n📅 ${res2.fecha} a las ${res2.hora}\n💰 $${res2.total || PRECIO_TURNO} ARS (MP)${res2.saldo > 0 ? ` — seña; resta cobrar $${res2.saldo} en el local` : ''}\n💳 ID Pago: ${pago.id}\n📱 +${tel}`,
       );
 
       const horaFinStr = res2.horaFin || `${hF}:00`;
       let msgConfirmacion =
         `¡Listo, ${res2.nombre}! 🎉 Tu turno está *confirmado y reservado*.\n\n` +
-        `✅ *Pago recibido:* $${res2.total || PRECIO_TURNO} ARS\n` +
+        `✅ *${res2.saldo > 0 ? 'Seña recibida' : 'Pago recibido'}:* $${res2.total || PRECIO_TURNO} ARS\n` +
+        (res2.saldo > 0 ? `💵 *Resto a abonar en el local:* $${res2.saldo} ARS\n` : '') +
         `📅 *Fecha:* ${res2.fecha}\n` +
         `🕐 *Horario:* ${res2.hora} – ${horaFinStr} hs\n`;
       if (turnoConfirmado?.googleEventHtmlLink) {
