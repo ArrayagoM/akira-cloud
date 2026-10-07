@@ -9,11 +9,12 @@ import { bajarArchivo, aBase64, pesos } from '../utils/archivos';
 // Asistente de importación de 4 pasos (archivo → columnas → vista previa → listo con "deshacer").
 // Lo usan Catálogo (productos y servicios) y Caja (movimientos). Todo se lee en esta PC.
 
-const ETIQUETAS = { productos: 'Productos', servicios: 'Servicios', movimientos: 'Movimientos', proveedores: 'Proveedores' };
+const ETIQUETAS = { productos: 'Productos', servicios: 'Servicios', movimientos: 'Movimientos', proveedores: 'Proveedores', clientes: 'Clientes' };
 const CAMPOS_MAPEO = {
   productos: [['nombre', 'Nombre', true], ['precio', 'Precio', true], ['categoria', 'Categoría'], ['stock', 'Stock'], ['descripcion', 'Descripción']],
   servicios: [['nombre', 'Nombre', true], ['precio', 'Precio', true], ['duracion', 'Duración (min)']],
   proveedores: [['nombre', 'Nombre', true], ['telefono', 'Teléfono'], ['cuit', 'CUIT'], ['rubro', 'Rubro'], ['notas', 'Notas']],
+  clientes: [['telefono', 'Teléfono / celular', true], ['nombre', 'Nombre'], ['email', 'Email'], ['etiquetas', 'Etiquetas'], ['notas', 'Notas']],
   movimientos: [['fecha', 'Fecha', true], ['monto', 'Monto', true], ['tipo', 'Tipo (ingreso / gasto)'], ['categoria', 'Categoría'], ['descripcion', 'Descripción'], ['metodo', 'Método de pago']],
 };
 const ESTADOS = {
@@ -66,7 +67,7 @@ export default function ImportarAsistente({ tipoInicial, tipos = ['productos', '
 
   const previsualizar = async () => {
     const obligatorios = CAMPOS_MAPEO[tipo].filter((c) => c[2]).map((c) => c[0]);
-    if (obligatorios.some((c) => mapeo[c] == null)) { toast.error(tipo === 'movimientos' ? 'Indicá qué columna es la fecha y cuál es el monto' : 'Indicá qué columna es el nombre y cuál es el precio'); return; }
+    if (obligatorios.some((c) => mapeo[c] == null)) { toast.error(tipo === 'movimientos' ? 'Indicá qué columna es la fecha y cuál es el monto' : tipo === 'clientes' ? 'Indicá qué columna es el teléfono' : tipo === 'proveedores' ? 'Indicá qué columna es el nombre' : 'Indicá qué columna es el nombre y cuál es el precio'); return; }
     setCargando(true);
     try {
       const r = await api.post('/gestion/previsualizar', body());
@@ -191,8 +192,8 @@ export default function ImportarAsistente({ tipoInicial, tipos = ['productos', '
                 vista.resumen[k] > 0 && <span key={k} className={`px-2.5 py-1 rounded-full ${ESTADOS[est].cls}`}>{vista.resumen[k]} {txt}</span>
               ))}
             </div>
-            {tipo === 'movimientos' || tipo === 'proveedores' ? (
-              <p className="text-xs text-gray-500">{tipo === 'movimientos' ? 'En la Caja solo se suman movimientos nuevos: nunca se borra ni se pisa nada de lo que ya cargaste.' : 'Se suman los proveedores nuevos y se completan los datos de los que ya tenés con el mismo nombre. No se borra ninguno.'}</p>
+            {tipo === 'movimientos' || tipo === 'proveedores' || tipo === 'clientes' ? (
+              <p className="text-xs text-gray-500">{tipo === 'movimientos' ? 'En la Caja solo se suman movimientos nuevos: nunca se borra ni se pisa nada de lo que ya cargaste.' : tipo === 'clientes' ? 'Se suman los clientes nuevos y a los que ya tenés (mismo teléfono) se les completan etiquetas, mail y notas. Nunca se borra ni se pisa su historial de chats ni sus turnos.' : 'Se suman los proveedores nuevos y se completan los datos de los que ya tenés con el mismo nombre. No se borra ninguno.'}</p>
             ) : (
             <div className="flex flex-wrap gap-4 text-sm">
               <label className="flex items-center gap-2 text-gray-300 cursor-pointer"><input type="radio" checked={modo === 'agregar'} onChange={() => setModo('agregar')} /> Sumar y actualizar lo que ya tengo</label>
@@ -201,7 +202,7 @@ export default function ImportarAsistente({ tipoInicial, tipos = ['productos', '
             )}
             <div className="overflow-auto rounded-lg border border-white/10 max-h-[42vh]">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-[#0b1017]"><tr className="text-gray-500 text-left"><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5">{tipo === 'movimientos' ? 'Fecha · Descripción' : 'Nombre'}</th><th className="px-2 py-1.5">{tipo === 'movimientos' ? 'Monto' : tipo === 'proveedores' ? 'Teléfono' : 'Precio'}</th><th className="px-2 py-1.5">{tipo === 'productos' ? 'Categoría · Stock' : tipo === 'servicios' ? 'Duración' : tipo === 'proveedores' ? 'Rubro · CUIT' : 'Tipo · Método'}</th><th className="px-2 py-1.5">Estado</th></tr></thead>
+                <thead className="sticky top-0 bg-[#0b1017]"><tr className="text-gray-500 text-left"><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5">{tipo === 'movimientos' ? 'Fecha · Descripción' : 'Nombre'}</th><th className="px-2 py-1.5">{tipo === 'movimientos' ? 'Monto' : tipo === 'proveedores' || tipo === 'clientes' ? 'Teléfono' : 'Precio'}</th><th className="px-2 py-1.5">{tipo === 'productos' ? 'Categoría · Stock' : tipo === 'servicios' ? 'Duración' : tipo === 'proveedores' ? 'Rubro · CUIT' : tipo === 'clientes' ? 'Etiquetas · Email' : 'Tipo · Método'}</th><th className="px-2 py-1.5">Estado</th></tr></thead>
                 <tbody>
                   {vista.filas.map((f) => {
                     const apagada = f.estado === 'error' || f.estado === 'duplicado' || excluir.has(f.fila);
@@ -210,8 +211,8 @@ export default function ImportarAsistente({ tipoInicial, tipos = ['productos', '
                         <td className="px-2 py-1"><input type="checkbox" disabled={f.estado === 'error' || f.estado === 'duplicado'} checked={!apagada}
                           onChange={() => setExcluir((s) => { const n = new Set(s); n.has(f.fila) ? n.delete(f.fila) : n.add(f.fila); return n; })} /></td>
                         <td className="px-2 py-1 text-white">{tipo === 'movimientos' ? `${f.dato.fecha ? f.dato.fecha.split('-').reverse().join('/') : '—'} · ${f.dato.descripcion || f.dato.categoria}` : (f.dato.nombre || <em className="text-gray-500">(vacío)</em>)}</td>
-                        <td className="px-2 py-1" style={{ color: tipo === 'movimientos' ? (f.dato.tipo === 'ingreso' ? '#6ee7b7' : '#fca5a5') : '#d1d5db' }}>{tipo === 'proveedores' ? (f.dato.telefono || '—') : (f.errores.length ? '—' : pesos(tipo === 'movimientos' ? f.dato.monto : f.dato.precio))}</td>
-                        <td className="px-2 py-1 text-gray-400">{tipo === 'productos' ? `${f.dato.categoria || '—'} · ${f.dato.stock >= 0 ? f.dato.stock : 'sin control'}` : tipo === 'servicios' ? `${f.dato.duracion} min` : tipo === 'proveedores' ? `${f.dato.rubro || '—'} · ${f.dato.cuit || 'sin CUIT'}` : `${f.dato.tipo === 'ingreso' ? 'Ingreso' : 'Gasto'} · ${f.dato.metodo}`}</td>
+                        <td className="px-2 py-1" style={{ color: tipo === 'movimientos' ? (f.dato.tipo === 'ingreso' ? '#6ee7b7' : '#fca5a5') : '#d1d5db' }}>{tipo === 'proveedores' || tipo === 'clientes' ? (f.dato.telefono || '—') : (f.errores.length ? '—' : pesos(tipo === 'movimientos' ? f.dato.monto : f.dato.precio))}</td>
+                        <td className="px-2 py-1 text-gray-400">{tipo === 'productos' ? `${f.dato.categoria || '—'} · ${f.dato.stock >= 0 ? f.dato.stock : 'sin control'}` : tipo === 'servicios' ? `${f.dato.duracion} min` : tipo === 'proveedores' ? `${f.dato.rubro || '—'} · ${f.dato.cuit || 'sin CUIT'}` : tipo === 'clientes' ? `${(f.dato.etiquetas || []).join(', ') || '—'} · ${f.dato.email || 'sin mail'}` : `${f.dato.tipo === 'ingreso' ? 'Ingreso' : 'Gasto'} · ${f.dato.metodo}`}</td>
                         <td className="px-2 py-1">
                           <span className={`px-2 py-0.5 rounded-full ${ESTADOS[f.estado].cls}`}>{ESTADOS[f.estado].txt}</span>
                           {[...f.errores, ...f.avisos].map((m, i) => <p key={i} className={`mt-0.5 ${f.errores.length ? 'text-red-300' : 'text-amber-300'}`}>{m}</p>)}

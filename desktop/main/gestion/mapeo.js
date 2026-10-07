@@ -12,6 +12,7 @@ const CAMPOS = {
   servicios: ['nombre', 'precio', 'duracion'],
   movimientos: ['fecha', 'monto', 'tipo', 'categoria', 'descripcion', 'metodo'],
   proveedores: ['nombre', 'telefono', 'cuit', 'rubro', 'notas'],
+  clientes: ['nombre', 'telefono', 'email', 'etiquetas', 'notas'],
 };
 
 // Sinónimos para planillas de proveedores.
@@ -21,6 +22,15 @@ const SINONIMOS_PROV = {
   cuit: ['cuit', 'cuil', 'documento', 'nro cuit'],
   rubro: ['rubro', 'categoria', 'actividad', 'tipo', 'producto', 'productos'],
   notas: ['notas', 'observaciones', 'comentarios', 'detalle', 'direccion', 'domicilio'],
+};
+
+// Sinónimos para planillas de clientes.
+const SINONIMOS_CLI = {
+  nombre: ['nombre', 'nombre y apellido', 'apellido y nombre', 'cliente', 'clientes', 'contacto', 'nombre completo', 'razon social'],
+  telefono: ['telefono', 'tel', 'celular', 'whatsapp', 'movil', 'cel', 'nro de telefono', 'numero', 'numero de telefono', 'phone'],
+  email: ['email', 'e mail', 'mail', 'correo', 'correo electronico'],
+  etiquetas: ['etiquetas', 'etiqueta', 'tags', 'tag', 'categoria', 'grupo', 'tipo de cliente', 'segmento'],
+  notas: ['notas', 'nota', 'observaciones', 'comentarios', 'detalle', 'direccion', 'domicilio'],
 };
 
 // Sinónimos de encabezados para planillas de gastos/ingresos (Caja).
@@ -94,7 +104,7 @@ const pareceNumero = (v) => v !== '' && v != null && parsearPrecio(v) != null &&
 // Devuelve { nombre: índiceDeColumna | null, precio: …, … } para el tipo pedido.
 function sugerirMapeo(tipo, columnas, filas) {
   const campos = CAMPOS[tipo] || CAMPOS.productos;
-  const sinonimos = tipo === 'movimientos' ? SINONIMOS_MOV : tipo === 'proveedores' ? SINONIMOS_PROV : SINONIMOS;
+  const sinonimos = tipo === 'movimientos' ? SINONIMOS_MOV : tipo === 'proveedores' ? SINONIMOS_PROV : tipo === 'clientes' ? SINONIMOS_CLI : SINONIMOS;
   const norm = columnas.map(normalizar);
   const mapeo = Object.fromEntries(campos.map((c) => [c, null]));
   const usadas = new Set();
@@ -140,6 +150,9 @@ function sugerirMapeo(tipo, columnas, filas) {
 // ¿Parece planilla de servicios (tiene duración) o de productos?
 function sugerirTipo(columnas) {
   const norm = columnas.map(normalizar);
+  const tieneTel = norm.some((h) => SINONIMOS_CLI.telefono.some((x) => h === x));
+  const tienePrecio = norm.some((h) => SINONIMOS.precio.includes(h) || h.includes('precio'));
+  if (tieneTel && !tienePrecio && !norm.some((h) => SINONIMOS.duracion.includes(h) || SINONIMOS.stock.includes(h))) return 'clientes';
   if (norm.some((h) => SINONIMOS.duracion.includes(h) || h.includes('duracion'))) return 'servicios';
   if (norm.some((h) => SINONIMOS.stock.includes(h) || SINONIMOS.categoria.includes(h))) return 'productos';
   return 'productos';
@@ -224,7 +237,37 @@ function construirFilasProv(filas, mapeo, existentes = []) {
   return salida;
 }
 
+// Planilla de clientes: el teléfono es lo único obligatorio (con él el bot reconoce al cliente por WhatsApp).
+// Si ya existe un cliente con ese teléfono (mismos 10 últimos dígitos) se actualiza sin tocar su historial.
+const telClave = (tel) => { const d = String(tel ?? '').replace(/@.*$/, '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : ''; };
+function construirFilasCli(filas, mapeo, existentes = []) {
+  const claves = new Set(existentes.map((e) => telClave(e.telefono)).filter(Boolean));
+  const vistos = new Map(); const salida = [];
+  filas.forEach((f, i) => {
+    const celda = (campo) => (mapeo[campo] == null ? '' : f[mapeo[campo]]);
+    if (f.every((c) => c === '' || c == null)) return;
+    const errores = []; const avisos = [];
+    const crudoTel = celda('telefono');
+    const clave = telClave(typeof crudoTel === 'number' ? String(Math.round(crudoTel)) : crudoTel);
+    const digitos = String(crudoTel ?? '').replace(/\D/g, '');
+    if (!digitos) errores.push('Falta el teléfono');
+    else if (!clave) errores.push(`Teléfono no válido: "${texto(crudoTel)}" (hace falta código de área + número, 10 dígitos o más)`);
+    const nombre = texto(celda('nombre')).slice(0, 80);
+    if (!nombre && !errores.length) avisos.push('Sin nombre: el bot le va a preguntar cómo se llama');
+    let email = texto(celda('email')).toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { avisos.push(`Email "${email}" no válido: se deja vacío`); email = ''; }
+    const etiquetas = String(celda('etiquetas') ?? '').split(/[,;|/]/).map((t) => texto(t).slice(0, 32)).filter(Boolean).slice(0, 12);
+    const dato = { nombre, telefono: clave ? `549${clave}` : '', email, etiquetas, notas: texto(celda('notas')).slice(0, 500) };
+    const estado = errores.length ? 'error' : claves.has(clave) ? 'actualiza' : 'nuevo';
+    if (clave && !errores.length) vistos.set(clave, i + 1);
+    salida.push({ fila: i + 1, estado, errores, avisos, dato, clave });
+  });
+  for (const f of salida) { if (f.estado !== 'error' && vistos.get(f.clave) !== f.fila) { f.estado = 'duplicado'; f.avisos.push(`Teléfono repetido: se usa la fila ${vistos.get(f.clave)}`); } delete f.clave; }
+  return salida;
+}
+
 function construirFilas(tipo, filas, mapeo, existentes = []) {
+  if (tipo === 'clientes') return construirFilasCli(filas, mapeo, existentes);
   if (tipo === 'movimientos') return construirFilasMov(filas, mapeo, existentes);
   if (tipo === 'proveedores') return construirFilasProv(filas, mapeo, existentes);
   const claves = new Map();
@@ -299,6 +342,22 @@ function aplicarImportacion(tipo, existentes, filas, { modo = 'agregar', excluir
     }
     return { lista, agregados, actualizados, omitidos: filas.length - validas.length };
   }
+  if (tipo === 'clientes') {
+    // Los clientes nunca se reemplazan ni se borran: solo se suman los nuevos y se completan los datos de los que ya están.
+    const lista = existentes.map((e) => ({ ...e }));
+    const indice = new Map(); lista.forEach((e, i) => { const k = telClave(e.telefono); if (k) indice.set(k, i); });
+    let agregados = 0; let actualizados = 0;
+    for (const f of validas) {
+      const k = telClave(f.dato.telefono);
+      if (indice.has(k)) {
+        const i = indice.get(k); const e = lista[i];
+        const etiq = [...new Set([...(e.etiquetas || []), ...f.dato.etiquetas])].slice(0, 12);
+        lista[i] = { ...e, nombre: e.nombre || f.dato.nombre, email: e.email || f.dato.email || null, etiquetas: etiq, notas: e.notas || f.dato.notas || '' };
+        actualizados++;
+      } else { lista.push({ ...f.dato, origenImport: true }); indice.set(k, lista.length - 1); agregados++; }
+    }
+    return { lista, agregados, actualizados, omitidos: filas.length - validas.length };
+  }
   if (tipo === 'movimientos') {
     // En la Caja nunca se reemplaza ni se actualiza: solo se suman movimientos nuevos.
     const lista = existentes.map((e) => ({ ...e }));
@@ -328,4 +387,4 @@ function aplicarImportacion(tipo, existentes, filas, { modo = 'agregar', excluir
   return { lista: base, agregados, actualizados, omitidos: filas.length - validas.length };
 }
 
-module.exports = { CAMPOS, normalizar, parsearPrecio, parsearEntero, parsearDuracion, sugerirMapeo, sugerirTipo, construirFilas, resumen, aplicarImportacion, claveNombre };
+module.exports = { CAMPOS, telClave, normalizar, parsearPrecio, parsearEntero, parsearDuracion, sugerirMapeo, sugerirTipo, construirFilas, resumen, aplicarImportacion, claveNombre };

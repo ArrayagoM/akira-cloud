@@ -38,8 +38,16 @@ module.exports = function crearRouter({ requerirSesion }) {
 
   router.patch('/:id', async (req, res) => {
     try {
-      const { estado, notas } = req.body;
+      const { estado, notas, ausente } = req.body;
       const update = {};
+      // "No vino": solo para turnos que ya pasaron. El turno sigue siendo "confirmado" (si había seña, sigue contando en la Caja).
+      if (ausente !== undefined) {
+        if (typeof ausente !== 'boolean') return res.status(400).json({ error: 'Valor inválido' });
+        const t = await Turno.findOne({ _id: req.params.id, userId: req.user._id }).lean();
+        if (!t) return res.status(404).json({ error: 'Turno no encontrado' });
+        if (ausente && new Date(t.fechaInicio) > new Date()) return res.status(400).json({ error: 'Ese turno todavía no pasó.' });
+        update.ausente = ausente;
+      }
       if (estado) update.estado = estado;
       if (notas !== undefined) update['pago.notas'] = notas;
       const turno = await Turno.findOneAndUpdate({ _id: req.params.id, userId: req.user._id }, { $set: update }, { new: true });

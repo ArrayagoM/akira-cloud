@@ -123,7 +123,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/admin', aNube); // panel de administración: vive en la nube (solo rol admin)
 
   // ── Lo que corre local ─────────────────────────────────────────
-  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, estadoImport: () => estadoImp, ejecutarImport };
+  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, estadoImport: () => estadoImp, ejecutarImport };
   app.use('/api/config', require('./routes/config.routes')(deps));
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
@@ -132,6 +132,8 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/deudores', require('./routes/deudores.routes')(deps));
   app.use('/api/proveedores', require('./routes/proveedores.routes')(deps));
   app.use('/api/app/avisos', require('./routes/avisos.routes')(deps));
+  app.use('/api/app/programas', require('./routes/programas.routes')(deps));
+  if (appHooks.servicioDifusion) app.use('/api/app/difusion', require('./routes/difusion.routes')(deps));
   if (appHooks.servicioRespaldo) app.use('/api/app/respaldo', require('./routes/respaldo.routes')(deps));
   // ── "Ver mi negocio desde la web" (opcional, apagado por defecto) ──
   app.get('/api/app/resumen-web', sesion.requerirSesion, (_req, res) => res.json({ activo: require('../resumen-web').activo(userDataDir) }));

@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '../components/Layout';
+import ImportarAsistente from '../components/ImportarAsistente';
+import DifusionModal from '../components/DifusionModal';
+import ProgramasPanel from '../components/ProgramasPanel';
+import { Link } from 'react-router-dom';
+import { bajarArchivo } from '../utils/archivos';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import {
   Users, Search, Calendar, Phone, Loader2, ChevronLeft, ChevronRight,
   X, Star, Tag, MessageCircle, Clock, TrendingUp, DollarSign,
-  Bell, Save, Edit3, Plus, AlertTriangle, Sparkles,
+  Bell, Save, Edit3, Plus, AlertTriangle, Sparkles, Upload, Download, HandCoins, FileText, Send, Cake, Gift,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -26,6 +31,16 @@ const TAGS_SUGERIDAS = ['VIP', 'Frecuente', 'Nuevo', 'Recomendado', 'Alergia', '
 // ─────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────
+// "25/10" → "10-25" (o '' si está vacío / null si no es válido)
+function aMMDD(txt) {
+  const t = String(txt || '').trim();
+  if (!t) return '';
+  const m = /^(\d{1,2})\s*[\/\-.]\s*(\d{1,2})$/.exec(t);
+  if (!m) return null;
+  const d = parseInt(m[1], 10); const mes = parseInt(m[2], 10);
+  return mes >= 1 && mes <= 12 && d >= 1 && d <= 31 ? `${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+}
+
 function tiempoRelativo(fecha) {
   if (!fecha) return '';
   const diff = Date.now() - new Date(fecha).getTime();
@@ -155,9 +170,11 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
   const [notas, setNotas]       = useState(cliente.notas || '');
   const [etiquetas, setEtiquetas] = useState(cliente.etiquetas || []);
   const [intervalo, setIntervalo] = useState(cliente.intervaloRecordatorioDias || '');
+  const [cumple, setCumple]       = useState(cliente.cumple ? cliente.cumple.split('-').reverse().join('/') : ''); // se muestra DD/MM
   const [nuevaTag, setNuevaTag]   = useState('');
   const [saving, setSaving]       = useState(false);
   const [deleting, setDeleting]   = useState(false);
+  const [fichaVersion, setFichaVersion] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -179,6 +196,14 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
 
   const quitarTag = (t) => setEtiquetas(etiquetas.filter(x => x !== t));
 
+  const marcarAusente = async (t) => {
+    try {
+      await api.patch(`/turnos/${t._id}`, { ausente: !t.ausente });
+      setDetalle((d) => ({ ...d, turnos: d.turnos.map((x) => (x._id === t._id ? { ...x, ausente: !t.ausente } : x)) }));
+      setFichaVersion((v) => v + 1);
+    } catch (e) { toast.error(e?.response?.data?.error || 'No se pudo marcar'); }
+  };
+
   const eliminar = async () => {
     if (!confirm(`¿Eliminar a ${cliente.nombre || 'este cliente'} del sistema? Esto borra su historial y no se puede deshacer.`)) return;
     setDeleting(true);
@@ -195,12 +220,15 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
   };
 
   const guardar = async () => {
+    const mmdd = aMMDD(cumple);
+    if (mmdd === null) { toast.error('El cumpleaños no es válido (ejemplo: 25/10)'); return; }
     setSaving(true);
     try {
       const r = await api.patch(`/bot/clientes/${encodeURIComponent(cliente.jid)}/notas`, {
         notas: notas.trim(),
         etiquetas,
         intervaloRecordatorioDias: intervalo ? parseInt(intervalo) : null,
+        cumple: mmdd,
       });
       onSave?.(r.data.cliente);
       toast.success('Cliente actualizado');
@@ -271,6 +299,9 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
                 </div>
               </div>
 
+              {/* Ficha 360: deuda, próximo turno y documentos */}
+              <FichaExtra key={fichaVersion} jid={cliente.jid} />
+
               {/* Etiquetas */}
               <section>
                 <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 mb-2">
@@ -334,6 +365,16 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
                 <p className="text-[10px] text-gray-600 mt-1 text-right">{notas.length}/1000</p>
               </section>
 
+              {/* Cumpleaños (para saludarlo, con tu confirmación) */}
+              <section>
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 mb-2">
+                  <Cake size={12} /> Cumpleaños
+                  <span className="text-[10px] text-gray-600 font-normal ml-auto">día/mes</span>
+                </label>
+                <input value={cumple} onChange={e => setCumple(e.target.value)} placeholder="Ej: 25/10" maxLength={5} className="input-base w-full text-sm" />
+                <p className="text-[10px] text-gray-600 mt-1">Con esto podés saludarlo el día de su cumpleaños desde “Escribir a un grupo” (siempre lo confirmás vos).</p>
+              </section>
+
               {/* Recordatorio personalizado */}
               <section>
                 <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-300 mb-2">
@@ -376,6 +417,13 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
                               {f.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                             </p>
                           </div>
+                          {t.estado === 'confirmado' && f < new Date() && (
+                            <button onClick={() => marcarAusente(t)} className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 mr-1.5 transition-colors"
+                              style={t.ausente ? { color: '#fca5a5', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.3)' } : { color: '#9ca3af', border: '1px dashed rgba(255,255,255,0.2)' }}
+                              title={t.ausente ? 'Quitar la marca de ausencia' : 'Marcar que el cliente no vino'}>
+                              {t.ausente ? 'No vino ✕' : 'No vino'}
+                            </button>
+                          )}
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${
                             t.estado === 'confirmado' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
                             t.estado === 'cancelado'  ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
@@ -444,6 +492,98 @@ function ClienteDetalle({ cliente, onClose, onSave, onDelete }) {
   );
 }
 
+// ───────────────────────────────────────────────────────
+// FICHA 360 — lo que debe, sus documentos y su próximo turno (junto a las notas y etiquetas)
+// ───────────────────────────────────────────────────────
+function FichaExtra({ jid }) {
+  const [f, setF] = useState(null);
+  const [canjeando, setCanjeando] = useState(false); // los hooks siempre van antes de cualquier return condicional
+  useEffect(() => {
+    let vivo = true;
+    api.get(`/bot/clientes/${encodeURIComponent(jid)}/ficha`).then((r) => { if (vivo) setF(r.data); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [jid]);
+  if (!f) return null;
+  const fecha = (x) => (x ? String(x).slice(0, 10).split('-').reverse().join('/') : '');
+  const debe = f.deuda?.saldo > 0.005;
+  const faltador = (f.ausencias || 0) >= (f.umbralAusencias || 2);
+  const canjear = async () => { setCanjeando(true); try { await api.post('/app/programas/canjear', { jid }); toast.success('Premio anotado como entregado'); const x = await api.get(`/bot/clientes/${encodeURIComponent(jid)}/ficha`); setF(x.data); } catch (e) { toast.error(e?.response?.data?.error || 'No se pudo anotar'); } finally { setCanjeando(false); } };
+  const ESTADO_DOC = { nuevo: ['Sin revisar', '#fbbf24'], revisado: ['Revisado', '#9ca3af'], cargado: ['En la Caja', '#00e87b'] };
+  return (
+    <section className="space-y-3">
+      {f.ausencias > 0 && (
+        <div className="rounded-lg px-3 py-2 text-xs flex gap-2" style={{ background: faltador ? 'rgba(248,113,113,0.1)' : 'rgba(251,191,36,0.08)', color: faltador ? '#fca5a5' : '#fcd34d' }}>
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <p>Faltó a {f.ausencias} {f.ausencias === 1 ? 'turno' : 'turnos'} sin avisar.{faltador ? ' El bot le pide el pago por adelantado antes de confirmarle un turno nuevo (si tenés cobros configurados).' : ''}</p>
+        </div>
+      )}
+      <div className="card" style={{ border: `1px solid ${debe ? 'rgba(251,191,36,0.35)' : 'var(--border)'}` }}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-300"><HandCoins size={13} /> Cuenta corriente</p>
+          <Link to="/deudores" className="text-[11px] underline" style={{ color: 'var(--accent)' }}>Ver en Deudores</Link>
+        </div>
+        {debe ? (
+          <p className="mt-1.5 text-sm text-white">Debe <strong style={{ color: '#fbbf24' }}>${moneda(f.deuda.saldo)}</strong>{f.deuda.antiguedadDias > 0 ? <span className="text-gray-500"> · hace {f.deuda.antiguedadDias} {f.deuda.antiguedadDias === 1 ? 'día' : 'días'}</span> : null}</p>
+        ) : (
+          <p className="mt-1.5 text-sm text-gray-500">{f.deuda?.tiene ? 'Está al día, no debe nada.' : 'Sin deudas registradas.'}</p>
+        )}
+        {f.deuda?.movimientos?.length > 0 && (
+          <ul className="mt-2 space-y-0.5">
+            {f.deuda.movimientos.map((m, i) => (
+              <li key={i} className="flex justify-between text-[11px] text-gray-500"><span>{fecha(m.fecha)} · {m.tipo === 'cargo' ? 'Fiado' : 'Pago'}{m.concepto ? ` · ${m.concepto}` : ''}</span><span style={{ color: m.tipo === 'pago' ? '#6ee7b7' : '#fcd34d' }}>{m.tipo === 'pago' ? '−' : '+'}${moneda(m.monto)}</span></li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {f.fidelidad && (
+        <div className="card" style={{ border: `1px solid ${f.fidelidad.premioDisponible ? 'rgba(0,232,123,0.4)' : 'var(--border)'}` }}>
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-300"><Gift size={13} /> Fidelidad</p>
+          <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}><div className="h-full rounded-full" style={{ width: `${f.fidelidad.premioDisponible ? 100 : Math.round((f.fidelidad.enCiclo / f.fidelidad.cada) * 100)}%`, background: '#00e87b' }} /></div>
+          {f.fidelidad.premioDisponible ? (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-sm text-white">🎁 Ya tiene su premio: <strong>{f.fidelidad.premio}</strong></p>
+              <button className="btn-secondary text-xs shrink-0" onClick={canjear} disabled={canjeando}>{canjeando ? 'Anotando…' : 'Ya se lo entregué'}</button>
+            </div>
+          ) : (
+            <p className="mt-1.5 text-xs text-gray-500">{f.fidelidad.enCiclo} de {f.fidelidad.cada} visitas · le faltan {f.fidelidad.faltan} para {f.fidelidad.premio}</p>
+          )}
+        </div>
+      )}
+
+      {f.resenas && (
+        <div className="card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-300">⭐ Reseñas</p>
+          <p className="mt-1.5 text-sm text-white">Promedio <strong style={{ color: f.resenas.promedio >= 4 ? '#6ee7b7' : '#fbbf24' }}>{f.resenas.promedio}/5</strong> <span className="text-gray-500">({f.resenas.cantidad} {f.resenas.cantidad === 1 ? 'opinión' : 'opiniones'})</span></p>
+          {f.resenas.ultima.comentario && <p className="text-[11px] text-gray-500 mt-1">Última: “{f.resenas.ultima.comentario}”</p>}
+        </div>
+      )}
+
+      {f.proximoTurno && (
+        <div className="card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-300"><Calendar size={13} /> Próximo turno</p>
+          <p className="mt-1.5 text-sm text-white">{new Date(f.proximoTurno.fechaInicio).toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</p>
+          <p className="text-[11px] text-gray-500">{f.proximoTurno.resumen}{f.proximoTurno.estado === 'pendiente' ? ' · pago pendiente' : ''}</p>
+        </div>
+      )}
+
+      {f.documentos?.length > 0 && (
+        <div className="card">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-300"><FileText size={13} /> Documentos que mandó</p>
+            <Link to="/documentos" className="text-[11px] underline" style={{ color: 'var(--accent)' }}>Ver todos</Link>
+          </div>
+          <ul className="mt-2 space-y-1">
+            {f.documentos.map((d) => { const [txt, color] = ESTADO_DOC[d.estado] || ESTADO_DOC.nuevo; return (
+              <li key={d._id} className="flex items-center justify-between gap-2 text-[11px]"><span className="text-gray-300 truncate">{d.nombre}{d.monto ? ` · $${moneda(d.monto)}` : ''}</span><span style={{ color }}>{txt}</span></li>
+            ); })}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // PÁGINA PRINCIPAL
 // ─────────────────────────────────────────────────────────────
@@ -456,6 +596,8 @@ export default function ClientesPage() {
   const [page,     setPage]     = useState(1);
   const [query,    setQuery]    = useState('');
   const [seleccionado, setSeleccionado] = useState(null);
+  const [importando, setImportando] = useState(false);
+  const [difundiendo, setDifundiendo] = useState(false);
 
   // Debounce búsqueda
   useEffect(() => {
@@ -514,12 +656,21 @@ export default function ClientesPage() {
               Tu CRM: notas, etiquetas, historial y recordatorios.
             </p>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-            style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-            <Sparkles size={12} className="text-[var(--accent)]" />
-            <span className="text-xs text-gray-400">{total} contactos</span>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+              <Sparkles size={12} className="text-[var(--accent)]" />
+              <span className="text-xs text-gray-400">{total} contactos</span>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => setDifundiendo(true)}><Send size={13} /> Escribir a un grupo</button>
+              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => setImportando(true)}><Upload size={13} /> Importar</button>
+              <button className="btn-secondary text-xs flex items-center gap-1.5" onClick={() => bajarArchivo('/gestion/exportar?tipo=clientes&formato=xlsx', 'clientes.xlsx').catch(() => toast.error('No se pudo exportar'))}><Download size={13} /> Exportar</button>
+            </div>
           </div>
         </div>
+
+        <ProgramasPanel />
 
         {/* Búsqueda */}
         <div className="relative">
@@ -611,6 +762,9 @@ export default function ClientesPage() {
           onDelete={handleDelete}
         />
       )}
+
+      {difundiendo && <DifusionModal onClose={() => setDifundiendo(false)} etiquetasSugeridas={[...new Set(clientes.flatMap((c) => c.etiquetas || []))].slice(0, 12)} />}
+      {importando && <ImportarAsistente tipoInicial="clientes" tipos={['clientes']} onClose={() => setImportando(false)} onListo={cargar} />}
     </Layout>
   );
 }

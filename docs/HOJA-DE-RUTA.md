@@ -80,14 +80,14 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 4.1 | **Importar clientes desde Excel/CSV** (nuevo tipo en el asistente de importación) | 🟠 | S | ⬜ |
-| 4.2 | **Ficha 360 del cliente**: turnos, deuda, documentos, notas y etiquetas en un solo lugar | 🟠 | M | ⬜ |
-| 4.3 | **Etiquetas y segmentos** para enviar promociones solo a quienes corresponde | 🟡 | M | ⬜ |
-| 4.4 | **Puntaje de ausencias**: a quien falta seguido, el bot le pide seña | 🟡 | S | ⬜ |
-| 4.5 | **Reseñas después del servicio**: al día siguiente “¿cómo te fue?” y, si responde bien, el enlace de Google | 🟠 | S | ⬜ |
-| 4.6 | **Reactivar clientes inactivos** con un mensaje suave, siempre con tu confirmación | 🟠 | M | ⬜ |
-| 4.7 | **Cumpleaños y fechas** con saludo y descuento | 🟡 | S | ⬜ |
-| 4.8 | **Puntos / tarjeta de fidelidad** (“a la décima visita, una gratis”) | 🟡 | M | ⬜ |
+| 4.1 | **Importar clientes desde Excel/CSV** (nuevo tipo en el asistente de importación) | 🟠 | S | ✅ 1.0.19 |
+| 4.2 | **Ficha 360 del cliente**: turnos, deuda, documentos, notas y etiquetas en un solo lugar | 🟠 | M | ✅ 1.0.19 |
+| 4.3 | **Etiquetas y segmentos** para enviar promociones solo a quienes corresponde | 🟡 | M | ✅ 1.0.19 |
+| 4.4 | **Puntaje de ausencias**: a quien falta seguido, el bot le pide seña | 🟡 | S | ✅ 1.0.19 |
+| 4.5 | **Reseñas después del servicio**: al día siguiente “¿cómo te fue?” y, si responde bien, el enlace de Google | 🟠 | S | ✅ 1.0.19 |
+| 4.6 | **Reactivar clientes inactivos** con un mensaje suave, siempre con tu confirmación | 🟠 | M | ✅ 1.0.19 |
+| 4.7 | **Cumpleaños y fechas** con saludo y descuento | 🟡 | S | ✅ 1.0.19 |
+| 4.8 | **Puntos / tarjeta de fidelidad** (“a la décima visita, una gratis”) | 🟡 | M | ✅ 1.0.19 |
 
 ## E5 — Bot e inteligencia artificial
 

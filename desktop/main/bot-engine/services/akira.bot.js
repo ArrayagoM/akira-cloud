@@ -35,7 +35,11 @@ const crearWaitlistService = require('./bot/waitlist.service');
 const winstonLogger = require('../config/logger');
 const perfilClienteSvc = require('./bot/perfil-cliente.service');
 const derivacionSvc = require('./bot/derivacion.service');
+const { esPedidoDeBaja } = require('../../difusion');
 const { notaFueraDeHorario } = require('./bot/horario-atencion');
+const ausenciasSvc = require('./bot/ausencias.service');
+const resenasSvc = require('./bot/resenas.service');
+const programasLib = require('../../programas');
 const systemBot = require('./system.bot');
 const { registrarMensajeYVerificarCupo } = require('./bot/quota.service');
 
@@ -976,10 +980,37 @@ Revisalo en Akira → Documentos.`);
             : '') +
           (PROMPT_EXTRA ? `\n🔔 INSTRUCCIONES ESPECIALES DEL NEGOCIO:\n${PROMPT_EXTRA}\n` : '');
 
+    // Clientes que faltan seguido a sus turnos: se les pide el pago por adelantado (solo si hay cómo cobrarlo)
+    let notaAusencias = '';
+    try {
+      const Turno = require('../models/Turno');
+      const tel = usuario.numeroReal || usuario.telefono || extraerNumero(jid);
+      const propios = await Turno.find({ userId: USER_ID, ausente: true }).lean();
+      notaAusencias = ausenciasSvc.notaAusencias(ausenciasSvc.contar(propios, tel), { puedeCobrarAdelantado: !!(MP_ACCESS_TOKEN || ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA) });
+    } catch { /* sin datos de ausencias: el bot sigue normal */ }
+
+    // Programa de fidelidad (opcional): el bot sabe cuántas visitas lleva el cliente y puede avisarle de su premio
+    let notaFidelidad = '';
+    try {
+      const prog = options.obtenerProgramas?.()?.fidelidad;
+      if (prog?.activa) {
+        const Turno = require('../models/Turno');
+        const BotClienteM = require('../models/BotCliente');
+        const tel = usuario.numeroReal || usuario.telefono || extraerNumero(jid);
+        const t8 = String(tel).replace(/\D/g, '').slice(-8);
+        const suyos = t8.length === 8 ? (await Turno.find({ userId: USER_ID }).lean()).filter((t) => String(t.clienteTelefono || '').replace(/\D/g, '').slice(-8) === t8) : [];
+        const canjes = (await BotClienteM.findOne({ userId: USER_ID, jid }).lean())?.canjesFidelidad || 0;
+        const pr = programasLib.progreso({ visitas: programasLib.contarVisitas(suyos), canjes, cada: prog.cada });
+        notaFidelidad = `🎁 FIDELIDAD: por cada ${prog.cada} visitas el cliente recibe ${prog.premio}. Este cliente lleva ${pr.premioDisponible ? prog.cada : pr.enCiclo} de ${prog.cada}${pr.premioDisponible ? ' y YA TIENE su premio disponible: avisale con alegría que puede reclamarlo en su próxima visita' : `; le faltan ${pr.faltan}`}. Mencionalo solo si pregunta o si ya tiene el premio disponible.\n`;
+      }
+    } catch { /* sin datos de fidelidad: el bot sigue normal */ }
+
     const sys = {
       role: 'system',
       content:
         sysContent +
+        notaAusencias +
+        notaFidelidad +
         notaFueraDeHorario(HORARIOS_ATENCION, DIAS_BLOQUEADOS, new Date(), { modoPausa: MODO_PAUSA, dueno: MI_NOMBRE }) +
         '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
     };
@@ -3017,6 +3048,29 @@ Revisalo en Akira → Documentos.`);
         }
       }
 
+      // El cliente pide que no le escribamos más (mensajes del negocio a grupos): se respeta enseguida.
+      if (esPedidoDeBaja(bodyLower)) {
+        await clientesSvc.marcarBaja(jid);
+        await enviarMensaje(jid, 'Listo ✅ No te vamos a enviar más mensajes del negocio. Si necesitás algo, escribinos cuando quieras.');
+        return;
+      }
+
+      // Respuesta a un pedido de reseña ("¿cómo te fue? del 1 al 5"): se agradece y, si fue buena, se le pasa el enlace de Google.
+      {
+        const uR = clientesSvc.cargarMemoria(jid);
+        if (uR?.resenaPendiente) {
+          const pend = uR.resenaPendiente;
+          await clientesSvc.actualizarCampos(jid, { resenaPendiente: null }); // se atiende una sola vez: si no era una respuesta, sigue la charla normal
+          const rr = Date.now() - (pend.ts || 0) < resenasSvc.VIGENCIA_PEDIDO_MS ? resenasSvc.interpretarRespuesta(bodyLower) : { puntaje: null };
+          if (rr.puntaje) {
+            try { require('../models/Turno').findOneAndUpdate({ _id: pend.turnoId, userId: USER_ID }, { $set: { resena: { puntaje: rr.puntaje, comentario: rr.comentario, fecha: new Date().toISOString() } } }).catch(() => {}); } catch { /* sin modelo: igual se agradece */ }
+            await enviarMensaje(jid, resenasSvc.respuestaAlCliente({ puntaje: rr.puntaje, nombre: uR.nombre, link: pend.link, dueno: MI_NOMBRE }));
+            notificarDueno(resenasSvc.avisoAlDueno({ puntaje: rr.puntaje, nombre: uR.nombre, numero: extraerNumero(jid), comentario: rr.comentario }));
+            return;
+          }
+        }
+      }
+
       // Derivar a una persona: lo pide explícitamente o está molesto / hace un reclamo (ver derivacion.service.js).
       const motivoDeriv = derivacionSvc.motivoDerivacion(bodyLower, MI_NOMBRE) || (quiereConDueno(bodyLower) ? 'pide-persona' : null);
       if (motivoDeriv) {
@@ -4115,6 +4169,10 @@ Revisalo en Akira → Documentos.`);
     emitter.on('enviar:texto', ({ jid, texto }) => { if (jid && texto) enviarMensaje(jid, texto).catch(() => {}); });
     // La app le pide al bot que le escriba al DUEÑO (a su celular de notificaciones): resumen del día, avisos…
     emitter.on('avisar:dueno', (texto) => { if (texto) notificarDueno(String(texto)); });
+    // Se le pidió una reseña a este cliente: su próxima respuesta (1 a 5) se toma como puntaje
+    emitter.on('resena:pendiente', ({ jid, turnoId, link }) => { if (jid && turnoId) clientesSvc.actualizarCampos(jid, { resenaPendiente: { turnoId, ts: Date.now(), link: link || '' } }).catch(() => {}); });
+    // Clientes importados desde una planilla: el bot los reconoce enseguida (sin reiniciar)
+    emitter.on('clientes:importados', (jids) => { clientesSvc.cargarNuevos(Array.isArray(jids) ? jids : []).then((n) => log(`[Clientes] ${n} cliente(s) importado(s) cargado(s) en el bot`)).catch((e) => log('⚠️ clientes:importados: ' + e.message)); });
 
     emitter.on('cliente:silenciar', ({ jid, silenciado }) => {
       const u = clientesSvc.cargarMemoria(jid);

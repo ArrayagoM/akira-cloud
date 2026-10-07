@@ -206,6 +206,17 @@ if (!bloqueo) {
       log,
     });
     appHooks.servicioResumenDiario = servicioResumenDiario;
+    // Mensajes a grupos de clientes (siempre con confirmación del dueño; ver difusion.js)
+    appHooks.servicioDifusion = require('./difusion').crearServicio({ userDataDir, enviar: async (jid, texto) => botService.enviarACliente(jid, texto), log });
+    // Reseñas después del servicio (opcional, apagado por defecto; ver resenas.js)
+    appHooks.servicioResenas = require('./resenas').crearServicio({
+      userDataDir,
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      modelos: { Turno: require('./bot-engine/models/Turno'), BotCliente: require('./bot-engine/models/BotCliente'), Config: ConfigModelo },
+      enviar: async (jid, texto) => botService.enviarACliente(jid, texto),
+      marcarPendiente: (jid, turnoId, link) => botService.marcarResenaPendiente(jid, turnoId, link),
+      log,
+    });
     // Control remoto mínimo desde el celular (opcional, apagado por defecto; ver comandos-remotos.js)
     const sesionAlmacen = require('./license/session-store');
     const uidActual = () => String(sesionAlmacen.leer(userDataDir)?.userId || '');
@@ -252,6 +263,7 @@ if (!bloqueo) {
     servicioRespaldo.programar();
     servicioResumenDiario.programar();
     appHooks.servicioCelular.programar();
+    appHooks.servicioResenas.programar();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -291,5 +303,5 @@ if (!bloqueo) {
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

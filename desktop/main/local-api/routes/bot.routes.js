@@ -13,6 +13,10 @@ const BotCliente = require('../../bot-engine/models/BotCliente');
 const Turno = require('../../bot-engine/models/Turno');
 const WaitlistEntry = require('../../bot-engine/models/WaitlistEntry');
 const Documento = require('../../bot-engine/models/Documento');
+const CtaCte = require('../../bot-engine/models/CtaCte');
+const ctacteLib = require('../../gestion/ctacte');
+const ausenciasLib = require('../../bot-engine/services/bot/ausencias.service');
+const programasLib = require('../../programas');
 const licenseClient = require('../../license/license-client');
 
 module.exports = function crearRouter({ botService, requerirSesion, userDataDir }) {
@@ -198,8 +202,13 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   router.patch('/clientes/:jid/notas', async (req, res) => {
     try {
       const jid = decodeURIComponent(req.params.jid);
-      const { notas, etiquetas, intervaloRecordatorioDias, ultimoServicio } = req.body;
+      const { notas, etiquetas, intervaloRecordatorioDias, ultimoServicio, cumple } = req.body;
       const upd = {};
+      // Cumpleaños: "MM-DD" (solo día y mes) o vacío para borrarlo
+      if (cumple !== undefined) {
+        if (cumple && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(cumple))) return res.status(400).json({ error: 'El cumpleaños no es válido.' });
+        upd.cumple = cumple ? String(cumple) : null;
+      }
       if (notas !== undefined) upd.notas = String(notas).slice(0, 1000);
       if (Array.isArray(etiquetas)) upd.etiquetas = etiquetas.map((t) => String(t).trim().slice(0, 32)).filter(Boolean).slice(0, 12);
       if (intervaloRecordatorioDias !== undefined) { const n = parseInt(intervaloRecordatorioDias); upd.intervaloRecordatorioDias = (isNaN(n) || n <= 0) ? null : n; }
@@ -207,6 +216,47 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
       const cliente = await BotCliente.findOneAndUpdate({ userId: req.user._id, jid }, { $set: upd }, { new: true, select: '-historial' });
       if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
       res.json({ ok: true, cliente });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Ficha 360: todo lo del cliente en un lugar — lo que debe, sus documentos y su próximo turno.
+  router.get('/clientes/:jid/ficha', async (req, res) => {
+    try {
+      const jid = decodeURIComponent(req.params.jid);
+      const uid = String(req.user._id);
+      const cliente = await BotCliente.findOne({ userId: req.user._id, jid }, '-historial').lean();
+      if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+      const tel = String(cliente.numeroReal || cliente.telefono || (/@s\.whatsapp\.net$/.test(jid) ? extraerNum(jid) : '')).replace(/\D/g, '');
+      const clave = tel.length >= 10 ? `tel:${tel.slice(-10)}` : null;
+
+      // Deuda (cuenta corriente del cliente)
+      const todos = (await CtaCte.find({ userId: uid, entidad: 'cliente' }).lean()).filter((m) => m.jid === jid || (clave && m.entidadClave === clave));
+      const claves = [...new Set(todos.map((m) => m.entidadClave))];
+      const conSaldo = ctacteLib.saldos(todos.filter((m) => m.tipo === 'cargo' || m.tipo === 'pago'), new Date());
+      const saldo = Math.round(conSaldo.reduce((s, x) => s + x.saldo, 0) * 100) / 100;
+      const masViejo = Math.max(0, ...conSaldo.filter((x) => x.saldo > 0.005).map((x) => x.antiguedadDias));
+      const movimientos = todos.filter((m) => m.tipo === 'cargo' || m.tipo === 'pago').sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 5)
+        .map((m) => ({ tipo: m.tipo, monto: m.monto, fecha: m.fecha, concepto: m.concepto || '' }));
+
+      // Documentos que mandó por WhatsApp
+      const documentos = (await Documento.find({ userId: uid, jid }).lean()).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 6)
+        .map((d) => ({ _id: String(d._id), nombre: d.nombreOriginal || 'Documento', estado: d.estado || 'nuevo', monto: d.montoSugerido || null, fecha: d.createdAt || null }));
+
+      // Próximo turno vigente
+      let proximoTurno = null;
+      if (tel.length >= 8) {
+        const futuros = await Turno.find({ userId: req.user._id, $or: [{ clienteTelefono: tel }, { clienteTelefono: { $regex: tel.slice(-8), $options: 'i' } }] }).lean();
+        const prox = futuros.filter((t) => t.estado !== 'cancelado' && new Date(t.fechaInicio) >= new Date()).sort((a, b) => new Date(a.fechaInicio) - new Date(b.fechaInicio))[0];
+        if (prox) proximoTurno = { fechaInicio: prox.fechaInicio, resumen: prox.resumen || 'Turno', estado: prox.estado, monto: prox.pago?.monto || 0 };
+      }
+      const todosTurnos = await Turno.find({ userId: req.user._id }).lean();
+      const ausencias = ausenciasLib.contar(todosTurnos.filter((t) => t.ausente === true), tel);
+      const suyos = tel.length >= 8 ? todosTurnos.filter((t) => String(t.clienteTelefono || '').replace(/\D/g, '').slice(-8) === tel.slice(-8)) : [];
+      const prog = programasLib.leer(userDataDir);
+      const fidelidad = prog.fidelidad.activa ? { ...prog.fidelidad, ...programasLib.progreso({ visitas: programasLib.contarVisitas(suyos), canjes: cliente.canjesFidelidad || 0, cada: prog.fidelidad.cada }) } : null;
+      const conResena = suyos.filter((t) => t.resena?.puntaje).sort((a, b) => String(b.resena.fecha || '').localeCompare(String(a.resena.fecha || '')));
+      const resenas = conResena.length ? { cantidad: conResena.length, promedio: Math.round((conResena.reduce((s, t) => s + t.resena.puntaje, 0) / conResena.length) * 10) / 10, ultima: { puntaje: conResena[0].resena.puntaje, comentario: conResena[0].resena.comentario || '' } } : null;
+      res.json({ deuda: { saldo, antiguedadDias: masViejo, movimientos, tiene: claves.length > 0 }, documentos, proximoTurno, ausencias, umbralAusencias: ausenciasLib.UMBRAL_AUSENCIAS, fidelidad, resenas });
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 

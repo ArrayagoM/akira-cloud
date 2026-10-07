@@ -29,6 +29,9 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   await CtaCte.create({ userId: U, entidad: 'cliente', entidadClave: 'tel:2241000002', nombre: 'Saldado', tipo: 'cargo', monto: 100, fecha: '2026-10-01' });
   await CtaCte.create({ userId: U, entidad: 'cliente', entidadClave: 'tel:2241000002', nombre: 'Saldado', tipo: 'pago', monto: 100, fecha: '2026-10-02' });
   await CtaCte.create({ userId: U, entidad: 'proveedor', entidadClave: 'prov:1', proveedorId: '1', nombre: 'Sur', tipo: 'cargo', monto: 20000, fecha: '2026-10-02' });
+  const BotCliente = require('../main/bot-engine/models/BotCliente');
+  await BotCliente.create({ userId: U, jid: '5492241000003@s.whatsapp.net', nombre: 'Julia Roca', cumple: '10-08', historial: [], turnosConfirmados: [] });
+  await BotCliente.create({ userId: U, jid: '5492241000004@s.whatsapp.net', nombre: 'Otra fecha', cumple: '10-09', historial: [], turnosConfirmados: [] });
   await Documento.create({ userId: U, jid: 'x', nombreOriginal: 'a', estado: 'nuevo' }); await Documento.create({ userId: U, jid: 'x', nombreOriginal: 'b', estado: 'revisado' });
   await Turno.create({ userId: 'otro', calendarId: 'p', fechaInicio: new Date(2026, 9, 8, 10), fechaFin: new Date(2026, 9, 8, 11), resumen: 'x', estado: 'confirmado', pago: { monto: 77777, metodo: 'efectivo' } });
 
@@ -40,6 +43,7 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   assert(d.topDeudores[0].nombre === 'Luis Paz' && d.topDeudores[1].nombre === 'Ana López' && d.topDeudores[1].dias === 12, 'ordena por quién debe más y dice hace cuántos días');
   assert(d.debes === 20000 && d.documentosPendientes === 1 && d.mensajesHoy === 34, 'lo que debés, documentos sin revisar y mensajes');
   assert(!JSON.stringify(d).includes('77777'), 'no mezcla datos de otro usuario');
+  assert(d.cumpleanios.join() === 'Julia Roca', 'trae quién cumple años hoy (y solo hoy)');
 
   // ── texto ──
   const txt = rd.redactar(d, { negocio: 'Barbería Tincho', ahora });
@@ -48,6 +52,7 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   assert(/Ingresos de hoy: \*\$8\.500\*/.test(txt) && /Gastos de hoy: \*\$8\.000\*/.test(txt), 'plata de hoy con formato argentino');
   assert(/Te deben: \*\$64\.000\* \(2 clientes\)/.test(txt) && /Luis Paz — \$34\.000/.test(txt) && /Ana López — \$30\.000 \(12 días\)/.test(txt), 'lista de quién debe');
   assert(/Debés a proveedores: \*\$20\.000\*/.test(txt) && /Documentos sin revisar: \*1\*/.test(txt), 'proveedores y documentos');
+  assert(/Hoy cumple años: \*Julia Roca\*/.test(txt), 'avisa quién cumple años hoy');
   const vacio = rd.redactar({ mensajesHoy: 0, turnosHoy: 0, turnosManiana: 0, ingresosHoy: 0, gastosHoy: 0, teDeben: 0, cantidadDeudores: 0, topDeudores: [], debes: 0, documentosPendientes: 0 }, { ahora });
   assert(/día tranquilo/.test(vacio) && !/Te deben|Gastos|Documentos|proveedores/.test(vacio), 'día sin movimiento: mensaje corto, sin líneas vacías');
 

@@ -18,10 +18,11 @@ const caja = require('../../gestion/caja');
 const { leerArchivo } = require('../../gestion/lector-archivos');
 const mapeoLib = require('../../gestion/mapeo');
 const { exportarXlsx, exportarCsv } = require('../../gestion/exportador');
+const BotCliente = require('../../bot-engine/models/BotCliente');
 
 const CAMPO = { productos: 'catalogo', servicios: 'serviciosList' };
-const TIPOS_IMPORT = ['productos', 'servicios', 'movimientos', 'proveedores']; // 'movimientos' = Caja (ver caja.routes.js)
-const OBLIGATORIOS = { productos: ['nombre', 'precio'], servicios: ['nombre', 'precio'], movimientos: ['fecha', 'monto'], proveedores: ['nombre'] };
+const TIPOS_IMPORT = ['productos', 'servicios', 'movimientos', 'proveedores', 'clientes']; // 'movimientos' = Caja (ver caja.routes.js)
+const OBLIGATORIOS = { productos: ['nombre', 'precio'], servicios: ['nombre', 'precio'], movimientos: ['fecha', 'monto'], proveedores: ['nombre'], clientes: ['telefono'] };
 const TTL_MS = 30 * 60 * 1000;
 const MAX_VISTA = 300;
 
@@ -49,6 +50,10 @@ function sanitizarLista(tipo, lista) {
   })).filter((s) => s.nombre);
 }
 
+// Teléfono de un cliente guardado: el jid sirve solo si es un número de WhatsApp (los "@lid" son ids internos, no teléfonos).
+const telDeCliente = (c) => String(c.numeroReal || c.telefono || (/@s\.whatsapp\.net$/.test(c.jid || '') ? String(c.jid).split('@')[0] : '') || '').replace(/\D/g, '');
+const clienteParaLista = (c) => ({ _id: String(c._id), jid: c.jid, nombre: c.nombre || '', telefono: telDeCliente(c), email: c.email || null, etiquetas: c.etiquetas || [], notas: c.notas || '', origenImport: c.origenImport === true, conHistorial: !!((c.historial || []).length || (c.turnosConfirmados || []).length) });
+
 module.exports = function crearRouter({ botService, requerirSesion, userDataDir }) {
   const router = express.Router();
   router.use(requerirSesion);
@@ -56,6 +61,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   const importaciones = new Map(); // id → { userId, hojas, origen, ts }
   const dirSnap = path.join(userDataDir, 'importaciones');
   const tipoValido = (t) => (CAMPO[t] ? t : null);                       // listas editables (Catálogo)
+  const tipoExportable = (t) => (CAMPO[t] || t === 'proveedores' || t === 'clientes' ? t : null); // lo que se puede bajar a Excel/CSV
   const tipoImportable = (t) => (TIPOS_IMPORT.includes(t) ? t : null);   // lo que se puede importar
 
   const limpiarVencidas = () => { const ya = Date.now(); for (const [id, v] of importaciones) if (ya - v.ts > TTL_MS) importaciones.delete(id); };
@@ -64,6 +70,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   async function leerLista(userId, tipo) {
     if (tipo === 'movimientos') return JSON.parse(JSON.stringify(await Movimiento.find({ userId: String(userId) }).lean()));
     if (tipo === 'proveedores') return JSON.parse(JSON.stringify(await Proveedor.find({ userId: String(userId) }).lean()));
+    if (tipo === 'clientes') return (await BotCliente.find({ userId: String(userId) }).lean()).map(clienteParaLista);
     const cfg = await Config.findOne({ userId });
     const lista = cfg?.[CAMPO[tipo]];
     return Array.isArray(lista) ? JSON.parse(JSON.stringify(lista)) : [];
@@ -86,6 +93,32 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         if (p._id && porId.has(String(p._id))) await Proveedor.findOneAndUpdate({ _id: p._id, userId: uid }, { $set: dato });
         else if (!p._id) await Proveedor.create({ ...dato, userId: uid });
       }
+      return lista;
+    }
+    if (tipo === 'clientes') {
+      // Altas y cambios de la importación. Al deshacer, se quitan los que se habían importado (nunca uno que ya tenga historial).
+      const uid = String(userId);
+      const actuales = (await BotCliente.find({ userId: uid }).lean());
+      const porId = new Map(actuales.map((c) => [String(c._id), c]));
+      const quedan = new Set(lista.filter((c) => c._id).map((c) => String(c._id)));
+      for (const c of actuales) {
+        if (quedan.has(String(c._id))) continue;
+        if (c.origenImport === true && !(c.historial || []).length && !(c.turnosConfirmados || []).length) await BotCliente.deleteOne({ _id: c._id, userId: uid });
+      }
+      const nuevos = [];
+      for (const c of lista) {
+        const cambios = { nombre: String(c.nombre || '').trim().slice(0, 80), email: c.email || null, etiquetas: Array.isArray(c.etiquetas) ? c.etiquetas.slice(0, 12) : [], notas: String(c.notas || '').slice(0, 1000) };
+        if (c._id && porId.has(String(c._id))) { await BotCliente.findOneAndUpdate({ _id: c._id, userId: uid }, { $set: cambios }); continue; }
+        if (c._id) continue; // existía pero ya no está (se borró aparte): no se recrea
+        const tel = String(c.telefono || '').replace(/\D/g, '');
+        if (tel.length < 10) continue;
+        const jid = `${tel}@s.whatsapp.net`;
+        try {
+          await BotCliente.create({ userId: uid, jid, telefono: tel, numeroReal: tel, silenciado: false, historial: [], turnosConfirmados: [], perfilResumen: '', origenImport: true, ...cambios });
+          nuevos.push(jid);
+        } catch (e) { if (e.code !== 11000) throw e; /* ya estaba: se ignora */ }
+      }
+      if (nuevos.length) { try { botService.clientesImportados?.(nuevos); } catch { /* el bot se entera al reiniciarse */ } }
       return lista;
     }
     if (tipo === 'movimientos') {
@@ -143,7 +176,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         importacionId: id, origen: r.origen, aviso: r.aviso || '', tipoSugerido,
         hojas: r.hojas.map((h, i) => ({
           indice: i, nombre: h.nombre, columnas: h.columnas, totalFilas: h.filas.length, muestra: h.filas.slice(0, 5),
-          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas), movimientos: mapeoLib.sugerirMapeo('movimientos', h.columnas, h.filas), proveedores: mapeoLib.sugerirMapeo('proveedores', h.columnas, h.filas) },
+          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas), movimientos: mapeoLib.sugerirMapeo('movimientos', h.columnas, h.filas), proveedores: mapeoLib.sugerirMapeo('proveedores', h.columnas, h.filas), clientes: mapeoLib.sugerirMapeo('clientes', h.columnas, h.filas) },
         })),
       });
     } catch (e) { res.status(400).json({ error: e.message }); }
@@ -158,7 +191,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
     const h = imp.hojas[hoja];
     if (!h) throw Object.assign(new Error('Hoja inexistente'), { status: 400 });
     if (OBLIGATORIOS[tipo].some((c) => mapeo[c] == null)) {
-      const faltan = tipo === 'movimientos' ? 'la fecha y cuál es el monto' : 'el nombre y cuál es el precio';
+      const faltan = tipo === 'movimientos' ? 'la fecha y cuál es el monto' : tipo === 'clientes' ? 'el teléfono' : tipo === 'proveedores' ? 'el nombre' : 'el nombre y cuál es el precio';
       throw Object.assign(new Error(`Indicá qué columna es ${faltan}.`), { status: 400 });
     }
     const existentes = await leerLista(req.user._id, tipo);
@@ -197,7 +230,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   router.post('/deshacer', async (req, res) => {
     try {
       const id = String(req.body?.deshacerId || '');
-      if (!/^\d+-(productos|servicios|movimientos|proveedores)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
+      if (!/^\d+-(productos|servicios|movimientos|proveedores|clientes)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
       const archivo = path.join(dirSnap, `${id}.json`);
       if (!fs.existsSync(archivo)) return res.status(404).json({ error: 'Ya no se puede deshacer esa importación.' });
       const snap = JSON.parse(fs.readFileSync(archivo, 'utf8'));
@@ -212,7 +245,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
 
   // ── Exportar / plantilla ──
   async function entregar(req, res, plantilla) {
-    const tipo = tipoValido(req.query.tipo);
+    const tipo = tipoExportable(req.query.tipo);
     const formato = req.query.formato === 'csv' ? 'csv' : 'xlsx';
     if (!tipo) return res.status(400).json({ error: 'tipo inválido' });
     try {

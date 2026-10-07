@@ -16,6 +16,20 @@ const COLUMNAS = {
     { header: 'Precio', key: 'precio', width: 14, formato: '"$"#,##0.00' },
     { header: 'Duración (min)', key: 'duracion', width: 16 },
   ],
+  proveedores: [
+    { header: 'Nombre', key: 'nombre', width: 30 },
+    { header: 'Teléfono', key: 'telefono', width: 18 },
+    { header: 'CUIT', key: 'cuit', width: 16 },
+    { header: 'Rubro', key: 'rubro', width: 22 },
+    { header: 'Notas', key: 'notas', width: 40 },
+  ],
+  clientes: [
+    { header: 'Nombre', key: 'nombre', width: 30 },
+    { header: 'Teléfono', key: 'telefono', width: 18 },
+    { header: 'Email', key: 'email', width: 28 },
+    { header: 'Etiquetas', key: 'etiquetas', width: 24 },
+    { header: 'Notas', key: 'notas', width: 40 },
+  ],
 };
 
 const EJEMPLOS = {
@@ -27,10 +41,21 @@ const EJEMPLOS = {
     { nombre: 'Corte de pelo', precio: 7000, duracion: 30 },
     { nombre: 'Coloración completa', precio: 28000, duracion: 120 },
   ],
+  proveedores: [
+    { nombre: 'Distribuidora Sur', telefono: '2241 40-1234', cuit: '30-12345678-9', rubro: 'Insumos', notas: 'Entrega los martes' },
+  ],
+  clientes: [
+    { nombre: 'Ana López', telefono: '2241 49-7226', email: 'ana@mail.com', etiquetas: 'VIP, frecuente', notas: 'Prefiere turnos por la tarde' },
+    { nombre: 'Luis Paz', telefono: '2241 00-0001', email: '', etiquetas: '', notas: '' },
+  ],
 };
 
 // Antes de volcar a la planilla: stock -1 ("sin control") queda vacío.
-const aFila = (tipo, e) => (tipo === 'productos'
+const aFila = (tipo, e) => (tipo === 'proveedores'
+  ? { nombre: e.nombre, telefono: e.telefono || '', cuit: e.cuit || '', rubro: e.rubro || '', notas: e.notas || '' }
+  : tipo === 'clientes'
+    ? { nombre: e.nombre || '', telefono: e.telefono || '', email: e.email || '', etiquetas: (e.etiquetas || []).join(', '), notas: e.notas || '' }
+    : tipo === 'productos'
   ? { nombre: e.nombre, precio: e.precio, categoria: e.categoria || '', stock: e.stock >= 0 ? e.stock : '', descripcion: e.descripcion || '' }
   : { nombre: e.nombre, precio: e.precio, duracion: e.duracion || 60 });
 
@@ -41,7 +66,7 @@ async function exportarXlsx(tipo, lista, { plantilla = false } = {}) {
   const ExcelJS = require('exceljs');
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Akira';
-  const ws = wb.addWorksheet(tipo === 'productos' ? 'Productos' : 'Servicios', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const ws = wb.addWorksheet({ productos: 'Productos', servicios: 'Servicios', proveedores: 'Proveedores', clientes: 'Clientes' }[tipo] || 'Datos', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = COLUMNAS[tipo].map(({ header, key, width }) => ({ header, key, width }));
   const filas = plantilla ? EJEMPLOS[tipo] : lista.map((e) => aFila(tipo, e));
   for (const f of filas) ws.addRow(f); // en .xlsx el texto nunca se evalúa como fórmula
@@ -53,10 +78,10 @@ async function exportarXlsx(tipo, lista, { plantilla = false } = {}) {
     const ayuda = wb.addWorksheet('Cómo completar');
     ayuda.getColumn(1).width = 90;
     [
-      'Completá una fila por cada ' + (tipo === 'productos' ? 'producto' : 'servicio') + '. Podés borrar las filas de ejemplo.',
-      'Nombre y Precio son obligatorios.',
-      tipo === 'productos' ? 'Stock: dejalo vacío si no querés controlar la cantidad.' : 'Duración: en minutos (30, 45, 90) o "1h 30". Si la dejás vacía se usan 60 minutos.',
-      'Después, en Akira → Catálogo → Importar, elegí este archivo.',
+      'Completá una fila por cada ' + ({ productos: 'producto', servicios: 'servicio', proveedores: 'proveedor', clientes: 'cliente' }[tipo]) + '. Podés borrar las filas de ejemplo.',
+      tipo === 'clientes' ? 'El Teléfono es obligatorio (con código de área, por ejemplo 2241 49-7226). El Nombre es opcional.' : tipo === 'proveedores' ? 'El Nombre es obligatorio.' : 'Nombre y Precio son obligatorios.',
+      tipo === 'productos' ? 'Stock: dejalo vacío si no querés controlar la cantidad.' : tipo === 'servicios' ? 'Duración: en minutos (30, 45, 90) o "1h 30". Si la dejás vacía se usan 60 minutos.' : tipo === 'clientes' ? 'Etiquetas: separadas por coma (VIP, frecuente). Si el teléfono ya existe, se completan los datos sin tocar su historial.' : 'Cuando la importes, el saldo de cada proveedor empieza en cero.',
+      'Después, en Akira, elegí "Importar" y seleccioná este archivo.',
     ].forEach((t) => ayuda.addRow([t]));
   }
   return Buffer.from(await wb.xlsx.writeBuffer());

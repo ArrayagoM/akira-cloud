@@ -37,11 +37,12 @@ function debeEnviar(cfg, ahora = new Date()) {
   return r.activo && hhmm(ahora) >= r.hora && cfg.ultimoResumen !== caja.fechaLocal(ahora);
 }
 
-async function calcularDia(userId, { mensajesHoy = 0, ahora = new Date() } = {}) {
+async function calcularDia(userId, { mensajesHoy = 0, ahora = new Date(), cadaFidelidad = 0 } = {}) {
   const Turno = require('./bot-engine/models/Turno');
   const Movimiento = require('./bot-engine/models/Movimiento');
   const CtaCte = require('./bot-engine/models/CtaCte');
   const Documento = require('./bot-engine/models/Documento');
+  const BotCliente = require('./bot-engine/models/BotCliente');
   const uid = String(userId);
   const hoy = caja.fechaLocal(ahora);
   const manana = caja.fechaLocal(new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1));
@@ -67,6 +68,8 @@ async function calcularDia(userId, { mensajesHoy = 0, ahora = new Date() } = {})
     topDeudores: deudores.slice(0, 3).map((d) => ({ nombre: nombreDe(d.clave), saldo: d.saldo, dias: d.antiguedadDias })),
     debes: ctacte.totalSaldo(ctacte.saldos(conClave('proveedor'), ahora)),
     documentosPendientes: (await Documento.find({ userId: uid, estado: 'nuevo' }).lean()).length,
+    premiosFidelidad: cadaFidelidad ? require('./programas').clientesConPremio(await BotCliente.find({ userId: uid }).lean(), turnos, cadaFidelidad, ahora).map((p) => p.nombre || 'Un cliente').slice(0, 5) : [],
+    cumpleanios: (await BotCliente.find({ userId: uid }).lean()).filter((c) => c.cumple === `${hoy.slice(5, 7)}-${hoy.slice(8, 10)}`).map((c) => String(c.nombre || '').trim() || 'Un cliente').slice(0, 5),
   };
 }
 
@@ -85,6 +88,8 @@ function redactar(d, { negocio = '', ahora = new Date() } = {}) {
   }
   if (d.debes > 0) L.push(`🚚 Debés a proveedores: *${pesos(d.debes)}*`);
   if (d.documentosPendientes > 0) L.push(`📄 Documentos sin revisar: *${d.documentosPendientes}*`);
+  if (d.premiosFidelidad?.length) L.push(`🎁 Con premio de fidelidad para entregar: *${d.premiosFidelidad.join(', ')}*`);
+  if (d.cumpleanios?.length) L.push(`🎂 Hoy cumple${d.cumpleanios.length > 1 ? 'n' : ''} años: *${d.cumpleanios.join(', ')}* (podés saludar desde Clientes → Escribir a un grupo)`);
   if (!d.mensajesHoy && !d.turnosHoy && !d.ingresosHoy && !d.gastosHoy) L.push('', 'Hoy fue un día tranquilo. 🌙');
   L.push('', '_Akira — podés apagar este aviso desde el Inicio de la app._');
   return L.join('\n');
@@ -100,7 +105,8 @@ function crearServicio({ userDataDir, obtenerUserId, mensajesHoy = () => 0, obte
     enCurso = true;
     try {
       const ya = ahora();
-      const d = await calcularDia(uid, { mensajesHoy: mensajesHoy(), ahora: ya });
+      const fid = require('./programas').leer(userDataDir).fidelidad;
+      const d = await calcularDia(uid, { mensajesHoy: mensajesHoy(), ahora: ya, cadaFidelidad: fid.activa ? fid.cada : 0 });
       const texto = redactar(d, { negocio: await obtenerNegocio(uid), ahora: ya });
       const r = await enviar(prueba ? `${texto}\n\n_(mensaje de prueba)_` : texto);
       if (r.ok && !prueba) marcarEnviado(userDataDir, caja.fechaLocal(ya));

@@ -112,7 +112,7 @@ async function startBot(userId, slot = 0) {
       } catch { /* credenciales inválidas: Calendar queda desactivado */ }
     }
 
-    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid);
+    const bot = crearAkiraBot(credenciales, dataDir, sessionDir, uid, { obtenerProgramas: () => require('../programas').leer(baseDir) });
     instancias.set(slot, bot);
 
     bot.on('log', (msg) => { emitir(uid, 'bot:log', { msg, ts: ts(), slot }); escribirLogBot(slot, msg); });
@@ -262,6 +262,13 @@ const avisarDueno = (texto) => {
   for (const slot of [...conectados].sort((a, b) => a - b)) { if (sobreBot(slot, 'avisar:dueno', texto)) return true; }
   return false;
 };
+// Avisa a los bots activos que hay clientes nuevos importados (para que los reconozcan al instante).
+const clientesImportados = (jids) => { for (const slot of instancias.keys()) sobreBot(slot, 'clientes:importados', jids); };
+// Le escribe a un cliente por la primera cuenta de WhatsApp conectada (false si ninguna lo está).
+const enviarACliente = (jid, texto) => { for (const slot of [...conectados].sort((a, b) => a - b)) { if (sobreBot(slot, 'enviar:texto', { jid, texto })) return true; } return false; };
+const hayConexion = () => conectados.size > 0;
+// Le avisa al bot que a este cliente se le pidió una reseña (así interpreta su respuesta como puntaje).
+const marcarResenaPendiente = (jid, turnoId, link) => { for (const slot of conectados) sobreBot(slot, 'resena:pendiente', { jid, turnoId, link }); };
 const silenciarCliente = (jid, silenciado) => sobreBot(0, 'cliente:silenciar', { jid, silenciado });
 
 async function procesarWebhookMP(payload) {
@@ -291,6 +298,6 @@ async function detenerTodos() {
 
 module.exports = {
   init, mensajesHoy, estadoDetallado, startBot, stopBot, resetSession, getBotStatus, getQRPendiente,
-  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno,
+  recargarConfig, recargarCalendar, triggerCatalogSync, silenciarCliente, enviarTexto, avisarDueno, clientesImportados, enviarACliente, hayConexion, marcarResenaPendiente,
   procesarWebhookMP, restaurarActivos, detenerTodos, slotsActivos: () => Array.from(instancias.keys()),
 };

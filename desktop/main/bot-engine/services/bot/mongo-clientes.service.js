@@ -262,7 +262,33 @@ function crearMongoClientesService(userId, log) {
     }
   }
 
-  return { inicializar, cargarMemoria, cargarMemoriaAsync, guardarMemoria, listarClientes, registrarNuevo };
+  // Cambia campos sueltos de un cliente (por ejemplo, un pedido de reseña pendiente) en el caché y en la base.
+  async function actualizarCampos(jid, campos) {
+    const u = cache.get(jid);
+    if (u) cache.set(jid, { ...u, ...campos });
+    try { await BotCliente.findOneAndUpdate({ userId, jid }, { $set: campos }); } catch (e) { log(`[DB] ⚠️ actualizarCampos ${jid}: ${e.message}`); }
+  }
+
+  // El cliente pidió no recibir más mensajes del negocio (difusiones). Se guarda en la base y en el caché.
+  async function marcarBaja(jid) {
+    const u = cache.get(jid);
+    if (u) cache.set(jid, { ...u, noMolestar: true });
+    try { await BotCliente.findOneAndUpdate({ userId, jid }, { $set: { noMolestar: true } }); } catch (e) { log(`[DB] ⚠️ marcarBaja ${jid}: ${e.message}`); }
+  }
+
+  // Agrega al caché los clientes recién importados (sin tocar los que ya están, para no pisar charlas en curso).
+  async function cargarNuevos(jids = []) {
+    const docs = await BotCliente.find({ userId, jid: { $in: jids } }).lean();
+    let n = 0;
+    for (const c of docs) {
+      if (cache.has(c.jid)) continue;
+      cache.set(c.jid, { jid: c.jid, nombre: c.nombre || '', telefono: c.telefono || '', numeroReal: c.numeroReal || '', email: c.email || null, silenciado: false, historial: [], turnosConfirmados: c.turnosConfirmados || [], perfilResumen: c.perfilResumen || '' });
+      n++;
+    }
+    return n;
+  }
+
+  return { inicializar, cargarMemoria, cargarMemoriaAsync, guardarMemoria, listarClientes, registrarNuevo, cargarNuevos, marcarBaja, actualizarCampos };
 }
 
 // ── useMongoClientesState: API async pura usando ClienteMemoria ──────────
