@@ -101,6 +101,9 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   const jsonGeneral = express.json({ limit: '2mb' });
   app.use((req, res, next) => (req.path === '/api/gestion/analizar' ? next() : jsonGeneral(req, res, next)));
 
+  // ── Perfiles del equipo (PIN + permisos por rol): si el dueño los activó, todo /api pide el pase de un perfil ──
+  app.use('/api', require('../perfiles').crearMiddleware(userDataDir));
+
   // ── Login social: el navegador del sistema vuelve acá (loopback) ─
   for (const proveedor of ['google', 'facebook']) {
     app.get(`/api/auth/${proveedor}`, (_req, res) => {
@@ -137,9 +140,12 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/app/conocimiento', require('./routes/conocimiento.routes')(deps));
   app.use('/api/app/catalogo-fotos', require('./routes/catalogo-fotos.routes')(deps));
   app.use('/api/app/pedidos', require('./routes/pedidos.routes')(deps));
+  app.use('/api/app/perfiles', require('./routes/perfiles.routes')({ ...deps, verificarClave: async (email, password) => !!(await licenseClient.request('/api/auth/login', 'POST', { email, password }))?.token }));
   app.use('/api/app/ventas', require('./routes/ventas.routes')(deps));
   app.use('/api/app/recurrentes', require('./routes/recurrentes.routes')(deps));
   app.use('/api/app/cierres', require('./routes/cierres.routes')(deps));
+  app.use('/api/app/profesionales', require('./routes/profesionales.routes')(deps));
+  app.use('/api/app/sucursales', require('./routes/sucursales.routes')(deps));
   app.use('/api/app/codigos', require('./routes/codigos.routes')(deps));
   app.use('/api/app/conciliacion', require('./routes/conciliacion.routes')(deps));
   app.use('/api/app/comprobantes', require('./routes/comprobantes.routes')(deps));

@@ -31,6 +31,11 @@ import ConocimientoPage  from './pages/ConocimientoPage';
 import PedidosPage       from './pages/PedidosPage';
 import ReportesPage      from './pages/ReportesPage';
 import ComprobantesPage  from './pages/ComprobantesPage';
+import EquipoPage        from './pages/EquipoPage';
+import ProfesionalesPage from './pages/ProfesionalesPage';
+import SucursalesPage    from './pages/SucursalesPage';
+import VenderPage        from './pages/VenderPage';
+import PerfilGate        from './components/PerfilGate';
 import AnalisisPage      from './pages/AnalisisPage';
 import ProveedoresPage   from './pages/ProveedoresPage';
 import Descargar         from './pages/Descargar';
@@ -99,6 +104,7 @@ function PublicRoute({ children }) {
 export default function App() {
   return (
     <AuthProvider>
+      <PerfilGate>
       <Routes>
         {/* Públicas */}
         <Route path="/"               element={DESKTOP ? <Navigate to="/dashboard" replace /> : <Landing />} />
@@ -125,6 +131,10 @@ export default function App() {
         <Route path="/pedidos"      element={DESKTOP ? <ProtectedRoute><PedidosPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/reportes"     element={DESKTOP ? <ProtectedRoute><ReportesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/comprobantes" element={DESKTOP ? <ProtectedRoute><ComprobantesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/equipo"       element={DESKTOP ? <ProtectedRoute><EquipoPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/profesionales" element={DESKTOP ? <ProtectedRoute><ProfesionalesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/sucursales"   element={DESKTOP ? <ProtectedRoute><SucursalesPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
+        <Route path="/vender"       element={DESKTOP ? <ProtectedRoute><VenderPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/analisis"     element={DESKTOP ? <ProtectedRoute><AnalisisPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
         <Route path="/proveedores" element={DESKTOP ? <ProtectedRoute><ProveedoresPage /></ProtectedRoute> : <Navigate to="/dashboard" replace />} />
 
@@ -152,6 +162,7 @@ export default function App() {
 
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </PerfilGate>
       {/* Vercel Analytics & Speed Insights — solo registran en producción.
           En dev son no-op, no contaminan datos. */}
       {!DESKTOP && <Analytics />}

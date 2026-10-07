@@ -24,7 +24,7 @@ E3  App móvil nativa Android + iOS (monitoreo + push) y PWA
 E4  Clientes: ficha 360, fidelización y reseñas
 E5  Bot e IA: rubros, conocimiento propio, pedidos ........ ✅
 E6  Dinero y operación: stock, ventas, reportes, facturación
-E7  Equipo: usuarios, profesionales, sucursales
+E7  Equipo: usuarios, profesionales, sucursales ........ ✅
 E8  Integraciones
 E9  Plataforma: ayuda, estadísticas, firma, Linux/Mac
 E10 Landing + SEO/GEO (al final, describiendo lo que ya funciona)
@@ -119,9 +119,9 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 7.1 | **Varios usuarios con roles** (el empleado ve la agenda pero no la Caja) | 🟠 | L | ⬜ |
-| 7.2 | **Profesionales con agenda propia y comisiones** | 🟠 | L | ⬜ |
-| 7.3 | **Sucursales** | 🟡 | L | ⬜ |
+| 7.1 | **Varios usuarios con roles** (el empleado ve la agenda pero no la Caja)  — con PIN por perfil (empleado / encargado), bloqueo al abrir y permisos aplicados por el servidor; protege de accesos accidentales, no de un técnico en la misma PC | 🟠 | L | ✅ 1.0.23 |
+| 7.2 | **Profesionales con agenda propia y comisiones**  — profesionales con color, horario propio, comisión y liquidación; los turnos se asignan desde la Agenda (que el bot elija profesional solo queda para más adelante) | 🟠 | L | ✅ 1.0.23 |
+| 7.3 | **Sucursales**  — separa la plata y los turnos por local (Caja filtrable, resumen por sucursal); el bot sigue siendo uno solo para todo el negocio | 🟡 | L | ✅ 1.0.23 |
 
 ## E8 — Integraciones
 

@@ -434,6 +434,14 @@ export default function AgendaPage() {
   const [calMonth,     setCalMonth]     = useState(ahora.getMonth());
   const [selectedDate, setSelectedDate] = useState(hoy);
   const [cancelando, setCancelando] = useState(null); // id del turno que se está cancelando
+  const [profesionales, setProfesionales] = useState([]);
+  const [filtroProf, setFiltroProf] = useState('');
+
+  useEffect(() => { api.get('/app/profesionales').then((r) => setProfesionales((r.data.profesionales || []).filter((p) => p.activo))).catch(() => {}); }, []);
+  const asignarProfesional = async (turnoId, profesionalId) => {
+    try { await api.post('/app/profesionales/asignar', { turnoId, profesionalId: profesionalId || null }); await fetchAgenda(); }
+    catch (e) { toast.error(e.response?.data?.error || 'No se pudo asignar'); }
+  };
 
   const cancelarTurno = async (turnoId) => {
     if (!window.confirm('¿Cancelar este turno? Esta acción no se puede deshacer.')) return;
@@ -504,7 +512,7 @@ export default function AgendaPage() {
   }, [confirmadas, pendientes, tipoNegocio]);
 
   // Eventos del día seleccionado (sin los que son solo marca visual)
-  const selectedEvents = (eventsByDate[selectedDate] || []).filter(e => !e._soloMarca);
+  const selectedEvents = (eventsByDate[selectedDate] || []).filter(e => !e._soloMarca && (!filtroProf || (filtroProf === 'sin' ? !e.profesionalId : e.profesionalId === filtroProf)));
 
   // Stats
   const totalHoy     = (eventsByDate[hoy] || []).filter(e => !e._soloMarca).length;
@@ -643,6 +651,12 @@ export default function AgendaPage() {
                     </span>
                   )}
                 </h3>
+                {profesionales.length > 0 && tipoNegocio !== 'alojamiento' && (
+                  <select value={filtroProf} onChange={(e) => setFiltroProf(e.target.value)} className="ml-auto mr-2 rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs text-gray-300 outline-none" aria-label="Filtrar por profesional">
+                    <option value="">Todos los profesionales</option><option value="sin">Sin asignar</option>
+                    {profesionales.map((p) => <option key={p._id} value={p._id}>{p.nombre}</option>)}
+                  </select>
+                )}
                 {selectedEvents.length > 0 && (
                   <span className="text-xs text-gray-500">
                     {selectedEvents.length} {selectedEvents.length === 1 ? 'evento' : 'eventos'}
@@ -661,7 +675,19 @@ export default function AgendaPage() {
               ) : (
                 <div className="space-y-2">
                   {selectedEvents.map((r, i) => (
-                    <EventCard key={r._id || i} r={r} tipoNegocio={tipoNegocio} onCancelar={cancelarTurno} cancelando={cancelando} />
+                    <div key={r._id || i}>
+                      <EventCard r={r} tipoNegocio={tipoNegocio} onCancelar={cancelarTurno} cancelando={cancelando} />
+                      {profesionales.length > 0 && tipoNegocio !== 'alojamiento' && r._estado === 'confirmado' && r._id && (
+                        <div className="flex items-center gap-2 px-3.5 pb-1 pt-1.5 text-xs text-gray-500">
+                          <span className="w-2 h-2 rounded-full" style={{ background: profesionales.find((p) => p._id === r.profesionalId)?.color || '#4b5563' }} />
+                          Atiende
+                          <select value={r.profesionalId || ''} onChange={(e) => asignarProfesional(r._id, e.target.value)} className="rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs text-white outline-none">
+                            <option value="">Sin asignar</option>
+                            {profesionales.map((p) => <option key={p._id} value={p._id}>{p.nombre}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

@@ -15,6 +15,9 @@ const ctacte = require('../../gestion/ctacte');
 const caja = require('../../gestion/caja');
 const exp = require('../../gestion/exportador-caja');
 const ventas = require('../../gestion/ventas');
+const Sucursal = require('../../bot-engine/models/Sucursal');
+const Profesional = require('../../bot-engine/models/Profesional');
+const sucursalesLib = require('../../gestion/sucursales');
 
 const CATEGORIAS = {
   gasto: ['Alquiler', 'Servicios (luz, agua, internet)', 'Sueldos', 'Insumos y mercadería', 'Impuestos', 'Marketing', 'Mantenimiento', 'Transporte', 'Otros gastos'],
@@ -29,9 +32,11 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
   const mesDe = (req) => (caja.esMes(req.query.mes) ? req.query.mes : caja.mesActual());
 
   // Movimientos del mes (manuales + ingresos de turnos) y su resumen.
-  async function armarMes(userId, mes) {
-    const manuales = (await Movimiento.find({ userId }).lean()).filter((m) => String(m.fecha || '').startsWith(mes)).map((m) => ({ ...m, origen: m.origen || 'manual' }));
-    const turnos = await Turno.find({ userId }).lean();
+  // sucursal: '' = todas | 'sin' = sin sucursal | id de una sucursal
+  async function armarMes(userId, mes, sucursal = '') {
+    let manuales = (await Movimiento.find({ userId }).lean()).filter((m) => String(m.fecha || '').startsWith(mes)).map((m) => ({ ...m, origen: m.origen || 'manual' }));
+    let turnos = await Turno.find({ userId }).lean();
+    if (sucursal) { manuales = sucursalesLib.filtrarMovimientos(manuales, sucursal); turnos = sucursalesLib.filtrarTurnos(turnos, await Profesional.find({ userId }).lean(), sucursal); }
     const movimientos = caja.ordenar([...manuales, ...caja.ingresosDeTurnos(turnos, mes)]);
     return { mes, movimientos, resumen: caja.resumen(movimientos, mes), porCobrar: caja.porCobrar(turnos), todos: manuales };
   }
@@ -39,7 +44,8 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
   router.get('/', async (req, res) => {
     try {
       const userId = uid(req); const mes = mesDe(req);
-      const { movimientos, resumen, porCobrar } = await armarMes(userId, mes);
+      const sucursal = String(req.query.sucursal || '').slice(0, 40);
+      const { movimientos, resumen, porCobrar } = await armarMes(userId, mes, sucursal);
       const usadas = (await Movimiento.find({ userId }).lean()).reduce((a, m) => { (a[m.tipo] = a[m.tipo] || new Set()).add(m.categoria); return a; }, {});
       const cat = (t) => [...new Set([...(CATEGORIAS[t] || []), ...(usadas[t] || [])])];
       // Lo que te deben (clientes) y lo que debés (proveedores): saldos totales, no solo del mes.
@@ -47,7 +53,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
       const clave = (m) => (m.entidad === 'proveedor' ? `prov:${m.proveedorId}` : m.entidadClave);
       const por = (ent) => ctacte.totalSaldo(ctacte.saldos(cc.filter((m) => m.entidad === ent).map((m) => ({ ...m, entidadClave: clave(m) }))));
       const proveedores = (await Proveedor.find({ userId }).lean()).filter((p) => p.activo !== false).map((p) => ({ _id: String(p._id), nombre: p.nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
-      res.json({ mes, movimientos, resumen, porCobrar, cuentas: { teDeben: por('cliente'), debes: por('proveedor') }, proveedores, categorias: { gasto: cat('gasto'), ingreso: cat('ingreso') } });
+      res.json({ mes, movimientos, resumen, porCobrar, cuentas: { teDeben: por('cliente'), debes: por('proveedor') }, proveedores, categorias: { gasto: cat('gasto'), ingreso: cat('ingreso') }, sucursales: (await Sucursal.find({ userId }).lean()).filter((x) => x.activo !== false).map((x) => ({ _id: String(x._id), nombre: x.nombre })), sucursal });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -62,6 +68,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
         if (await Movimiento.findOne({ userId, documentoId: String(doc._id) })) return res.status(409).json({ error: 'Este documento ya está registrado en la Caja' });
         if (doc.estado === 'nuevo') { doc.estado = 'revisado'; await doc.save(); }
       }
+      if (r.dato.sucursalId && !(await Sucursal.findOne({ _id: r.dato.sucursalId, userId }))) return res.status(400).json({ error: 'Sucursal no encontrada' });
       let proveedorNombre = '';
       if (r.dato.proveedorId) {
         const prov = await Proveedor.findOne({ _id: r.dato.proveedorId, userId });
@@ -84,6 +91,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
       if (mov.origen === 'ctacte') return res.status(400).json({ error: 'Este movimiento viene de una cuenta corriente (Deudores o Proveedores): se corrige desde ahí.' });
       const r = caja.sanearMovimiento({ ...mov.toJSON?.() ?? mov, ...req.body });
       if (!r.ok) return res.status(400).json({ error: r.error });
+      if (r.dato.sucursalId && !(await Sucursal.findOne({ _id: r.dato.sucursalId, userId: uid(req) }))) return res.status(400).json({ error: 'Sucursal no encontrada' });
       let proveedorNombre = '';
       if (r.dato.proveedorId) {
         const prov = await Proveedor.findOne({ _id: r.dato.proveedorId, userId: uid(req) });
@@ -114,7 +122,7 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
     try {
       const userId = uid(req); const mes = mesDe(req);
       const formato = ['csv', 'pdf'].includes(req.query.formato) ? req.query.formato : 'xlsx';
-      const datos = await armarMes(userId, mes);
+      const datos = await armarMes(userId, mes, String(req.query.sucursal || '').slice(0, 40));
       datos.negocio = (await Config.findOne({ userId }))?.negocio || '';
       const buf = formato === 'csv' ? exp.exportarCsv(datos) : formato === 'pdf' ? await exp.exportarPdf(datos) : await exp.exportarXlsx(datos);
       const tipos = { xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', csv: 'text/csv; charset=utf-8', pdf: 'application/pdf' };

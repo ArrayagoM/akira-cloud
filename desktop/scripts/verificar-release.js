@@ -143,6 +143,17 @@ const raiz = process.argv[2];
   const pdfComp = await compLib.generarPdf({ comprobante: { tipo: 'recibo', numero: 1, fecha: '2026-10-07', clienteNombre: 'Prueba', clienteTelefono: '', items: [{ nombre: 'Algo', precio: 10, cantidad: 1 }], bruto: 10, descuento: 0, descuentoPct: 0, total: 10, metodo: 'efectivo', nota: '' }, negocio: 'Prueba' });
   if (pdfComp.slice(0, 4).toString() !== '%PDF') throw new Error('los comprobantes en PDF fallan dentro del paquete');
   if (require(path.join(raiz, 'main/gestion/conciliacion')).normalizarPago({ id: 1, status: 'approved', transaction_amount: 10, date_approved: '2026-10-07T12:00:00Z' }).monto !== 10) throw new Error('la conciliación falla dentro del paquete');
+  // etapa 7: perfiles del equipo (PIN + roles), profesionales con comisiones y sucursales
+  for (const m of ['main/perfiles', 'main/gestion/profesionales', 'main/gestion/exportador-profesionales', 'main/gestion/sucursales', 'main/local-api/routes/perfiles.routes', 'main/local-api/routes/profesionales.routes', 'main/local-api/routes/sucursales.routes']) require(path.join(raiz, m));
+  const perf = require(path.join(raiz, 'main/perfiles'));
+  const dirPerf = fs.mkdtempSync(path.join(os.tmpdir(), 'akira-perf-'));
+  perf.definirPinPropietario(dirPerf, '4321');
+  const ent = perf.entrar(dirPerf, { id: 'propietario', pin: '4321' });
+  if (!ent.ok || !perf.verificar(dirPerf, ent.token) || perf.verificar(dirPerf, ent.token + 'x')) throw new Error('los perfiles con PIN fallan dentro del paquete');
+  if (perf.puede('empleado', 'GET', '/api/caja') || !perf.puede('empleado', 'POST', '/api/app/ventas')) throw new Error('los permisos por rol fallan dentro del paquete');
+  const liqPaq = require(path.join(raiz, 'main/gestion/profesionales')).liquidacion([], [], { desde: '2026-10-01', hasta: '2026-10-07' });
+  if ((await require(path.join(raiz, 'main/gestion/exportador-profesionales')).exportarXlsx(liqPaq)).length < 1000) throw new Error('la liquidación de comisiones falla dentro del paquete');
+  if (require(path.join(raiz, 'main/gestion/sucursales')).resumen({ movimientos: [], turnos: [], profesionales: [], sucursales: [], mes: '2026-10' }).totales.turnos !== 0) throw new Error('las sucursales fallan dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

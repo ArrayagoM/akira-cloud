@@ -14,6 +14,7 @@ import ResumenWebCard from '../components/ResumenWebCard';
 import AlertasCard from '../components/AlertasCard';
 import ResumenDiarioCard from '../components/ResumenDiarioCard';
 import PrimerosPasos from '../components/PrimerosPasos';
+import { usePerfil } from '../services/perfil';
 import CelularCard from '../components/CelularCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
@@ -203,6 +204,7 @@ function AccountCard({ account, isActive, onSelect, onDelete, onRename }) {
 }
 
 export default function Dashboard() {
+  const perfilEquipo = usePerfil();
   const { user, refreshUser } = useAuth();
   const { on }                = useSocket(user?._id);
 
@@ -416,7 +418,7 @@ export default function Dashboard() {
         {!import.meta.env.VITE_DESKTOP && <InstalarApp compacto />}
 
         {/* Checklist de onboarding */}
-        <OnboardingChecklist user={user} botStatus={botStatus} />
+        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <OnboardingChecklist user={user} botStatus={botStatus} />}
 
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 animate-fade-up">
@@ -478,7 +480,7 @@ export default function Dashboard() {
             accentBg={botStatus.conectado ? 'rgba(0,232,123,0.08)' : 'rgba(74,98,120,0.15)'} />
         </div>
 
-        <PrimerosPasos botConectado={botStatus.conectado} />
+        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <PrimerosPasos botConectado={botStatus.conectado} />}
         <ResumenDiarioCard />
         <AlertasCard />
         <CelularCard />

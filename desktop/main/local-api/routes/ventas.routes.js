@@ -7,6 +7,7 @@ const Config = require('../../bot-engine/models/Config');
 const Movimiento = require('../../bot-engine/models/Movimiento');
 const ventas = require('../../gestion/ventas');
 const stock = require('../../gestion/stock');
+const Sucursal = require('../../bot-engine/models/Sucursal');
 
 module.exports = function crearRouter({ requerirSesion, botService }) {
   const router = express.Router();
@@ -28,7 +29,8 @@ module.exports = function crearRouter({ requerirSesion, botService }) {
 
   router.post('/', async (req, res) => {
     try {
-      const r = await ventas.vender({ Config, Movimiento }, uid(req), req.body || {});
+      const sucursalId = req.body?.sucursalId && (await Sucursal.findOne({ _id: String(req.body.sucursalId), userId: uid(req) })) ? String(req.body.sucursalId) : '';
+      const r = await ventas.vender({ Config, Movimiento }, uid(req), { ...(req.body || {}), por: req.perfil?.nombre || '', sucursalId });
       if (!r.ok) return res.status(r.sinStock ? 409 : 400).json({ error: r.error, faltantes: r.faltantes || [] });
       if (!r.yaEstaba) botService?.recargarConfig?.(); // el bot tiene que ver el stock nuevo
       res.json({ ok: true, yaEstaba: r.yaEstaba, id: String(r.venta._id), total: r.venta.monto, aviso: stock.textoPocoStock(r.bajos), faltantes: r.faltantes });

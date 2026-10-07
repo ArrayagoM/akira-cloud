@@ -5,13 +5,14 @@ import api from '../services/api';
 import {
   Bot, LayoutDashboard, Settings, Shield, LogOut, User,
   ChevronDown, CreditCard, CalendarDays, Lightbulb, MessageSquare, Users,
-  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck, Brain, ShoppingBag, BarChart3, PieChart, Receipt,
+  BookOpen, Download, FileText, Package, Wallet, HandCoins, Truck, ShieldCheck, Brain, ShoppingBag, BarChart3, PieChart, Receipt, Users2, ShoppingCart, Lock, UserSquare2, Store,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AkiraSupport from './AkiraSupport';
 import DesktopSync from './DesktopSync';
 import LicenciaAviso from './LicenciaAviso';
 import ActualizacionAviso, { VersionApp } from './ActualizacionAviso';
+import { usePerfil, salirPerfil, puedeVerMenu } from '../services/perfil';
 
 // Versión de escritorio (Electron): sin Ideas/soporte, que dependen de la plataforma en la nube. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
 const DESKTOP = !!import.meta.env.VITE_DESKTOP;
@@ -22,16 +23,20 @@ const NAV_ITEMS_BASE = [
   { to: '/agenda',      icon: CalendarDays,    label: 'Agenda',     grupo: 'Atención' },
   { to: '/clientes',    icon: Users,           label: 'Clientes',   grupo: 'Atención' },
   { to: '/chats',       icon: MessageSquare,   label: 'Chats',      grupo: 'Atención' },
+  { to: '/profesionales', icon: UserSquare2,   label: 'Profesionales', grupo: 'Atención' },
+  { to: '/vender',      icon: ShoppingCart,    label: 'Vender',     grupo: 'Ventas' },
   { to: '/catalogo',    icon: Package,         label: 'Catálogo',   grupo: 'Ventas' },
   { to: '/pedidos',     icon: ShoppingBag,     label: 'Pedidos',    grupo: 'Ventas' },
   { to: '/caja',        icon: Wallet,          label: 'Caja',       grupo: 'Dinero' },
   { to: '/reportes',    icon: PieChart,        label: 'Reportes',   grupo: 'Dinero' },
+  { to: '/sucursales',  icon: Store,           label: 'Sucursales', grupo: 'Dinero' },
   { to: '/comprobantes', icon: Receipt,        label: 'Presupuestos', grupo: 'Dinero' },
   { to: '/deudores',    icon: HandCoins,       label: 'Deudores',   grupo: 'Dinero' },
   { to: '/proveedores', icon: Truck,           label: 'Proveedores', grupo: 'Dinero' },
   { to: '/documentos',  icon: FileText,        label: 'Documentos', grupo: 'Dinero' },
   { to: '/conocimiento', icon: Brain,          label: 'Conocimiento', grupo: 'Tu bot' },
   { to: '/analisis',    icon: BarChart3,       label: 'Qué preguntan', grupo: 'Tu bot' },
+  { to: '/equipo',      icon: Users2,          label: 'Equipo',     grupo: 'Cuenta' },
   { to: '/respaldo',    icon: ShieldCheck,     label: 'Respaldo',   grupo: 'Cuenta' },
   { to: '/config',      icon: Settings,        label: 'Config',     grupo: 'Cuenta' },
   { to: '/descargar',   icon: Download,        label: 'App',        grupo: 'Cuenta' },
@@ -54,9 +59,10 @@ export default function Layout({ children }) {
   const dropRef = useRef(null);
 
   // Documentos por revisar (solo escritorio): se consulta cada 30 s y al navegar.
+  const perfil = usePerfil();
   const [docsNuevos, setDocsNuevos] = useState(0);
   useEffect(() => {
-    if (!DESKTOP || !user) return undefined;
+    if (!DESKTOP || !user || perfil?.rol === 'empleado') return undefined;
     let vivo = true;
     const consultar = () => api.get('/bot/documentos?estado=nuevo').then((r) => vivo && setDocsNuevos(r.data.nuevos || 0)).catch(() => {});
     consultar();
@@ -65,10 +71,10 @@ export default function Layout({ children }) {
   }, [user, location.pathname]);
 
   const navItems = [
-    ...NAV_ITEMS_BASE.filter((i) => (DESKTOP
+    ...NAV_ITEMS_BASE.filter((i) => (!DESKTOP || puedeVerMenu(perfil, i.to)) && (DESKTOP
       ? !(i.to === '/sugerencias' || i.to === '/descargar')
-      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis', '/reportes', '/comprobantes'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
-    ...(user?.rol === 'admin' ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
+      : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis', '/reportes', '/comprobantes', '/equipo', '/vender', '/profesionales', '/sucursales'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
+    ...(user?.rol === 'admin' && (!perfil || perfil.rol === 'propietario') ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];
 
   const isActive = (to) => location.pathname === to;
@@ -171,8 +177,14 @@ export default function Layout({ children }) {
           </div>
 
           {DESKTOP && <VersionApp />}
+          {/* Perfil del equipo: quien no es el dueño cambia de perfil, no cierra la sesión de la cuenta */}
+          {DESKTOP && perfil && (
+            <button type="button" onClick={salirPerfil} className="flex items-center gap-2 w-full px-3 py-2 mb-1 rounded-lg text-sm transition-colors duration-150" style={{ color: 'var(--text2)', background: 'rgba(0,232,123,0.06)', border: '1px solid rgba(0,232,123,0.15)' }} title="Volver a la pantalla de PINs">
+              <Lock size={14} /> <span className="truncate">{perfil.nombre}</span> <span className="ml-auto text-[11px] opacity-70">Cambiar</span>
+            </button>
+          )}
           {/* LOGOUT BUTTON — simple y directo */}
-          <button
+          {(!DESKTOP || !perfil || perfil.rol === 'propietario') && <button
             type="button"
             onClick={handleLogout}
             className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors duration-150"
@@ -180,7 +192,7 @@ export default function Layout({ children }) {
           >
             <LogOut size={15} />
             Cerrar sesión
-          </button>
+          </button>}
 
           <style>{`
             aside button[type="button"]:hover {

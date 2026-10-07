@@ -63,7 +63,7 @@ async function vender({ Config, Movimiento }, userId, body = {}, ahora = new Dat
   const venta = await Movimiento.create({
     userId: uid, origen: 'venta', ventaClave: clave || undefined, tipo: 'ingreso', monto: a.total, fecha: caja.fechaLocal(ahora), metodo, categoria: 'Ventas',
     descripcion: `Venta: ${resumen}`.slice(0, 200), cliente: String(body.cliente || '').replace(/\s+/g, ' ').trim().slice(0, 80), documentoId: null,
-    items: a.lineas, descuento: a.descuento,
+    items: a.lineas, descuento: a.descuento, por: String(body.por || '').slice(0, 40), sucursalId: String(body.sucursalId || '').slice(0, 40),
   });
   return { ok: true, yaEstaba: false, venta, bajos: r.bajos, faltantes: r.faltantes };
 }

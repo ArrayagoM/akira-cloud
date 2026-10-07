@@ -8,7 +8,7 @@ import { pesos } from '../utils/archivos';
 const METODOS = [['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['mercadopago', 'MercadoPago'], ['tarjeta', 'Tarjeta']];
 const clave = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-export default function VentaRapida({ onClose, onVendido }) {
+export default function VentaRapida({ onClose, onVendido, sucursalId = '' }) {
   const [datos, setDatos] = useState(null);
   const [carrito, setCarrito] = useState({});          // nombre → cantidad
   const [libres, setLibres] = useState([]);            // [{ nombre, precio, cantidad }]
@@ -56,7 +56,7 @@ export default function VentaRapida({ onClose, onVendido }) {
     setCobrando(true);
     try {
       const items = [...Object.entries(carrito).map(([nombre, cantidad]) => ({ nombre, cantidad })), ...libres.map((l) => ({ nombre: l.nombre, cantidad: l.cantidad, precio: l.precio }))];
-      const r = await api.post('/app/ventas', { items, metodo, descuentoPct: pct, clave: claveVenta.current, forzar });
+      const r = await api.post('/app/ventas', { items, metodo, descuentoPct: pct, clave: claveVenta.current, forzar, sucursalId });
       toast.success(`Venta registrada: ${pesos(r.data.total)}`);
       if (r.data.aviso) toast(r.data.aviso, { icon: '📉', duration: 6000 });
       onVendido?.();

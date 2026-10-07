@@ -69,13 +69,15 @@ export default function CajaPage() {
   const [vendiendo, setVendiendo] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [conciliando, setConciliando] = useState(false);
+  const [sucursal, setSucursal] = useState(() => { try { return localStorage.getItem('akira_sucursal') || ''; } catch { return ''; } });
+  const elegirSucursal = (v) => { setSucursal(v); try { localStorage.setItem('akira_sucursal', v); } catch { /* sin almacenamiento */ } };
   const [menuExp, setMenuExp] = useState(false);
 
   const cargar = useCallback(async () => {
-    try { setDatos((await api.get(`/caja?mes=${mes}`)).data); }
+    try { setDatos((await api.get(`/caja?mes=${mes}${sucursal ? `&sucursal=${sucursal}` : ''}`)).data); }
     catch { toast.error('No se pudo cargar la Caja'); }
     finally { setCargando(false); }
-  }, [mes]);
+  }, [mes, sucursal]);
   useEffect(() => { setCargando(true); cargar(); }, [cargar]);
 
   const borrar = async (m) => {
@@ -107,6 +109,12 @@ export default function CajaPage() {
             <span className="text-sm text-white min-w-[130px] text-center">{nombreMes(mes)}</span>
             <button className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/5" onClick={() => setMes(moverMes(mes, 1))} aria-label="Mes siguiente"><ChevronRight size={16} /></button>
           </div>
+          {datos?.sucursales?.length > 0 && (
+            <select value={sucursal} onChange={(e) => elegirSucursal(e.target.value)} className="rounded-full border border-white/10 bg-transparent px-3 py-1.5 text-sm text-white outline-none" aria-label="Sucursal">
+              <option value="" className="bg-[#0b1017]">Todas las sucursales</option><option value="sin" className="bg-[#0b1017]">Sin sucursal</option>
+              {datos.sucursales.map((s) => <option key={s._id} value={s._id} className="bg-[#0b1017]">{s.nombre}</option>)}
+            </select>
+          )}
           {mes !== mesLocal() && <button className="text-xs text-[var(--accent)] hover:underline" onClick={() => setMes(mesLocal())}>Ir al mes actual</button>}
         </div>
 
@@ -156,7 +164,7 @@ export default function CajaPage() {
               {menuExp && (
                 <div className="absolute z-20 mt-1 w-52 rounded-lg border border-white/10 bg-[#0b1017] shadow-xl overflow-hidden" onMouseLeave={() => setMenuExp(false)}>
                   {[['xlsx', 'Excel (.xlsx)'], ['csv', 'CSV (para Excel)'], ['pdf', 'PDF: resumen del mes']].map(([f, txt]) => (
-                    <button key={f} className="w-full text-left text-sm px-3 py-2 text-gray-300 hover:bg-white/5" onClick={() => { setMenuExp(false); bajarArchivo(`/caja/exportar?mes=${mes}&formato=${f}`, `caja-${mes}.${f}`).catch(() => toast.error('No se pudo exportar')); }}>{txt}</button>
+                    <button key={f} className="w-full text-left text-sm px-3 py-2 text-gray-300 hover:bg-white/5" onClick={() => { setMenuExp(false); bajarArchivo(`/caja/exportar?mes=${mes}&formato=${f}${sucursal ? `&sucursal=${sucursal}` : ''}`, `caja-${mes}.${f}`).catch(() => toast.error('No se pudo exportar')); }}>{txt}</button>
                   ))}
                 </div>
               )}
@@ -225,10 +233,10 @@ export default function CajaPage() {
         </>)}
       </div>
 
-      {modal && datos && <MovimientoModal id={modal.id} inicial={modal.inicial} categorias={datos.categorias} proveedores={datos.proveedores} onClose={() => setModal(null)} onGuardado={cargar} />}
+      {modal && datos && <MovimientoModal id={modal.id} inicial={{ sucursalId: sucursal && sucursal !== 'sin' ? sucursal : '', ...modal.inicial }} categorias={datos.categorias} proveedores={datos.proveedores} sucursales={datos.sucursales || []} onClose={() => setModal(null)} onGuardado={cargar} />}
       {conciliando && <ConciliacionModal mes={mes} onClose={() => setConciliando(false)} onCambio={cargar} />}
       {cerrando && <CierreCajaModal onClose={() => setCerrando(false)} onCerrado={cargar} />}
-      {vendiendo && <VentaRapida onClose={() => setVendiendo(false)} onVendido={cargar} />}
+      {vendiendo && <VentaRapida onClose={() => setVendiendo(false)} onVendido={cargar} sucursalId={sucursal && sucursal !== 'sin' ? sucursal : ''} />}
       {importando && <ImportarAsistente tipoInicial="movimientos" tipos={['movimientos']} onClose={() => setImportando(false)} onListo={cargar} />}
     </Layout>
   );

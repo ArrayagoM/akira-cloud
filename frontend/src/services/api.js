@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getPase, salirPerfil } from './perfil';
 
 // En producción (Vercel) apunta al backend de Render
 // En desarrollo apunta a localhost via el proxy de Vite
@@ -14,6 +15,8 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('akira_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const pase = getPase();
+  if (pase) config.headers['X-Akira-Perfil'] = pase; // perfil del equipo (PIN) con el que se está usando la app
   return config;
 });
 
@@ -21,6 +24,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    // El pase del perfil venció o falta: se vuelve a la pantalla de bloqueo (no se cierra la sesión de la cuenta)
+    if (err.response?.status === 403 && err.response?.data?.codigo === 'PERFIL_REQUERIDO') salirPerfil();
     if (err.response?.status === 401) {
       localStorage.removeItem('akira_token');
       window.location.href = '/login';

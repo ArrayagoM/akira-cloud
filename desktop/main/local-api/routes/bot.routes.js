@@ -126,6 +126,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         unidad: t.calendarId !== 'principal' ? t.calendarId : '',
         totalPrecio: t.pago?.monto || 0, total: t.pago?.monto || 0,
         estado: t.estado, turnoId: String(t._id), _id: String(t._id),
+        profesionalId: t.profesionalId || '', profesionalNombre: t.profesionalNombre || '',
       });
 
       const confirmadas = turnos.filter((t) => t.estado === 'confirmado').map(mapTurno);
