@@ -129,7 +129,11 @@ function asuntoActualizacion() {
   return 'Novedades de Akira: Caja, Deudores, Proveedores y más';
 }
 
-function htmlActualizacion({ nombre, userId, urlDescarga, version }) {
+function htmlActualizacion(datos) {
+  return armarActualizacion(datos, { novedades: NOVEDADES_GESTION, enCamino: EN_CAMINO, intro: 'Seguimos mejorando Akira. Sumamos herramientas para llevar la gestión de tu negocio desde el mismo programa donde atiende tu bot.' });
+}
+
+function armarActualizacion({ nombre, userId, urlDescarga, version }, { novedades, enCamino, intro, datos }) {
   const front = (process.env.FRONTEND_URL || 'https://akiracloud.lat').replace(/\/+$/, '');
   const descarga = urlDescarga || `${front}/api/desktop/download`;
   const guia = `${front}/descargar`;
@@ -165,12 +169,12 @@ function htmlActualizacion({ nombre, userId, urlDescarga, version }) {
     <div style="padding:30px 30px 8px">
       <h2 style="margin:0 0 10px;color:#fff;font-size:19px;font-weight:600">Hola, ${escapar(nombre || '')}</h2>
       <p style="color:#aaa;margin:0 0 6px;line-height:1.6;font-size:14px">
-        Seguimos mejorando Akira. Sumamos herramientas para llevar la gestión de tu negocio desde el mismo programa donde atiende tu bot.
-        Esto es lo nuevo en la versión ${escapar(version || '')}:
+        ${escapar(intro)}
+        Esto es lo nuevo hasta la versión ${escapar(version || '')}:
       </p>
 
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:16px 0 4px">
-        ${NOVEDADES_GESTION.map(fila).join('')}
+        ${novedades.map(fila).join('')}
       </table>
 
       <div style="margin:20px 0 6px;padding:13px 15px;background:#101010;border:1px solid #1f1f1f;border-radius:8px">
@@ -189,7 +193,7 @@ function htmlActualizacion({ nombre, userId, urlDescarga, version }) {
 
       <h3 style="color:#fff;font-size:15px;margin:30px 0 4px">En camino</h3>
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
-        ${EN_CAMINO.map(filaCamino).join('')}
+        ${enCamino.map(filaCamino).join('')}
       </table>
 
       <p style="color:#aaa;margin:26px 0 0;line-height:1.6;font-size:13px">¿Dudas o sugerencias? Respondé este email y las vemos. Gracias por acompañarnos.</p>
@@ -205,11 +209,38 @@ function htmlActualizacion({ nombre, userId, urlDescarga, version }) {
 </body></html>`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Campaña "actualización 2": todo lo que se sumó entre las versiones 1.0.17 y 1.0.24.
+// Cada punto existe hoy en la app; no se promete nada que no esté publicado.
+// ─────────────────────────────────────────────────────────────
+const NOVEDADES_2 = [
+  ['Clientes', 'Importá tu agenda desde Excel, mirá la ficha completa de cada cliente, armá grupos, avisá cumpleaños, controlá ausencias y premiá a los habituales ("a la décima visita, una gratis"). Los mensajes a grupos tienen tope diario y baja voluntaria.'],
+  ['Plantillas por rubro y conocimiento propio', 'Arrancá con servicios y respuestas ya armados para tu tipo de negocio y cargá un PDF con tus preguntas frecuentes para que el bot conteste con tu información.'],
+  ['Pedidos con carrito y pago', 'Tus clientes arman el pedido por WhatsApp, reciben el total con el link de pago y el stock se descuenta solo. El catálogo ahora admite fotos.'],
+  ['Ventas de mostrador y señas por servicio', 'Registrá ventas rápidas (con lector de código de barras) y definí cuánta seña pide cada servicio, en porcentaje o monto fijo.'],
+  ['Caja más completa', 'Cierre de caja diario, gastos fijos con aviso de vencimiento, metas del mes y reportes: servicios más pedidos, clientes que más vienen, horas pico, ausencias y evolución mensual.'],
+  ['Presupuestos y recibos en PDF', 'Con tu logo, enviados por WhatsApp. Cuando el cliente paga, el recibo se arma solo y el cobro entra a la Caja. Son comprobantes comunes, no facturas fiscales. También hay conciliación con MercadoPago.'],
+  ['Equipo y sucursales', 'Perfiles con PIN para que cada persona vea solo lo que le corresponde, profesionales con comisiones y liquidación, y sucursales para separar la plata y los turnos por local.'],
+  ['Seguridad y avisos', 'Respaldo cifrado con restauración en otra PC, resumen del día por WhatsApp y alertas por email y notificación de Windows si el bot se desconecta.'],
+  ['Integraciones y ayuda', 'Webhooks para conectar con Zapier, Make o n8n, planillas siempre actualizadas en una carpeta de Google Drive, OneDrive o Dropbox, y un centro de ayuda dentro de la app.'],
+];
+const EN_CAMINO_2 = [
+  ['App de celular para monitorear', 'Estado del bot y resumen del día desde el teléfono. El bot y tus datos siguen en la PC.'],
+  ['Instalador con firma digital', 'Para que Windows no muestre el aviso de “editor desconocido”.'],
+];
+function asuntoActualizacion2() {
+  return 'Novedades de Akira: clientes, pedidos, presupuestos, equipo y más';
+}
+function htmlActualizacion2(datos) {
+  return armarActualizacion(datos, { novedades: NOVEDADES_2, enCamino: EN_CAMINO_2, intro: 'Desde el último aviso sumamos muchas herramientas nuevas para atender y manejar tu negocio desde el mismo programa.' });
+}
+
 // Campañas de email disponibles. La clave se guarda en cada usuario (novedadesEnviadas)
 // para no repetir el envío. Para una campaña nueva: agregar una entrada acá.
 const CAMPANAS = {
   'instalador-1.0.0': { asunto: asuntoNovedades, html: htmlNovedades },
   'actualizacion-2026-10': { asunto: asuntoActualizacion, html: htmlActualizacion },
+  'actualizacion-2026-10b': { asunto: asuntoActualizacion2, html: htmlActualizacion2 },
 };
 
 module.exports = { htmlNovedades, asuntoNovedades, htmlActualizacion, asuntoActualizacion, CAMPANAS, urlBaja, PROXIMAMENTE };
