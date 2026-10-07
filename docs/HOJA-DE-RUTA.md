@@ -62,14 +62,19 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 
 | # | Tarea | Imp. | Esf. | Estado |
 |---|-------|:----:|:----:|:------:|
-| 3.1 | Backend: registro de celulares + tokens push, sesiones revocables | 🟠 | M | ⬜ |
-| 3.2 | **Push** cuando el bot se cae / vuelve / la PC no da señales (se suma al email de E1) | 🟠 | M | ⬜ |
-| 3.3 | Cola de **comandos mínimos** (pausar/reanudar bot, modo vacaciones), con vencimiento y firma | 🟠 | M | ⬜ |
-| 3.4 | App: login, pantalla *Estado* (PC en línea, WhatsApp conectado, última actividad) | 🟠 | M | ⬜ |
-| 3.5 | App: pantalla *Resumen* y *Ajustes mínimos* | 🟡 | S | ⬜ |
+| 3.1 | Backend: registro de celulares + tokens push, sesiones revocables | 🟠 | M | ✅ 1.0.18 |
+| 3.2 | **Push** cuando el bot se cae / vuelve / la PC no da señales (se suma al email de E1) | 🟠 | M | ✅ 1.0.18 |
+| 3.3 | Cola de **comandos mínimos** (pausar/reanudar bot, modo vacaciones), con vencimiento y firma | 🟠 | M | ✅ 1.0.18 |
+| 3.4 | App: login, pantalla *Estado* (PC en línea, WhatsApp conectado, última actividad) | 🟠 | M | ✅ código listo |
+| 3.5 | App: pantalla *Resumen* y *Ajustes mínimos* | 🟡 | S | ✅ código listo |
 | 3.6 | **PWA**: la web instalable en el celular con el resumen del negocio | 🟡 | S | ⬜ |
 | 3.7 | App de prueba instalable (APK / TestFlight) | 🟡 | S | ⬜ 👤 |
 | 3.8 | Publicación en Google Play (US$25) y App Store (US$99/año) | 🟠 | L | ⬜ 👤 |
+
+> **Estado de la app móvil:** el código está en `mobile/` (Expo), probado en el navegador contra la lógica real del
+> servidor (ingreso, estado, pausar/reanudar, vacaciones, resumen, ajustes). Para instalarla en un celular falta
+> armarla con EAS (cuenta gratis de Expo + credencial de Firebase para Android): pasos en `mobile/README.md`.
+> Las notificaciones push no se pueden probar en Expo Go ni en el navegador, solo en la versión armada.
 
 ## E4 — Clientes: ficha 360, fidelización y reseñas
 

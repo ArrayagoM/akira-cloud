@@ -14,6 +14,7 @@ import ResumenWebCard from '../components/ResumenWebCard';
 import AlertasCard from '../components/AlertasCard';
 import ResumenDiarioCard from '../components/ResumenDiarioCard';
 import PrimerosPasos from '../components/PrimerosPasos';
+import CelularCard from '../components/CelularCard';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400', accentBg = 'rgba(0,232,123,0.08)' }) {
@@ -480,6 +481,7 @@ export default function Dashboard() {
         <PrimerosPasos botConectado={botStatus.conectado} />
         <ResumenDiarioCard />
         <AlertasCard />
+        <CelularCard />
         <ResumenWebCard />
 
         {/* ── Panel multi-cuenta Agencia ── */}

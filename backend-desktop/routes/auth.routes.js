@@ -179,12 +179,18 @@ router.get('/me', requireAuth, (req, res) => {
 //  (avisan si el bot se cae o vuelve; por defecto activadas)
 // ───────────────────────────────────────────────────────
 router.get('/alertas', requireAuth, (req, res) => {
-  res.json({ email: req.user.alertas?.email !== false });
+  res.json({ email: req.user.alertas?.email !== false, push: req.user.alertas?.push !== false });
 });
 router.put('/alertas', requireAuth, async (req, res) => {
-  if (typeof req.body?.email !== 'boolean') return res.status(400).json({ error: 'Valor inválido' });
-  await User.findByIdAndUpdate(req.user._id, { 'alertas.email': req.body.email });
-  res.json({ email: req.body.email });
+  const cambios = {};
+  for (const k of ['email', 'push']) {
+    if (req.body?.[k] === undefined) continue;
+    if (typeof req.body[k] !== 'boolean') return res.status(400).json({ error: 'Valor inválido' });
+    cambios[`alertas.${k}`] = req.body[k];
+  }
+  if (!Object.keys(cambios).length) return res.status(400).json({ error: 'Valor inválido' });
+  const u = await User.findByIdAndUpdate(req.user._id, cambios, { new: true });
+  res.json({ email: u?.alertas?.email !== false, push: u?.alertas?.push !== false });
 });
 
 // ─────────────────────────────────────────────────────────────

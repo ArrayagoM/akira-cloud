@@ -5,7 +5,7 @@
 const express = require('express');
 const Config = require('../../bot-engine/models/Config');
 
-module.exports = function crearRouter({ requerirSesion, servicioResumenDiario, botService }) {
+module.exports = function crearRouter({ requerirSesion, servicioResumenDiario, botService, servicioCelular }) {
   const router = express.Router();
   router.use(requerirSesion);
 
@@ -28,6 +28,13 @@ module.exports = function crearRouter({ requerirSesion, servicioResumenDiario, b
     const r = await servicioResumenDiario.enviarAhora({ prueba: true });
     if (r.ok) return res.json({ ok: true });
     res.status(r.motivo === 'bot-desconectado' ? 409 : 400).json({ error: r.motivo === 'bot-desconectado' ? 'El bot no está conectado a WhatsApp en este momento.' : 'No se pudo enviar el resumen.', motivo: r.motivo });
+  });
+
+  // Control desde el celular (app móvil): pausar/reanudar y vacaciones. Opcional, apagado por defecto.
+  router.get('/celular', (_req, res) => res.json(servicioCelular ? servicioCelular.estado() : { activo: false }));
+  router.put('/celular', (req, res) => {
+    if (!servicioCelular) return res.status(404).json({ error: 'No disponible' });
+    res.json(servicioCelular.configurar(req.body?.activo === true));
   });
 
   return router;

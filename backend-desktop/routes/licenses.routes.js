@@ -120,7 +120,11 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
     if (estadoBot !== undefined) {
       try {
         const { procesarEstadoBot } = require('../services/alertas-estado.service');
-        await procesarEstadoBot({ user, device, estadoBot, enviar: (m) => require('../services/email.service').enviarEmail(m) });
+        await procesarEstadoBot({
+          user, device, estadoBot,
+          enviar: (m) => require('../services/email.service').enviarEmail(m),
+          notificarPush: (p) => require('../services/push.service').notificarUsuario(user._id, p),
+        });
       } catch (e) { logger.warn('[Licenses] estado del bot: ' + e.message); }
     }
     await device.save();
@@ -134,6 +138,31 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
   } catch (err) {
     logger.error('[Licenses] heartbeat error: ' + err.message);
     res.status(500).json({ error: 'Error al renovar la licencia' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/licenses/comandos
+//  { deviceId, celularActivo?, hechos? } — la PC retira los comandos que mandó el celular (pausar/reanudar,
+//  vacaciones) y confirma los que ya ejecutó. Solo responde comandos si el usuario activó el control desde
+//  el celular en la PC (celularActivo). También sirve de señal de vida.
+// ─────────────────────────────────────────────────────────────
+router.post('/comandos', requireAuth, async (req, res) => {
+  try {
+    const { deviceId, celularActivo, hechos } = req.body || {};
+    if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
+    const device = await Device.findOne({ userId: req.user._id, deviceId });
+    if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
+    const cm = require('../lib/comandos');
+    if (typeof celularActivo === 'boolean') device.celularActivo = celularActivo;
+    cm.confirmar(device, hechos);
+    const lista = device.celularActivo === true ? cm.pendientes(device) : [];
+    device.ultimoHeartbeat = new Date();
+    await device.save();
+    res.json({ comandos: lista });
+  } catch (err) {
+    logger.error('[Licenses] comandos error: ' + err.message);
+    res.status(500).json({ error: 'Error al consultar comandos' });
   }
 });
 

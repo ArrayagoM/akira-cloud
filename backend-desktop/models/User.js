@@ -99,6 +99,7 @@ const UserSchema = new mongoose.Schema(
     // Alertas operativas por email (el bot se cayó / volvió). Se pueden apagar desde la app.
     alertas: {
       email: { type: Boolean, default: true },
+      push:  { type: Boolean, default: true }, // notificaciones al celular (app móvil)
     },
 
     // Emails de novedades (instalador, actualizaciones). false = pidió la baja.

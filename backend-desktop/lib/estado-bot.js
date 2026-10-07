@@ -25,7 +25,7 @@ function sanearEstadoBot(raw) {
       desdeMs: Number.isFinite(desde) && desde > 0 ? Math.min(Math.round(desde), MAX_DESDE_MS) : 0,
     });
   }
-  return { slots, pausado: raw.pausado === true };
+  return { slots, pausado: raw.pausado === true, vacaciones: raw.vacaciones === true };
 }
 
 // Una cuenta está "caída" si el usuario la quiere activa y no está conectada, y además: pide un QR nuevo

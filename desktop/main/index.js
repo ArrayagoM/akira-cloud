@@ -206,6 +206,23 @@ if (!bloqueo) {
       log,
     });
     appHooks.servicioResumenDiario = servicioResumenDiario;
+    // Control remoto mínimo desde el celular (opcional, apagado por defecto; ver comandos-remotos.js)
+    const sesionAlmacen = require('./license/session-store');
+    const uidActual = () => String(sesionAlmacen.leer(userDataDir)?.userId || '');
+    const guardianMod = require('./license/guardian');
+    appHooks.servicioCelular = require('./comandos-remotos').crearServicio({
+      userDataDir, log,
+      llamar: (cuerpo) => licenseClient.request('/api/licenses/comandos', 'POST', { ...cuerpo, deviceId: require('./device').obtenerDeviceId(userDataDir) }),
+      acciones: {
+        pausarBot: async () => { const slots = botService.slotsActivos(); for (const sl of slots) await botService.stopBot(uidActual(), sl); guardianMod.pedirLatido(); return slots; },
+        reanudarBot: async (slots) => { for (const sl of slots) await botService.startBot(uidActual(), sl); guardianMod.pedirLatido(); },
+        vacaciones: async (on) => {
+          await ConfigModelo.findOneAndUpdate({ userId: uidActual() }, { modoPausa: !!on }, { upsert: true });
+          for (const sl of botService.slotsActivos()) botService.recargarConfig(sl);
+          guardianMod.pedirLatido();
+        },
+      },
+    });
     const elegir = async (opciones) => { const r = await dialog.showOpenDialog(ventana || undefined, opciones); return r.canceled ? null : r.filePaths[0]; };
     appHooks.elegirCarpeta = () => elegir({ title: 'Carpeta para los respaldos', properties: ['openDirectory', 'createDirectory'] });
     appHooks.elegirArchivo = () => elegir({ title: 'Elegí un respaldo de Akira', properties: ['openFile'], filters: [{ name: 'Respaldo de Akira', extensions: ['akbk'] }] });
@@ -234,6 +251,7 @@ if (!bloqueo) {
     crearTray();
     servicioRespaldo.programar();
     servicioResumenDiario.programar();
+    appHooks.servicioCelular.programar();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -261,7 +279,10 @@ if (!bloqueo) {
         userDataDir, botService, emitir: localApi.emitirAlUsuario,
         datosHeartbeat: async (userId) => ({
           ...(await require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() })),
-          estadoBot: botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
+          estadoBot: {
+            ...botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
+            vacaciones: !!(await require('./bot-engine/models/Config').findOne({ userId: String(userId) }))?.modoPausa,
+          },
         }),
       })
       .catch((e) => log('[guardian] FALLÓ', e));
@@ -270,5 +291,5 @@ if (!bloqueo) {
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

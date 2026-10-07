@@ -123,6 +123,7 @@ app.use(async (_req, res, next) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/licenses', licensesRoutes);
+app.use('/api/mobile', require('./routes/mobile.routes'));
 app.use('/api/bot', botGateRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/desktop', desktopRoutes);
