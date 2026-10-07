@@ -128,6 +128,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
   app.use('/api/gestion', require('./routes/gestion.routes')(deps));
+  app.use('/api/caja', require('./routes/caja.routes')(deps));
   // ── Actualizaciones de la app (solo con sesión iniciada) ──
   const versionInstalada = require('electron').app?.getVersion?.() || '';
   app.get('/api/app/actualizacion', sesion.requerirSesion, (_req, res) => {

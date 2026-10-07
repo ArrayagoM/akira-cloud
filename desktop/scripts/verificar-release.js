@@ -43,6 +43,32 @@ chequear(bin.indexOf('Program Files') === -1 && bin.indexOf('C:/Users') === -1, 
 chequear(bin.indexOf('/api/auth/oauth-token') !== -1, 'la interfaz llama a /api/auth/…', 'la interfaz no contiene las llamadas a /api/auth');
 chequear(bin.indexOf('href:"/api/auth/google"') !== -1 || bin.indexOf('/api/auth/google') !== -1, 'el botón "Continuar con Google" apunta a /api/auth/google', 'no se encontró el enlace de Google en la interfaz');
 
+// 2b) toda dependencia de todo paquete incluido se puede encontrar dentro del instalador
+//     (electron-builder a veces deja una librería anidada y no en la raíz → "Cannot find module" en uso real)
+try {
+  const asarLib = require('@electron/asar');
+  const entradas = asarLib.listPackage(asar).map((p) => p.replace(/\\/g, '/').replace(/^\//, ''));
+  const dirsPaquete = new Set(entradas.filter((p) => /(^|\/)node_modules\/(@[^/]+\/)?[^/]+\/package\.json$/.test(p)).map((p) => p.slice(0, -'/package.json'.length)));
+  const faltan = [];
+  for (const dir of dirsPaquete) {
+    let deps = {};
+    try { deps = JSON.parse(asarLib.extractFile(asar, `${dir}/package.json`.split('/').join(path.sep)).toString('utf8')).dependencies || {}; } catch (e) { faltan.push(`${dir.replace(/^.*node_modules\//, '')} → (no se pudo leer su package.json: ${e.message.slice(0, 60)})`); continue; }
+    for (const dep of Object.keys(deps).filter((d) => !d.startsWith('@types/'))) { // @types/* solo sirven al desarrollo
+      // Búsqueda como Node: dir/node_modules/dep, luego en cada node_modules de los directorios padre
+      let base = dir; let hallada = false;
+      for (;;) {
+        if (dirsPaquete.has(`${base}/node_modules/${dep}`)) { hallada = true; break; }
+        const i = base.lastIndexOf('/node_modules/');
+        if (i < 0) { hallada = dirsPaquete.has(`node_modules/${dep}`); break; }
+        base = base.slice(0, i);
+        if (!base) { hallada = dirsPaquete.has(`node_modules/${dep}`); break; }
+      }
+      if (!hallada) faltan.push(`${dir.replace(/^.*node_modules\//, '')} → ${dep}`);
+    }
+  }
+  chequear(faltan.length === 0, `las ${dirsPaquete.size} librerías incluidas encuentran todas sus dependencias`, `faltan dependencias dentro del instalador: ${faltan.slice(0, 8).join(', ')}${faltan.length > 8 ? ` (+${faltan.length - 8})` : ''}`);
+} catch (e) { mal('no se pudo revisar el árbol de dependencias: ' + e.message); }
+
 // 3) OCR fuera del .asar
 const sin = path.join(app, 'resources', 'app.asar.unpacked');
 chequear(fs.existsSync(path.join(sin, 'ocr-data', 'spa.traineddata')) && fs.existsSync(path.join(sin, 'ocr-data', 'eng.traineddata')), 'los idiomas del OCR están empaquetados', 'faltan los idiomas del OCR en app.asar.unpacked');
@@ -74,6 +100,14 @@ const raiz = process.argv[2];
   const xl = await require(path.join(raiz, 'main/gestion/exportador')).exportarXlsx('productos', [{ nombre: 'Prueba', precio: 1, categoria: '', stock: -1, descripcion: '' }]);
   const leido = await require(path.join(raiz, 'main/gestion/lector-archivos')).leerArchivo({ buffer: xl, nombre: 'p.xlsx' });
   if (!leido.hojas.length) throw new Error('no se pudo leer el Excel de prueba');
+  // exportaciones de la Caja (PDF con pdfkit y Excel) dentro del paquete
+  const cajaLib = require(path.join(raiz, 'main/gestion/caja')); const expCaja = require(path.join(raiz, 'main/gestion/exportador-caja'));
+  const movs = [{ _id: 'x', tipo: 'gasto', monto: 100, fecha: '2026-10-05', metodo: 'efectivo', categoria: 'Prueba', descripcion: 'Verificación' }];
+  const datosCaja = { mes: '2026-10', movimientos: movs, resumen: cajaLib.resumen(movs, '2026-10'), negocio: 'Prueba' };
+  const pdfCaja = await expCaja.exportarPdf(datosCaja);
+  if (pdfCaja.slice(0, 4).toString() !== '%PDF' || pdfCaja.length < 1000) throw new Error('el PDF de la Caja no se generó bien');
+  const xlsCaja = await expCaja.exportarXlsx(datosCaja);
+  if (xlsCaja.length < 1000) throw new Error('el Excel de la Caja no se generó bien');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

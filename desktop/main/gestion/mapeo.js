@@ -5,9 +5,22 @@
 // resultado con lo que ya existe. Probada aparte en tests/gestion-mapeo.test.js.
 'use strict';
 
+const caja = require('./caja');
+
 const CAMPOS = {
   productos: ['nombre', 'precio', 'categoria', 'stock', 'descripcion'],
   servicios: ['nombre', 'precio', 'duracion'],
+  movimientos: ['fecha', 'monto', 'tipo', 'categoria', 'descripcion', 'metodo'],
+};
+
+// Sinónimos de encabezados para planillas de gastos/ingresos (Caja).
+const SINONIMOS_MOV = {
+  fecha: ['fecha', 'dia', 'date', 'fecha de pago', 'fecha del gasto', 'fecha de operacion'],
+  monto: ['monto', 'importe', 'total', 'valor', 'pagado', 'cantidad', 'gasto', 'ingreso', 'egreso'],
+  tipo: ['tipo', 'movimiento', 'ingreso gasto', 'ingreso egreso', 'clase', 'tipo de movimiento'],
+  categoria: ['categoria', 'rubro', 'concepto', 'grupo', 'imputacion'],
+  descripcion: ['descripcion', 'detalle', 'observaciones', 'notas', 'proveedor', 'comentario', 'comentarios'],
+  metodo: ['metodo', 'metodo de pago', 'forma de pago', 'medio de pago', 'medio', 'pago'],
 };
 
 const SINONIMOS = {
@@ -71,6 +84,7 @@ const pareceNumero = (v) => v !== '' && v != null && parsearPrecio(v) != null &&
 // Devuelve { nombre: índiceDeColumna | null, precio: …, … } para el tipo pedido.
 function sugerirMapeo(tipo, columnas, filas) {
   const campos = CAMPOS[tipo] || CAMPOS.productos;
+  const sinonimos = tipo === 'movimientos' ? SINONIMOS_MOV : SINONIMOS;
   const norm = columnas.map(normalizar);
   const mapeo = Object.fromEntries(campos.map((c) => [c, null]));
   const usadas = new Set();
@@ -79,7 +93,7 @@ function sugerirMapeo(tipo, columnas, filas) {
   for (const pasada of ['exacto', 'contiene']) {
     for (const campo of campos) {
       if (mapeo[campo] != null) continue;
-      const idx = norm.findIndex((h, i) => !usadas.has(i) && h && SINONIMOS[campo].some((sin) => (pasada === 'exacto' ? h === sin : (h.includes(sin) || (h.length > 3 && sin.includes(h))))));
+      const idx = norm.findIndex((h, i) => !usadas.has(i) && h && sinonimos[campo].some((sin) => (pasada === 'exacto' ? h === sin : (h.includes(sin) || (h.length > 3 && sin.includes(h))))));
       if (idx >= 0) { mapeo[campo] = idx; usadas.add(idx); }
     }
   }
@@ -87,6 +101,19 @@ function sugerirMapeo(tipo, columnas, filas) {
   // 2) por contenido, si faltan las dos columnas clave
   const muestra = filas.slice(0, 50);
   const frac = (i, pred) => { const celdas = muestra.map((f) => f[i]).filter((x) => x !== '' && x != null); return celdas.length ? celdas.filter(pred).length / celdas.length : 0; };
+  if (tipo === 'movimientos') {
+    if (mapeo.fecha == null) {
+      let mejor = -1; let mejorFrac = 0.7;
+      columnas.forEach((_, i) => { if (usadas.has(i)) return; const f = frac(i, (x) => caja.parsearFecha(x) != null); if (f > mejorFrac) { mejor = i; mejorFrac = f; } });
+      if (mejor >= 0) { mapeo.fecha = mejor; usadas.add(mejor); }
+    }
+    if (mapeo.monto == null) {
+      let mejor = -1; let mejorFrac = 0.7;
+      columnas.forEach((_, i) => { if (usadas.has(i)) return; const f = frac(i, pareceNumero); if (f > mejorFrac) { mejor = i; mejorFrac = f; } });
+      if (mejor >= 0) { mapeo.monto = mejor; usadas.add(mejor); }
+    }
+    return mapeo;
+  }
   if (mapeo.precio == null && campos.includes('precio')) {
     let mejor = -1; let mejorFrac = 0.7;
     columnas.forEach((_, i) => { if (usadas.has(i)) return; const f = frac(i, pareceNumero); if (f > mejorFrac) { mejor = i; mejorFrac = f; } });
@@ -110,8 +137,63 @@ function sugerirTipo(columnas) {
 
 const texto = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
 
+const INGRESOS = /^(ingreso|ingresos|entrada|cobro|cobros|venta|ventas|\+|i)$/;
+const GASTOS = /^(gasto|gastos|egreso|egresos|salida|pago|pagos|compra|compras|costo|-|g|e)$/;
+function parsearTipoMov(v) { const s = normalizar(v); return INGRESOS.test(s) ? 'ingreso' : GASTOS.test(s) ? 'gasto' : null; }
+function parsearMetodo(v) {
+  const s = normalizar(v);
+  if (!s) return 'efectivo';
+  if (/efectiv|cash/.test(s)) return 'efectivo';
+  if (/transf|cbu|cvu|alias/.test(s)) return 'transferencia';
+  if (/mercado|\bmp\b/.test(s)) return 'mercadopago';
+  if (/tarj|debito|credito|visa|master/.test(s)) return 'tarjeta';
+  return 'otro';
+}
+
+// Planilla de movimientos (Caja): una fila = un ingreso o un gasto. `existentes` = movimientos ya cargados.
+function construirFilasMov(filas, mapeo, existentes = []) {
+  const yaCargados = new Set(existentes.map(caja.claveDuplicado));
+  const salida = [];
+  filas.forEach((f, i) => {
+    const celda = (campo) => (mapeo[campo] == null ? '' : f[mapeo[campo]]);
+    if (f.every((c) => c === '' || c == null)) return;
+    const errores = []; const avisos = [];
+
+    const fechaCruda = celda('fecha');
+    const fecha = caja.parsearFecha(fechaCruda);
+    if (fechaCruda === '' || fechaCruda == null) errores.push('Falta la fecha');
+    else if (!fecha) errores.push(`Fecha no válida: "${texto(fechaCruda)}"`);
+
+    const montoCrudo = celda('monto');
+    const negativo = typeof montoCrudo === 'number' ? montoCrudo < 0 : /^\s*[-(]/.test(String(montoCrudo));
+    const monto = parsearPrecio(typeof montoCrudo === 'number' ? Math.abs(montoCrudo) : String(montoCrudo).replace(/[-()]/g, ''));
+    if (montoCrudo === '' || montoCrudo == null) errores.push('Falta el monto');
+    else if (monto == null || monto <= 0) errores.push(`Monto no válido: "${texto(montoCrudo)}"`);
+
+    // Tipo: de la columna "Tipo" si hay; si no, el que eligió el usuario para todo el archivo
+    // (por defecto gasto, lo más común al importar); un monto negativo siempre es gasto.
+    const porDefecto = mapeo.tipoPorDefecto === 'ingreso' ? 'ingreso' : 'gasto';
+    let tipo = mapeo.tipo == null ? null : parsearTipoMov(celda('tipo'));
+    if (mapeo.tipo != null && celda('tipo') !== '' && !tipo) avisos.push(`Tipo "${texto(celda('tipo'))}" no reconocido: se toma como ${porDefecto}`);
+    if (!tipo) tipo = negativo ? 'gasto' : porDefecto;
+
+    const dato = {
+      fecha, tipo, monto: monto || 0,
+      categoria: texto(celda('categoria')).slice(0, 40) || (tipo === 'gasto' ? 'Otros gastos' : 'Otros ingresos'),
+      descripcion: texto(celda('descripcion')).slice(0, 200),
+      metodo: parsearMetodo(celda('metodo')),
+    };
+    let estado = 'nuevo';
+    if (errores.length) estado = 'error';
+    else if (yaCargados.has(caja.claveDuplicado(dato))) { estado = 'duplicado'; avisos.push('Ya está cargado en la Caja: se omite'); }
+    salida.push({ fila: i + 1, estado, errores, avisos, dato });
+  });
+  return salida;
+}
+
 // Convierte filas crudas en filas validadas. `existentes` = lista actual del catálogo/servicios.
 function construirFilas(tipo, filas, mapeo, existentes = []) {
+  if (tipo === 'movimientos') return construirFilasMov(filas, mapeo, existentes);
   const claves = new Map();
   existentes.forEach((e, i) => claves.set(claveNombre(e.nombre), i));
   const vistos = new Map();
@@ -170,6 +252,12 @@ function resumen(filas) {
 function aplicarImportacion(tipo, existentes, filas, { modo = 'agregar', excluir = [] } = {}) {
   const fuera = new Set(excluir);
   const validas = filas.filter((f) => (f.estado === 'nuevo' || f.estado === 'actualiza') && !fuera.has(f.fila));
+  if (tipo === 'movimientos') {
+    // En la Caja nunca se reemplaza ni se actualiza: solo se suman movimientos nuevos.
+    const lista = existentes.map((e) => ({ ...e }));
+    for (const f of validas) lista.push({ ...f.dato, origen: 'importado' });
+    return { lista, agregados: validas.length, actualizados: 0, omitidos: filas.length - validas.length };
+  }
   const base = modo === 'reemplazar' ? [] : existentes.map((e) => ({ ...e }));
   const indice = new Map(); base.forEach((e, i) => indice.set(claveNombre(e.nombre), i));
   let agregados = 0; let actualizados = 0;

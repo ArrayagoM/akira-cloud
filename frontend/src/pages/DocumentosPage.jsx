@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import MovimientoModal from '../components/MovimientoModal';
 import { useSocket } from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 import {
   FileText, Image as ImageIcon, X, Loader2, CheckCircle2, Trash2, Download,
-  Receipt, Inbox, CalendarClock, DollarSign,
+  Receipt, Inbox, CalendarClock, DollarSign, Wallet,
 } from 'lucide-react';
 
 // Bandeja de documentos: PDF e imágenes que los clientes mandan por WhatsApp
@@ -42,6 +43,7 @@ function Detalle({ doc, onClose, onCambio }) {
   const [monto, setMonto] = useState(doc.montoManual ?? '');
   const [notas, setNotas] = useState(doc.notas || '');
   const esPdf = doc.mimetype === 'application/pdf';
+  const [caja, setCaja] = useState(null); // { categorias } cuando se abre el formulario de Caja
 
   useEffect(() => {
     let revocar = null; let vivo = true;
@@ -138,6 +140,10 @@ function Detalle({ doc, onClose, onCambio }) {
               <CheckCircle2 size={15} /> Confirmar turno
             </button>
           )}
+          <button disabled={ocupado} className="btn-secondary text-sm flex items-center gap-1.5"
+            onClick={async () => { try { const r = await api.get('/caja'); setCaja({ categorias: r.data.categorias }); } catch { setCaja({ categorias: { gasto: [], ingreso: [] } }); } }}>
+            <Wallet size={14} /> Registrar en Caja
+          </button>
           {doc.estado === 'nuevo' && (
             <button onClick={() => accion(() => api.put(`/bot/documentos/${doc._id}`, { estado: 'revisado' }), 'Marcado como revisado').then((ok) => ok && onClose())} disabled={ocupado} className="btn-secondary text-sm">
               Marcar revisado
@@ -151,6 +157,23 @@ function Detalle({ doc, onClose, onCambio }) {
           </button>
         </div>
       </div>
+      {caja && (
+        <MovimientoModal
+          titulo="Registrar en la Caja"
+          categorias={caja.categorias}
+          inicial={{
+            tipo: doc.tipo === 'factura' ? 'gasto' : 'ingreso',
+            monto: doc.montoManual ?? doc.montoSugerido ?? '',
+            fecha: doc.fechaSugerida || undefined,
+            metodo: doc.tipo === 'comprobante' ? 'transferencia' : 'efectivo',
+            cliente: doc.clienteNombre || '',
+            descripcion: doc.notas || (doc.tipo === 'factura' ? 'Factura' : `Comprobante de ${doc.clienteNombre || 'cliente'}`),
+            documentoId: doc._id,
+          }}
+          onClose={() => setCaja(null)}
+          onGuardado={() => { onCambio(); onClose(); }}
+        />
+      )}
     </div>
   );
 }

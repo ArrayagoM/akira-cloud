@@ -11,11 +11,15 @@ const crypto = require('crypto');
 const express = require('express');
 const Config = require('../../bot-engine/models/Config');
 const Log = require('../../bot-engine/models/Log');
+const Movimiento = require('../../bot-engine/models/Movimiento');
+const caja = require('../../gestion/caja');
 const { leerArchivo } = require('../../gestion/lector-archivos');
 const mapeoLib = require('../../gestion/mapeo');
 const { exportarXlsx, exportarCsv } = require('../../gestion/exportador');
 
 const CAMPO = { productos: 'catalogo', servicios: 'serviciosList' };
+const TIPOS_IMPORT = ['productos', 'servicios', 'movimientos']; // 'movimientos' = Caja (ver caja.routes.js)
+const OBLIGATORIOS = { productos: ['nombre', 'precio'], servicios: ['nombre', 'precio'], movimientos: ['fecha', 'monto'] };
 const TTL_MS = 30 * 60 * 1000;
 const MAX_VISTA = 300;
 
@@ -49,17 +53,31 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
 
   const importaciones = new Map(); // id → { userId, hojas, origen, ts }
   const dirSnap = path.join(userDataDir, 'importaciones');
-  const tipoValido = (t) => (CAMPO[t] ? t : null);
+  const tipoValido = (t) => (CAMPO[t] ? t : null);                       // listas editables (Catálogo)
+  const tipoImportable = (t) => (TIPOS_IMPORT.includes(t) ? t : null);   // lo que se puede importar
 
   const limpiarVencidas = () => { const ya = Date.now(); for (const [id, v] of importaciones) if (ya - v.ts > TTL_MS) importaciones.delete(id); };
   const recargarBots = () => { for (let s = 0; s < 5; s++) { try { botService.recargarConfig(s); } catch { /* slot inactivo */ } } };
 
   async function leerLista(userId, tipo) {
+    if (tipo === 'movimientos') return JSON.parse(JSON.stringify(await Movimiento.find({ userId: String(userId) }).lean()));
     const cfg = await Config.findOne({ userId });
     const lista = cfg?.[CAMPO[tipo]];
     return Array.isArray(lista) ? JSON.parse(JSON.stringify(lista)) : [];
   }
   async function guardarLista(userId, tipo, lista) {
+    if (tipo === 'movimientos') {
+      // Caja: solo se suman movimientos nuevos (los que no traen _id) o se quitan los que ya no están (deshacer).
+      const uid = String(userId);
+      const actuales = await Movimiento.find({ userId: uid }).lean();
+      const quedan = new Set(lista.filter((m) => m._id).map((m) => String(m._id)));
+      for (const m of actuales) if (!quedan.has(String(m._id))) await Movimiento.deleteOne({ _id: m._id, userId: uid });
+      for (const m of lista.filter((x) => !x._id)) {
+        const r = caja.sanearMovimiento(m);
+        if (r.ok) await Movimiento.create({ ...r.dato, userId: uid, origen: m.origen || 'importado' });
+      }
+      return lista;
+    }
     const limpia = sanitizarLista(tipo, lista);
     await Config.findOneAndUpdate({ userId }, { [CAMPO[tipo]]: limpia }, { upsert: true, new: true });
     recargarBots();
@@ -103,7 +121,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         importacionId: id, origen: r.origen, aviso: r.aviso || '', tipoSugerido,
         hojas: r.hojas.map((h, i) => ({
           indice: i, nombre: h.nombre, columnas: h.columnas, totalFilas: h.filas.length, muestra: h.filas.slice(0, 5),
-          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas) },
+          mapeoSugerido: { productos: mapeoLib.sugerirMapeo('productos', h.columnas, h.filas), servicios: mapeoLib.sugerirMapeo('servicios', h.columnas, h.filas), movimientos: mapeoLib.sugerirMapeo('movimientos', h.columnas, h.filas) },
         })),
       });
     } catch (e) { res.status(400).json({ error: e.message }); }
@@ -111,13 +129,16 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
 
   async function filasValidadas(req) {
     const { importacionId, hoja = 0, tipo: t, mapeo = {} } = req.body || {};
-    const tipo = tipoValido(t);
+    const tipo = tipoImportable(t);
     if (!tipo) throw Object.assign(new Error('tipo inválido'), { status: 400 });
     const imp = importaciones.get(importacionId);
     if (!imp || imp.userId !== String(req.user._id)) throw Object.assign(new Error('La importación venció. Volvé a subir el archivo.'), { status: 410 });
     const h = imp.hojas[hoja];
     if (!h) throw Object.assign(new Error('Hoja inexistente'), { status: 400 });
-    if (mapeo.nombre == null || (mapeo.precio == null)) throw Object.assign(new Error('Indicá qué columna es el nombre y cuál es el precio.'), { status: 400 });
+    if (OBLIGATORIOS[tipo].some((c) => mapeo[c] == null)) {
+      const faltan = tipo === 'movimientos' ? 'la fecha y cuál es el monto' : 'el nombre y cuál es el precio';
+      throw Object.assign(new Error(`Indicá qué columna es ${faltan}.`), { status: 400 });
+    }
     const existentes = await leerLista(req.user._id, tipo);
     return { tipo, existentes, filas: mapeoLib.construirFilas(tipo, h.filas, mapeo, existentes) };
   }
@@ -154,7 +175,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
   router.post('/deshacer', async (req, res) => {
     try {
       const id = String(req.body?.deshacerId || '');
-      if (!/^\d+-(productos|servicios)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
+      if (!/^\d+-(productos|servicios|movimientos)$/.test(id)) return res.status(400).json({ error: 'Importación inválida' });
       const archivo = path.join(dirSnap, `${id}.json`);
       if (!fs.existsSync(archivo)) return res.status(404).json({ error: 'Ya no se puede deshacer esa importación.' });
       const snap = JSON.parse(fs.readFileSync(archivo, 'utf8'));
