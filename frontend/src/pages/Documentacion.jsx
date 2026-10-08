@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Layout from '../components/Layout';
+import { GUIA } from '../data/funciones';
 import {
   ArrowLeft, Rocket, Settings, Plug, Bot, LayoutDashboard, Users2,
   CreditCard, ShieldCheck, HelpCircle, Mail, Menu, X,
@@ -12,6 +13,14 @@ import {
    ESTRUCTURA DEL ÍNDICE — cada categoría agrupa subsecciones con
    anchor links (#id) hacia el contenido de más abajo.
    ═══════════════════════════════════════════════════════════════ */
+const ICONOS_GUIA = { 'g-atencion': Users2, 'g-ventas': Repeat, 'g-dinero': CreditCard, 'g-bot': Bot, 'g-negocio': Settings };
+const INDICE_GUIA = GUIA.map((g) => ({
+  id: g.id,
+  label: g.titulo,
+  icon: ICONOS_GUIA[g.id] || LayoutDashboard,
+  items: g.items.map((i) => ({ id: i.id, label: i.menu === '(automático)' ? i.titulo : i.menu })),
+}));
+
 const INDICE = [
   {
     id: 'empezar',
@@ -59,17 +68,7 @@ const INDICE = [
       { id: 'func-memoria', label: 'Memoria de clientes' },
     ],
   },
-  {
-    id: 'panel',
-    label: 'Panel de control',
-    icon: LayoutDashboard,
-    items: [
-      { id: 'panel-dashboard', label: 'Dashboard' },
-      { id: 'panel-agenda', label: 'Agenda' },
-      { id: 'panel-clientes', label: 'Clientes' },
-      { id: 'panel-chats', label: 'Chats' },
-    ],
-  },
+  ...INDICE_GUIA,
   {
     id: 'celular',
     label: 'App del celular',
@@ -136,6 +135,14 @@ const INDICE = [
    ═══════════════════════════════════════════════════════════════ */
 function B({ children }) {
   return <strong style={{ color: 'var(--text)' }}>{children}</strong>;
+}
+
+function Lista({ items }) {
+  return (
+    <ul style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, paddingLeft: 20, listStyle: 'disc' }}>
+      {items.map((t, i) => <li key={i} style={{ paddingLeft: 2 }}>{t}</li>)}
+    </ul>
+  );
 }
 
 function Cat({ id, children }) {
@@ -508,24 +515,30 @@ export default function Documentacion() {
             </P>
           </div>
 
-          {/* ═══ 5. PANEL DE CONTROL ═══ */}
-          <Cat id="panel">📊 Panel de control</Cat>
-          <div style={bodyStyle}>
-            <Sub id="panel-dashboard">Dashboard</Sub>
-            <P>
-              Tu pantalla principal: estado de la conexión de WhatsApp, mensajes del día, reservas, cobros del bot, y un panel
-              de <strong style={{ color: 'var(--text)' }}>Actividad en vivo</strong> que muestra en tiempo real lo que el bot
-              va haciendo — útil para ver exactamente qué está pasando cuando un cliente le escribe, sobre todo mientras estás
-              probando la configuración por primera vez. También podés pausar el bot desde acá en cualquier momento, si
-              necesitás atender vos personalmente por un rato.
-            </P>
-            <Sub id="panel-agenda">Agenda</Sub>
-            <P>Todos los turnos, separados por confirmados y pendientes de pago — así sabés de un vistazo cuáles son reservas en firme y cuáles todavía están esperando que el cliente complete el pago.</P>
-            <Sub id="panel-clientes">Clientes</Sub>
-            <P>La base de clientes que fueron hablando con tu bot, con su historial de conversación y de turnos.</P>
-            <Sub id="panel-chats">Chats</Sub>
-            <P>El historial completo de conversaciones de WhatsApp gestionadas por el bot, para revisar cómo respondió en cada caso.</P>
+
+          {/* ═══ GUÍA DE FUNCIONES (una entrada por cada pantalla del menú; datos en data/funciones.js) ═══ */}
+          <div style={{ marginTop: 56 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginBottom: 4 }}>📖 Guía de funciones</h2>
+            <p style={{ color: 'var(--text2)', marginBottom: 0 }}>
+              Todo lo que hace Akira, pantalla por pantalla, en el mismo orden del menú de la app. Para ver los pasos de una tarea
+              puntual, usá el <B>Centro de ayuda</B> (menú → Ayuda), que te dice dónde tocar.
+            </p>
           </div>
+          {GUIA.map((g) => (
+            <div key={g.id}>
+              <Cat id={g.id}>{g.icono} {g.titulo}</Cat>
+              <div style={bodyStyle}>
+                {g.items.map((it) => (
+                  <div key={it.id}>
+                    <Sub id={it.id}>{it.titulo}</Sub>
+                    <P>{it.que}</P>
+                    <Lista items={it.hace} />
+                    {it.nota && <Callout tipo="tip">{it.nota}</Callout>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
 
 
           {/* ═══ APP DEL CELULAR ═══ */}
