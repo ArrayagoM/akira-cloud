@@ -12,6 +12,12 @@ const urlInstalador = () => {
   return /^https:\/\//i.test(u) ? u : null;
 };
 
+// Versión de prueba para Mac (sin firma de Apple). Dos archivos según el chip de la Mac.
+const urlMac = (arch) => {
+  const u = (process.env[arch === 'x64' ? 'DESKTOP_MAC_X64_URL' : 'DESKTOP_MAC_ARM64_URL'] || '').trim();
+  return /^https:\/\//i.test(u) ? u : null;
+};
+
 router.get('/latest', (_req, res) => {
   const base = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
   res.set('Cache-Control', 'public, max-age=300');
@@ -23,7 +29,20 @@ router.get('/latest', (_req, res) => {
     url: urlInstalador() ? `${base}/api/desktop/download` : null,
     sizeMB: parseInt(process.env.DESKTOP_SIZE_MB, 10) || null,
     plataforma: 'windows',
+    // Mac: solo se ofrece lo que ya está subido (cada enlace sale de una variable de entorno).
+    mac: {
+      disponible: !!(urlMac('arm64') || urlMac('x64')),
+      arm64: urlMac('arm64') ? `${base}/api/desktop/download-mac?arch=arm64` : null,
+      x64: urlMac('x64') ? `${base}/api/desktop/download-mac?arch=x64` : null,
+      sizeMB: parseInt(process.env.DESKTOP_MAC_SIZE_MB, 10) || null,
+    },
   });
+});
+
+router.get('/download-mac', (req, res) => {
+  const u = urlMac(req.query.arch === 'x64' ? 'x64' : 'arm64');
+  if (!u) return res.status(404).json({ error: 'La versión para Mac todavía no está disponible' });
+  res.redirect(302, `${u}${u.includes('?') ? '&' : '?'}download=1`);
 });
 
 router.get('/download', (_req, res) => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Download, LogIn, QrCode, CheckCircle2, ChevronDown, Monitor, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Download, LogIn, QrCode, CheckCircle2, ChevronDown, Monitor, Clock, Laptop, Smartphone, ArrowRight } from 'lucide-react';
 
 // Servidor de licencias (Vercel): mismo JWT que la plataforma, así que el
 // panel web puede preguntarle si esta cuenta ya tiene la app instalada.
@@ -52,6 +53,7 @@ export default function InstalarApp({ compacto = false }) {
   const [instalada, setInstalada] = useState(null); // null = todavía no sé
   const [abierta, setAbierta] = useState(null);
   const esWindows = /Windows/i.test(navigator.userAgent);
+  const esMac = /Macintosh|Mac OS X/i.test(navigator.userAgent) && !/iPhone|iPad/i.test(navigator.userAgent);
 
   useEffect(() => {
     fetch(`${LICENSE_API}/api/desktop/latest`).then((r) => r.json()).then(setInfo).catch(() => setInfo({ disponible: false }));
@@ -97,7 +99,7 @@ export default function InstalarApp({ compacto = false }) {
           {botonDescarga}
           {!esWindows && (
             <p className="text-xs mt-2 flex items-center gap-1" style={{ color: '#f59e0b' }}>
-              <Monitor size={12} /> Por ahora Akira funciona en computadoras con Windows 10 u 11.
+              <Monitor size={12} /> {esMac ? 'Estás en una Mac: más abajo está la versión de prueba para Mac.' : 'La versión estable es para computadoras con Windows 10 u 11.'}
             </p>
           )}
         </Paso>
@@ -108,6 +110,44 @@ export default function InstalarApp({ compacto = false }) {
         <Paso n={3} icono={QrCode} titulo="Escaneá el código con tu WhatsApp"
           texto="En la app tocá “Iniciar bot”. Aparece un código QR: en tu celular abrí WhatsApp → Dispositivos vinculados → Vincular un dispositivo, y escaneá. ¡Listo, tu bot ya atiende!" />
       </div>
+
+      {!compacto && (
+        <div className="mt-6 grid gap-3 md:grid-cols-2">
+          {/* Mac (versión de prueba, sin firma de Apple) */}
+          <div className="rounded-xl p-4" style={{ background: 'var(--surface2)', border: `1px solid ${esMac ? 'rgba(0,232,123,0.35)' : 'var(--border)'}` }}>
+            <p className="font-semibold text-white flex items-center gap-2"><Laptop size={16} style={{ color: '#00e87b' }} />Akira para Mac <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>PRUEBA</span></p>
+            {info?.mac?.disponible ? (
+              <>
+                <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>El mismo programa, con las mismas funciones. Elegí según el chip de tu Mac (menú  → “Acerca de esta Mac”).</p>
+                <div className="flex flex-col gap-2 mt-3">
+                  {info.mac.arm64 && <a href={info.mac.arm64} className="btn-primary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con chip M1, M2, M3 o M4</a>}
+                  {info.mac.x64 && <a href={info.mac.x64} className="btn-secondary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con procesador Intel</a>}
+                </div>
+                <ol className="text-xs mt-3 space-y-1 list-decimal pl-4" style={{ color: 'var(--text2)' }}>
+                  <li>Abrí el archivo y arrastrá Akira a Aplicaciones.</li>
+                  <li>La primera vez: clic derecho sobre Akira → <b>Abrir</b> → Abrir (todavía no está firmada por Apple).</li>
+                  <li>Si dice que “está dañada”, en Terminal pegá: <code className="px-1 rounded" style={{ background: 'var(--surface3)' }}>xattr -cr /Applications/Akira.app</code></li>
+                  <li>No se actualiza sola: para actualizar, instalá el archivo nuevo.</li>
+                </ol>
+              </>
+            ) : (
+              <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>Estamos terminando una versión de prueba para Mac. Si querés ser de los primeros en probarla, escribinos a <a href="mailto:soporte@akiracloud.lat" style={{ color: '#00e87b' }}>soporte@akiracloud.lat</a>.</p>
+            )}
+          </div>
+
+          {/* App del celular (se instala desde la web) */}
+          <div className="rounded-xl p-4" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+            <p className="font-semibold text-white flex items-center gap-2"><Smartphone size={16} style={{ color: '#00e87b' }} />App del celular</p>
+            <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>Mirá si tu bot está atendiendo, el resumen del día, pausalo y recibí un aviso si se cae. Funciona en <b>iPhone y Android</b> y se instala desde acá, sin tiendas de apps.</p>
+            <Link to="/celular" className="btn-primary text-sm inline-flex items-center justify-center gap-2 mt-3 w-full">Abrir la app del celular <ArrowRight size={14} /></Link>
+            <ul className="text-xs mt-3 space-y-1" style={{ color: 'var(--text2)' }}>
+              <li><b>iPhone:</b> abrila en Safari → Compartir → “Agregar a inicio”.</li>
+              <li><b>Android:</b> abrila en Chrome → menú ⋮ → “Instalar app”.</li>
+              <li>Es un control remoto: el bot y tus datos siguen en la PC.</li>
+            </ul>
+          </div>
+        </div>
+      )}
 
       {!compacto && (
         <div className="mt-6">
