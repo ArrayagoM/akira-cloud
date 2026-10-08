@@ -15,20 +15,32 @@ const logger = require('../config/logger');
 const MAX_CELULARES = 5;
 const misPCs = (userId) => Device.find({ userId, activo: true, revocado: false });
 
-// POST /api/mobile/registrar { pushToken, plataforma, nombre }
+// GET /api/mobile/web-push/clave — clave pública (VAPID) para que la app web pueda pedir avisos. Sin sesión.
+router.get('/web-push/clave', (_req, res) => {
+  if (!push.webPushDisponible()) return res.status(503).json({ disponible: false });
+  res.json({ disponible: true, clave: process.env.VAPID_PUBLIC_KEY });
+});
+
+// POST /api/mobile/registrar { pushToken, plataforma, nombre }  ó  { suscripcion, nombre } (app web instalada)
 router.post('/registrar', requireAuth, async (req, res) => {
   try {
-    const { pushToken, plataforma = 'otra', nombre = '' } = req.body || {};
-    if (!push.tokenValido(pushToken)) return res.status(400).json({ error: 'Token de notificaciones inválido' });
-    const plat = ['android', 'ios', 'web'].includes(plataforma) ? plataforma : 'otra';
+    const { plataforma = 'otra', nombre = '', suscripcion } = req.body || {};
+    let { pushToken } = req.body || {};
+    let plat = ['android', 'ios', 'web'].includes(plataforma) ? plataforma : 'otra';
+    let sus = null;
+    if (suscripcion) {
+      if (!push.suscripcionValida(suscripcion)) return res.status(400).json({ error: 'Suscripción de notificaciones inválida' });
+      pushToken = suscripcion.endpoint; plat = 'web';
+      sus = { endpoint: suscripcion.endpoint, keys: { p256dh: suscripcion.keys.p256dh, auth: suscripcion.keys.auth } };
+    } else if (!push.tokenValido(pushToken)) return res.status(400).json({ error: 'Token de notificaciones inválido' });
     let d = await MobileDevice.findOne({ pushToken });
     if (!d) {
       const cuantos = (await MobileDevice.find({ userId: req.user._id, activo: true })).length;
       if (cuantos >= MAX_CELULARES) return res.status(409).json({ error: `Ya tenés ${MAX_CELULARES} celulares registrados. Quitá alguno desde la app.` });
-      d = await MobileDevice.create({ userId: req.user._id, pushToken, plataforma: plat, nombre: String(nombre).slice(0, 60) });
+      d = await MobileDevice.create({ userId: req.user._id, pushToken, plataforma: plat, nombre: String(nombre).slice(0, 60), ...(sus ? { suscripcion: sus } : {}) });
     } else {
       // El token pertenece a quien inició sesión ahora (cambió de cuenta en el mismo celular).
-      d.userId = req.user._id; d.plataforma = plat; d.nombre = String(nombre).slice(0, 60) || d.nombre; d.activo = true; d.ultimoUso = new Date();
+      d.userId = req.user._id; d.plataforma = plat; d.nombre = String(nombre).slice(0, 60) || d.nombre; d.activo = true; d.ultimoUso = new Date(); if (sus) d.suscripcion = sus;
       await d.save();
     }
     res.json({ ok: true });

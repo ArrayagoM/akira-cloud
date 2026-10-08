@@ -1,5 +1,10 @@
 # Akira — app móvil (Android + iOS)
 
+> **Estado (oct-2026): esta app nativa NO se publica en tiendas** (decisión del dueño). La app del celular vive dentro de
+> la web: `frontend/src/pages/CelularPage.jsx` → `https://akiracloud.lat/celular` (se instala desde el navegador y recibe
+> avisos con Web Push). Este código queda como referencia y comparte la lógica de `src/estado.js` con
+> `frontend/src/lib/estadoMovil.js` (si cambia una, cambiar la otra).
+
 App de **monitoreo y ajustes mínimos**. El bot, la sesión de WhatsApp y los datos del negocio siguen en la PC.
 Desde el celular se puede:
 

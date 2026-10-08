@@ -41,6 +41,7 @@ import PerfilGate        from './components/PerfilGate';
 import AnalisisPage      from './pages/AnalisisPage';
 import ProveedoresPage   from './pages/ProveedoresPage';
 import Descargar         from './pages/Descargar';
+import CelularPage       from './pages/CelularPage';
 import CuentaPanel       from './pages/CuentaPanel';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
 // ── Páginas verticales por nicho (SEO) ─────────────────────
@@ -149,6 +150,8 @@ export default function App() {
         <Route path="/pre-lanzamiento" element={<PreLanzamiento />} />
 
         <Route path="/descargar" element={<Descargar />} />
+        {/* App del celular (se instala desde la web): trae su propio ingreso */}
+        <Route path="/celular" element={DESKTOP ? <Navigate to="/dashboard" replace /> : <CelularPage />} />
         <Route path="/privacidad" element={<Privacidad />} />
         <Route path="/terminos"   element={<Terminos />} />
         <Route path="/documentacion" element={<Documentacion />} />

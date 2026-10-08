@@ -1,9 +1,9 @@
 {
   "name": "Akira Cloud",
   "short_name": "Akira",
-  "description": "El panel de tu negocio: el estado de tu bot de WhatsApp y el resumen del día, desde el celular.",
+  "description": "La app del celular de Akira: mirá si tu bot de WhatsApp está atendiendo, el resumen del día, pausalo y recibí avisos si se cae.",
   "lang": "es-AR",
-  "start_url": "/dashboard",
+  "start_url": "/celular",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

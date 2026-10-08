@@ -7,6 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
 import InstalarApp from '../components/InstalarApp';
+import AppCelularCard from '../components/AppCelularCard';
 import ReferralCard from '../components/ReferralCard';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -168,6 +169,7 @@ export default function CuentaPanel() {
 
         {/* Instalar: solo si todavía no hay ningún equipo */}
         {devices.length === 0 && <InstalarApp />}
+        <AppCelularCard />
 
         {/* Novedades */}
         <div className="card">

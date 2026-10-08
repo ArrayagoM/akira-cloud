@@ -8,7 +8,8 @@ const mongoose = require('mongoose');
 const MobileDeviceSchema = new mongoose.Schema(
   {
     userId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    pushToken:  { type: String, required: true, unique: true }, // ExponentPushToken[...]
+    pushToken:  { type: String, required: true, unique: true }, // ExponentPushToken[...]  (en la app web: la URL de la suscripción)
+    suscripcion: { type: mongoose.Schema.Types.Mixed, default: null }, // solo app web: { endpoint, keys: { p256dh, auth } }
     plataforma: { type: String, enum: ['android', 'ios', 'web', 'otra'], default: 'otra' },
     nombre:     { type: String, default: '' },
     activo:     { type: Boolean, default: true },

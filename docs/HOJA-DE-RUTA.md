@@ -68,9 +68,9 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 3.4 | App: login, pantalla *Estado* (PC en línea, WhatsApp conectado, última actividad) | 🟠 | M | ✅ código listo |
 | 3.5 | App: pantalla *Resumen* y *Ajustes mínimos* | 🟡 | S | ✅ código listo |
 | 3.6 | **PWA**: la web instalable en el celular con el resumen del negocio  — el sitio se puede instalar en el celular (manifiesto + pantalla sin conexión); la app nativa sigue siendo la opción completa | 🟡 | S | ✅ 1.0.24 |
-| 3.7 | App de prueba instalable (APK / TestFlight) | 🟡 | S | ⬜ 👤 |
-| 3.8 | Publicación en Google Play (US$25) y App Store (US$99/año) | 🟠 | L | ⬜ 👤 |
-| 3.9 | **Mostrar la app en la web cuando esté publicada**: botones de App Store / Google Play en la landing, en `/descargar`, en el Centro de ayuda y en `llms.txt` / `llms-full.txt` (hoy dicen "en preparación"), más una nota en el blog y el dato en el JSON-LD | 🟠 | S | ⬜ (depende de 3.8) |
+| 3.7 | ~~App de prueba instalable (APK / TestFlight)~~ — **descartado**: la app del celular se instala desde la web (PWA), sin tiendas ni cuentas de pago | 🟡 | S | ❌ decidido |
+| 3.8 | ~~Publicación en Google Play y App Store~~ — **descartado** (decisión del dueño: las apps viven dentro del proyecto, como en sus otros proyectos) | 🟠 | L | ❌ decidido |
+| 3.9 | **App del celular dentro de la web** (`/celular`): ingreso, estado del bot, pausar/reanudar, modo vacaciones, resumen del negocio, avisos push (Web Push; en iPhone requiere iOS 16.4+ y la app instalada en el inicio), tarjeta en el panel de cuenta y menciones en `llms.txt`. Falta publicar: claves VAPID en el servidor + despliegue (backend y web) | 🟠 | M | 🟡 código listo y probado, sin desplegar |
 
 > **Estado de la app móvil:** el código está en `mobile/` (Expo), probado en el navegador contra la lógica real del
 > servidor (ingreso, estado, pausar/reanudar, vacaciones, resumen, ajustes). Para instalarla en un celular falta
@@ -141,7 +141,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 9.1 | **Estadísticas de uso** de tus propios usuarios (qué funciones usan; sin datos de sus clientes)  — opcional (apagado por defecto), solo contadores de pantallas; se ve en Admin → “Uso de la app” | 🟡 | S | ✅ 1.0.24 |
 | 9.2 | **Centro de ayuda** con búsqueda y videos cortos  — Ayuda dentro de la app, con buscador y 35 respuestas paso a paso (los videos cortos quedan para cuando se graben) | 🟡 | M | ✅ 1.0.24 |
 | 9.3 | **Instalador firmado** (Microsoft Store/MSIX ≈ US$19 u OV) | 🟠 | M | ⬜ 👤 |
-| 9.4 | **Versión para Linux y Mac** | 🟠 | L | ⬜ |
+| 9.4 | **Versión para Linux y Mac** — Mac: configuración de armado sin firma de Apple + armado automático en GitHub Actions (`.github/workflows/mac.yml`) + guía `docs/INSTALAR-EN-MAC.md`; en prueba con un conocido. Sin actualización automática hasta firmar con Apple (US$99/año). Linux: pendiente | 🟠 | L | 🟡 Mac listo para probar |
 
 ## E10 — Landing, SEO y recomendación por IAs (**al final**)
 

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nodemon local-dev.js",
     "start": "node local-dev.js",
-    "test": "node tests/planes.test.js && node tests/quota.service.test.js && node tests/referidos.test.js && node tests/license.service.test.js && node tests/licenses.routes.test.js && node tests/email-webhook.test.js && node tests/resumen-negocio.test.js && node tests/estado-bot.test.js && node tests/mobile.test.js && node tests/uso.test.js && node tests/email-novedades.test.js"
+    "test": "node tests/planes.test.js && node tests/quota.service.test.js && node tests/referidos.test.js && node tests/license.service.test.js && node tests/licenses.routes.test.js && node tests/email-webhook.test.js && node tests/resumen-negocio.test.js && node tests/estado-bot.test.js && node tests/mobile.test.js && node tests/uso.test.js && node tests/email-novedades.test.js && node tests/push-web.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -30,7 +30,8 @@
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "passport-local": "^1.0.0"
+    "passport-local": "^1.0.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
