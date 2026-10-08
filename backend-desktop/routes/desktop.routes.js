@@ -18,6 +18,12 @@ const urlMac = (arch) => {
   return /^https:\/\//i.test(u) ? u : null;
 };
 
+// App nativa de Android (.apk), versión de prueba.
+const urlAndroid = () => {
+  const u = (process.env.DESKTOP_ANDROID_URL || '').trim();
+  return /^https:\/\//i.test(u) ? u : null;
+};
+
 router.get('/latest', (_req, res) => {
   const base = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
   res.set('Cache-Control', 'public, max-age=300');
@@ -30,6 +36,11 @@ router.get('/latest', (_req, res) => {
     sizeMB: parseInt(process.env.DESKTOP_SIZE_MB, 10) || null,
     plataforma: 'windows',
     // Mac: solo se ofrece lo que ya está subido (cada enlace sale de una variable de entorno).
+    android: {
+      disponible: !!urlAndroid(),
+      url: urlAndroid() ? `${base}/api/desktop/download-android` : null,
+      sizeMB: parseInt(process.env.DESKTOP_ANDROID_SIZE_MB, 10) || null,
+    },
     mac: {
       disponible: !!(urlMac('arm64') || urlMac('x64')),
       arm64: urlMac('arm64') ? `${base}/api/desktop/download-mac?arch=arm64` : null,
@@ -37,6 +48,12 @@ router.get('/latest', (_req, res) => {
       sizeMB: parseInt(process.env.DESKTOP_MAC_SIZE_MB, 10) || null,
     },
   });
+});
+
+router.get('/download-android', (_req, res) => {
+  const u = urlAndroid();
+  if (!u) return res.status(404).json({ error: 'La app de Android todavía no está disponible' });
+  res.redirect(302, u);
 });
 
 router.get('/download-mac', (req, res) => {

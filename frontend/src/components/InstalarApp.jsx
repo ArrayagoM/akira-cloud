@@ -139,10 +139,16 @@ export default function InstalarApp({ compacto = false }) {
           <div className="rounded-xl p-4" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
             <p className="font-semibold text-white flex items-center gap-2"><Smartphone size={16} style={{ color: '#00e87b' }} />App del celular</p>
             <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>Mirá si tu bot está atendiendo, el resumen del día, pausalo y recibí un aviso si se cae. Funciona en <b>iPhone y Android</b> y se instala desde acá, sin tiendas de apps.</p>
-            <Link to="/celular" className="btn-primary text-sm inline-flex items-center justify-center gap-2 mt-3 w-full">Abrir la app del celular <ArrowRight size={14} /></Link>
+            {info?.android?.disponible && (
+              <a href={info.android.url} className="btn-primary text-sm inline-flex items-center justify-center gap-2 mt-3 w-full">
+                <Download size={15} /> Descargar app para Android (.apk){info.android.sizeMB ? <span className="text-xs font-normal opacity-80">({info.android.sizeMB} MB)</span> : null}
+              </a>
+            )}
+            <Link to="/celular" className={`${info?.android?.disponible ? 'btn-secondary' : 'btn-primary'} text-sm inline-flex items-center justify-center gap-2 mt-2 w-full`}>{info?.android?.disponible ? 'O usá la versión web (iPhone y Android)' : 'Abrir la app del celular'} <ArrowRight size={14} /></Link>
             <ul className="text-xs mt-3 space-y-1" style={{ color: 'var(--text2)' }}>
-              <li><b>iPhone:</b> abrila en Safari → Compartir → “Agregar a inicio”.</li>
-              <li><b>Android:</b> abrila en Chrome → menú ⋮ → “Instalar app”.</li>
+              {info?.android?.disponible && <li><b>Android (app nativa):</b> descargá el archivo y abrilo; el celular te va a pedir permitir instalar desde esta fuente. Es una versión de prueba: para actualizarla, desinstalá la anterior.</li>}
+              <li><b>iPhone:</b> abrila en Safari → Compartir → “Agregar a inicio” (queda con su ícono, a pantalla completa).</li>
+              {!info?.android?.disponible && <li><b>Android:</b> abrila en Chrome → menú ⋮ → “Instalar app”.</li>}
               <li>Es un control remoto: el bot y tus datos siguen en la PC.</li>
             </ul>
           </div>

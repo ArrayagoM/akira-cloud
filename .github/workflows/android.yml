@@ -56,8 +56,12 @@ jobs:
           echo "APK armado: $APK"
           cp "$APK" Akira-android.apk
           ls -l Akira-android.apk
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs Akira-android.apk | head -3 || true
-          "$ANDROID_HOME"/build-tools/*/aapt dump badging Akira-android.apk | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)" || true
+          # Verificación: la firma tiene que ser válida y el paquete tiene que ser el de Akira (si no, el armado falla).
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          "$BT/apksigner" verify --verbose --print-certs Akira-android.apk
+          "$BT/aapt" dump badging Akira-android.apk | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
+          "$BT/aapt" dump badging Akira-android.apk | grep -q "package: name='lat.akiracloud.app'"
 
       - name: Subir como artifact
         uses: actions/upload-artifact@v4
