@@ -67,6 +67,18 @@
       ],
       "icon": "build-resources/icon.ico"
     },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.business",
+      "icon": "build-resources/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "AkiraCloud-mac-${arch}.${ext}"
+    },
+    "afterPack": "scripts/mac-adhoc.js",
     "nsis": {
       "oneClick": true,
       "perMachine": false,

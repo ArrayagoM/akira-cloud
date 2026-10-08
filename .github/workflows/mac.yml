@@ -1,0 +1,45 @@
+# Arma la app de escritorio de Akira para macOS (Apple Silicon e Intel) en un servidor Mac de GitHub.
+# Se corre a mano: pestaña Actions → "Armar Akira para Mac" → Run workflow. Al terminar, los .dmg
+# quedan en "Artifacts" de esa ejecución (se bajan como .zip). NO publica nada ni toca el sitio.
+# La app sale sin firma de Apple (hace falta una cuenta de pago para eso): ver docs/INSTALAR-EN-MAC.md.
+name: Armar Akira para Mac
+
+on:
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias de la interfaz
+        working-directory: frontend
+        run: npm ci
+
+      - name: Instalar dependencias del programa
+        working-directory: desktop
+        run: npm ci
+
+      - name: Compilar la interfaz
+        working-directory: desktop
+        run: npm run build:ui
+
+      - name: Armar los instaladores (.dmg)
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac --publish never
+
+      - name: Subir los instaladores
+        uses: actions/upload-artifact@v4
+        with:
+          name: Akira-para-Mac
+          path: desktop/dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14

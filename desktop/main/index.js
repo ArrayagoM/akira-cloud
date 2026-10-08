@@ -61,6 +61,9 @@ const iniciaOculta = process.argv.includes('--hidden'); // lo usa el inicio auto
 // atendiendo después de reiniciar la PC, sin que nadie abra nada).
 const archivoPrefs = path.join(userDataDir, 'prefs.json');
 const leerPrefs = () => { try { return JSON.parse(fs.readFileSync(archivoPrefs, 'utf-8')); } catch { return {}; } };
+const ES_MAC = process.platform === 'darwin';
+// Textos según el sistema: en Mac el ícono vive en la barra de menú (arriba), no "junto al reloj".
+const DONDE_ICONO = ES_MAC ? 'el ícono de Akira en la barra de menú (arriba a la derecha)' : 'el ícono de Akira junto al reloj';
 function aplicarInicioAutomatico(activo) {
   if (!app.isPackaged) return; // en desarrollo no se registra
   app.setLoginItemSettings({ openAtLogin: !!activo, args: ['--hidden'] });
@@ -125,7 +128,7 @@ function crearVentana() {
       avisoBandejaMostrado = true;
       new Notification({
         title: 'Akira sigue funcionando',
-        body: 'Tu bot sigue atendiendo en segundo plano. Para abrirla de nuevo, hacé clic en el ícono de Akira junto al reloj.',
+        body: `Tu bot sigue atendiendo en segundo plano. Para abrirla de nuevo, hacé clic en ${DONDE_ICONO}.`,
         icon: path.join(__dirname, 'assets', 'tray.png'),
       }).show();
     }
@@ -135,13 +138,14 @@ function crearVentana() {
 }
 
 function crearTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
+  const icono = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
+  tray = new Tray(ES_MAC ? icono.resize({ width: 18, height: 18 }) : icono);
   tray.setToolTip('Akira');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir Akira', click: mostrarVentana },
     { label: 'Actualizar ahora', click: () => { if (!actualizador?.instalarAhora()) actualizador?.buscar(); } },
     {
-      label: 'Iniciar con Windows',
+      label: ES_MAC ? 'Iniciar al encender la Mac' : 'Iniciar con Windows',
       type: 'checkbox',
       checked: leerPrefs().inicioAutomatico !== false,
       click: (item) => {
@@ -289,8 +293,9 @@ if (!bloqueo) {
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
-    // Actualizaciones automáticas (solo en la app instalada).
-    if (app.isPackaged) {
+    // Actualizaciones automáticas (solo en la app instalada). En Mac exigen que la app esté firmada por Apple:
+    // mientras no lo esté, se desactivan y se instala la versión nueva a mano.
+    if (app.isPackaged && !ES_MAC) {
       try {
         const { autoUpdater } = require('electron-updater');
         actualizador = require('./updater').crearUpdater({
@@ -324,6 +329,7 @@ if (!bloqueo) {
   }).catch((e) => log('[arranque] FALLÓ', e));
 
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
+  app.on('activate', () => { mostrarVentana(); }); // Mac: clic en el ícono del Dock
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
   app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
