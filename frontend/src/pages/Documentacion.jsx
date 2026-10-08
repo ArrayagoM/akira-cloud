@@ -5,7 +5,7 @@ import Layout from '../components/Layout';
 import {
   ArrowLeft, Rocket, Settings, Plug, Bot, LayoutDashboard, Users2,
   CreditCard, ShieldCheck, HelpCircle, Mail, Menu, X,
-  AlertTriangle, Lightbulb, Calendar, Clock, Repeat, Brain,
+  AlertTriangle, Lightbulb, Calendar, Clock, Repeat, Brain, Smartphone,
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -20,6 +20,7 @@ const INDICE = [
     items: [
       { id: 'crear-cuenta', label: 'Crear tu cuenta' },
       { id: 'elegir-plan', label: 'Elegir tu plan' },
+      { id: 'instalar-programa', label: 'Instalar Akira (Windows y Mac)' },
       { id: 'conectar-whatsapp', label: 'Conectar tu WhatsApp' },
     ],
   },
@@ -29,7 +30,8 @@ const INDICE = [
     icon: Settings,
     items: [
       { id: 'datos-negocio', label: 'Datos del negocio' },
-      { id: 'horarios', label: 'Horarios y notificaciones' },
+      { id: 'horarios', label: 'Horarios de atención' },
+      { id: 'avisos-celular', label: 'Avisos al celular' },
       { id: 'servicios-catalogo', label: 'Servicios, precios y catálogo' },
       { id: 'personalizar-bot', label: 'Personalizar el estilo del bot' },
     ],
@@ -69,6 +71,16 @@ const INDICE = [
     ],
   },
   {
+    id: 'celular',
+    label: 'App del celular',
+    icon: Smartphone,
+    items: [
+      { id: 'celular-instalar', label: 'Instalarla en tu celular' },
+      { id: 'celular-que-hace', label: 'Qué podés hacer desde ahí' },
+      { id: 'celular-avisos', label: 'Avisos si el bot se cae' },
+    ],
+  },
+  {
     id: 'agencia',
     label: 'Plan Agencia',
     icon: Users2,
@@ -91,6 +103,7 @@ const INDICE = [
     label: 'Seguridad y privacidad',
     icon: ShieldCheck,
     items: [
+      { id: 'seguridad-local', label: 'Dónde viven tus datos' },
       { id: 'seguridad-datos', label: 'Cómo protegemos tus datos' },
     ],
   },
@@ -103,6 +116,9 @@ const INDICE = [
       { id: 'faq-qr', label: 'No me llega el código QR' },
       { id: 'faq-cobros', label: 'Problemas con los cobros' },
       { id: 'faq-detecta-bot', label: '¿Mis clientes saben que es un bot?' },
+      { id: 'faq-app-celular', label: '¿Hay app para el celular?' },
+      { id: 'faq-mac', label: '¿Funciona en Mac?' },
+      { id: 'faq-avisos-iphone', label: 'No me llegan los avisos en el iPhone' },
     ],
   },
   {
@@ -118,6 +134,10 @@ const INDICE = [
 /* ═══════════════════════════════════════════════════════════════
    SUBCOMPONENTES DE CONTENIDO
    ═══════════════════════════════════════════════════════════════ */
+function B({ children }) {
+  return <strong style={{ color: 'var(--text)' }}>{children}</strong>;
+}
+
 function Cat({ id, children }) {
   return (
     <h2 id={id} style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginTop: 56, marginBottom: 4, scrollMarginTop: 96 }}>
@@ -319,6 +339,24 @@ export default function Documentacion() {
               <a href="#planes-comparativa" style={{ color: 'var(--accent)' }}>Planes y facturación</a>.
             </P>
 
+            <Sub id="instalar-programa">Instalar Akira (Windows y Mac)</Sub>
+            <P>
+              Akira es un programa que se instala en la computadora del negocio, y ahí corre tu bot. Se descarga desde{' '}
+              <B>App</B> en el menú lateral (o desde <Link to="/descargar" style={{ color: 'var(--accent)' }}>akiracloud.lat/descargar</Link>).
+              La versión estable es para <B>Windows 10 y 11</B>; para <B>Mac</B> hay una versión de prueba.
+            </P>
+            <Steps>
+              <Step><B>Windows:</B> descargá el instalador, abrilo y tocá "Siguiente" hasta que termine. Si aparece "Windows protegió su PC", tocá <B>Más información → Ejecutar de todos modos</B> (se hace una sola vez).</Step>
+              <Step><B>Mac (prueba):</B> descargá el archivo que corresponde a tu Mac (chip M1 a M4, o procesador Intel: lo ves en el menú de la manzana → "Acerca de esta Mac"), abrilo y arrastrá Akira a <B>Aplicaciones</B>.</Step>
+              <Step>La primera vez en Mac, no hagas doble clic: clic derecho sobre Akira → <B>Abrir</B> → Abrir. Todavía no está firmada por Apple, por eso macOS avisa. Si dice que "está dañada", abrí la app <B>Terminal</B>, pegá <code>xattr -cr /Applications/Akira.app</code> y apretá Enter; después abrila de nuevo con clic derecho → Abrir.</Step>
+              <Step>Abrila e ingresá con la misma cuenta con la que te registraste en la web: tus datos de acceso se cargan solos.</Step>
+            </Steps>
+            <Callout tipo="warn">
+              La computadora tiene que estar <B>prendida y con internet</B> para que el bot responda. Si cerrás la ventana, Akira sigue
+              funcionando en segundo plano (ícono junto al reloj en Windows, o en la barra de menú de arriba en Mac).
+              En Mac la versión de prueba <B>no se actualiza sola</B>: para actualizar, instalá el archivo nuevo.
+            </Callout>
+
             <Sub id="conectar-whatsapp">Conectar tu WhatsApp</Sub>
             <P>
               Esto es lo primero que tenés que hacer para que el bot arranque a responder. Desde el{' '}
@@ -362,7 +400,18 @@ export default function Documentacion() {
               ventana, y puede tener horarios distintos (o cortados, con un recreo al mediodía) para cada día de la semana.
               También podés bloquear días puntuales (feriados, vacaciones).
             </P>
-            <Field nombre="Número para notificaciones" desc="Tu WhatsApp personal — el bot te avisa ahí cada vez que se confirma un turno. Se ingresa con código de país, sin el signo +  (ej: 5491112345678)." />
+
+            <Sub id="avisos-celular">Avisos al celular</Sub>
+            <P>
+              En <B>Config</B>, justo debajo de "Datos del negocio", está la sección <B>🔔 Avisos al celular</B>. Cargá ahí tu número de
+              WhatsApp personal: el bot te avisa en ese número cada vez que confirma un turno, y también te manda el resumen del día
+              si lo activaste en Inicio.
+            </P>
+            <Field nombre="Tu número de WhatsApp para los avisos" desc="Con código de área y sin 0 ni 15 (ej: 2241497226). Akira le agrega el 549 de Argentina sola; si lo escribís completo (5492241497226), queda igual. Si el número queda corto, te avisa y no guarda." />
+            <Callout tipo="tip">
+              No lo confundas con la <B>app del celular</B> (más abajo): los avisos de este número llegan por WhatsApp y hablan de turnos;
+              las notificaciones de la app hablan del estado del bot.
+            </Callout>
 
             <Sub id="servicios-catalogo">Servicios, precios y catálogo</Sub>
             <P>
@@ -478,6 +527,46 @@ export default function Documentacion() {
             <P>El historial completo de conversaciones de WhatsApp gestionadas por el bot, para revisar cómo respondió en cada caso.</P>
           </div>
 
+
+          {/* ═══ APP DEL CELULAR ═══ */}
+          <Cat id="celular">📱 App del celular</Cat>
+          <div style={bodyStyle}>
+            <P>
+              Es un <B>control remoto</B> de tu bot: ves si está atendiendo, mirás unos números del negocio, lo pausás o lo ponés en
+              modo vacaciones, y recibís un aviso si se cae. No se descarga de la App Store ni de Google Play: se instala desde la web, y
+              funciona en <B>iPhone y en Android</B>. El bot, WhatsApp y los datos de tus clientes siguen en tu computadora.
+            </P>
+
+            <Sub id="celular-instalar">Instalarla en tu celular</Sub>
+            <Steps>
+              <Step>Abrí <B>akiracloud.lat/celular</B> en el navegador del celular e ingresá con tu cuenta (la misma de Akira en la computadora).</Step>
+              <Step><B>iPhone:</B> tiene que ser en <B>Safari</B>. Tocá el botón Compartir (el cuadrado con la flecha) → <B>"Agregar a inicio"</B> → confirmá.</Step>
+              <Step><B>Android:</B> en Chrome, menú ⋮ → <B>"Instalar app"</B> (o "Agregar a la pantalla de inicio"). En la pestaña Ajustes también hay un botón "Instalar Akira".</Step>
+              <Step>Abrí Akira desde el ícono nuevo de tu pantalla de inicio: se ve como una app más.</Step>
+            </Steps>
+
+            <Sub id="celular-que-hace">Qué podés hacer desde ahí</Sub>
+            <Field nombre="Estado" desc="Si el bot está atendiendo, reconectando, detenido, si hay que volver a escanear el QR o si la computadora dejó de dar señales. Se actualiza solo cada 30 segundos." />
+            <Field nombre="Pausar y reanudar el bot" desc="Primero activá “Controlar desde la app del celular” en Akira (computadora) → Inicio. La orden tarda hasta 1 minuto en ejecutarse y, si la computadora no la retira en 10 minutos, vence sola y no se hace nada." />
+            <Field nombre="Modo vacaciones" desc="El bot avisa a tus clientes que por ahora no toma reservas. Se activa y se apaga desde el mismo interruptor (también requiere “Controlar desde la app del celular”)." />
+            <Field nombre="Resumen del negocio" desc="Solo números: mensajes y turnos de hoy, turnos del mes, ingresos, gastos, lo que te deben, clientes. Aparece si activaste “Ver tu negocio desde el celular” en Akira (computadora) → Inicio; es opcional y se apaga cuando quieras. Nunca se ven ni se envían nombres, chats ni documentos de tus clientes." />
+            <Field nombre="Ajustes" desc="Instalar la app, activar o apagar los avisos de este celular, mandarte una notificación de prueba y cerrar sesión." />
+
+            <Sub id="celular-avisos">Avisos si el bot se cae</Sub>
+            <P>
+              Entrá a la pestaña <B>Ajustes</B> y tocá <B>"Activar avisos"</B>; el celular te va a pedir permiso para las notificaciones.
+              Después, si tu bot se cae, vuelve a conectarse o la computadora deja de dar señales, te llega una notificación. WhatsApp no puede
+              avisarte de su propia caída, por eso este aviso sale por otro camino. También te llega un email.
+            </P>
+            <Callout tipo="warn">
+              En <B>iPhone</B>, los avisos funcionan con <B>iOS 16.4 o superior</B> y solo si abrís Akira desde el ícono que agregaste al inicio
+              (no desde Safari). Si no te llegan, revisá en Ajustes del iPhone → Notificaciones → Akira que estén permitidas.
+            </Callout>
+            <P>
+              Las notificaciones solo hablan del estado del bot: nunca llevan nombres, mensajes ni datos de tus clientes.
+            </P>
+          </div>
+
           {/* ═══ 6. PLAN AGENCIA ═══ */}
           <Cat id="agencia">🏢 Plan Agencia</Cat>
           <div style={bodyStyle}>
@@ -555,6 +644,14 @@ export default function Documentacion() {
           {/* ═══ 8. SEGURIDAD ═══ */}
           <Cat id="seguridad">🔒 Seguridad y privacidad</Cat>
           <div style={bodyStyle}>
+            <Sub id="seguridad-local">Dónde viven tus datos</Sub>
+            <P>
+              Tus clientes, conversaciones, turnos, caja, catálogo y documentos se guardan en <B>tu propia computadora</B>, no en un servidor
+              nuestro. En la nube queda solo tu cuenta (email y contraseña cifrada), la licencia, el envío de emails y, únicamente si lo
+              activaste, los números del resumen que ves desde el celular. Las claves que cargás (Groq, MercadoPago) se cifran con el almacén de
+              claves de tu sistema (Windows o el Llavero de Mac), y los respaldos van cifrados con una contraseña que elegís vos.
+            </P>
+
             <Sub id="seguridad-datos">Cómo protegemos tus datos</Sub>
             <P>
               Las credenciales sensibles de tu cuenta (keys de Groq, tokens de MercadoPago, tokens de Google) se guardan
@@ -595,6 +692,21 @@ export default function Documentacion() {
               No necesariamente — la conversación es natural, el bot responde en el tono que configuraste y recuerda el
               historial de cada cliente. Si un cliente pregunta directamente si está hablando con una persona o un bot, el bot
               responde con honestidad.
+            </Faq>
+            <Faq q="¿Hay app para el celular?">
+              Sí, de monitoreo. Se instala desde la web (<B>akiracloud.lat/celular</B>), sin App Store ni Google Play, en iPhone y en Android.
+              Ves el estado de tu bot, el resumen del día, podés pausarlo y recibís avisos si se cae. El bot sigue corriendo en tu computadora.
+              Más detalle en <a href="#celular" style={{ color: 'var(--accent)' }}>App del celular</a>.
+            </Faq>
+            <Faq q="¿Funciona en Mac?">
+              Hay una versión de prueba para Mac (chips M1 a M4 e Intel), con las mismas funciones que la de Windows. Se descarga desde la sección App.
+              Todavía no está firmada por Apple, así que la primera vez hay que abrirla con clic derecho → Abrir, y no se actualiza sola.
+              Pasos en <a href="#instalar-programa" style={{ color: 'var(--accent)' }}>Instalar Akira</a>. Linux todavía no está disponible.
+            </Faq>
+            <Faq q="No me llegan los avisos en el iPhone">
+              Revisá que tengas iOS 16.4 o superior, que hayas agregado Akira a la pantalla de inicio (Safari → Compartir → Agregar a inicio) y la abras
+              desde ese ícono, que hayas tocado "Activar avisos" en Ajustes y que las notificaciones de Akira estén permitidas en los ajustes del iPhone.
+              Podés probarlo con "Enviarme una notificación de prueba".
             </Faq>
           </div>
 
