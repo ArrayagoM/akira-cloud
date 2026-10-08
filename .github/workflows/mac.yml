@@ -7,6 +7,9 @@ name: Armar Akira para Mac
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   mac:
     runs-on: macos-14
@@ -43,3 +46,11 @@ jobs:
           path: desktop/dist/*.dmg
           if-no-files-found: error
           retention-days: 14
+
+      # Además del artifact, deja los .dmg en una "pre-release" para poder bajarlos sin iniciar sesión en GitHub.
+      # Después se mueven al hosting propio y la pre-release se puede borrar.
+      - name: Dejar los instaladores en una pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "mac-prueba-${{ github.run_number }}" desktop/dist/*.dmg             --prerelease --title "Akira para Mac (prueba ${{ github.run_number }})"             --notes "Versión de prueba para Mac, sin firma de Apple. Guía: docs/INSTALAR-EN-MAC.md"
