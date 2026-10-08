@@ -25,9 +25,31 @@ Regla de oro (la misma que ya usa el bot): **nunca se publica nada que el dueño
 | **TikTok** | Sí (video y fotos), **pero** hasta que TikTok audite la app, todo lo publicado queda **en privado** (solo el propio usuario) y con un máximo de 5 usuarios por día. | Cuenta de desarrollador, verificación de dominio, **auditoría de la app** con un video de demostración del flujo completo. Las fotos se cargan desde una URL de un dominio verificado. | Alta | Sin auditoría no sirve para publicar al público. Con auditoría, TikTok exige mostrar vista previa y avisar si es contenido comercial. |
 | **Historias de Facebook e Instagram** | Sí, dentro de las mismas APIs de arriba. | Ídem Meta. | Media | Ídem Meta. |
 
-## 3. Lo que más pesa: la aprobación de Meta
+## 2b. Decisión (7/10/2026): cada cliente conecta su propia cuenta de desarrollador
 
-Para que **otros** negocios (nuestros clientes) autoricen a Akira a publicar en sus páginas y cuentas, la app de Meta necesita **Acceso Avanzado**, que exige:
+En lugar de que Akira tramite una única app aprobada por Meta para todos sus clientes, **cada negocio conecta su propia app**, y Akira solo lo guía y hace las peticiones desde el programa. Cada uno se hace cargo de lo suyo (su cuenta, su verificación si la necesitara, sus límites).
+
+Por qué funciona (Meta): una app en modo desarrollo puede usar los permisos de publicación sobre las páginas e Instagram **de quien tiene un rol en esa app**, sin App Review ni verificación del negocio. Si el dueño crea su propia app y es administrador de ella y de su página, entra en ese caso.
+
+Cómo sería el flujo dentro de Akira (pantalla “Publicidad → Conectar”):
+1. Una guía paso a paso (con capturas) para crear la app en developers.facebook.com, con los valores exactos para copiar y pegar.
+2. El dueño pega el **ID y la clave de su app** en Akira (se guardan cifradas en su PC, como las claves de Groq y MercadoPago).
+3. Akira abre el inicio de sesión de Meta, el dueño acepta, y Akira guarda el permiso de su página e Instagram (también en su PC).
+4. Desde ahí Akira publica con esa conexión. Si algo se rompe, es en su app y no afecta a nadie más.
+
+Detalle técnico: el retorno del inicio de sesión necesita una dirección HTTPS; se resuelve con una página sencilla de akiracloud.lat que solo **reenvía** el código a la PC del cliente (sin guardar nada ni conocer ninguna clave).
+
+Lo mismo aplica a **Mercado Libre** (cada vendedor registra su aplicación y la autoriza).
+
+Límites de este modelo:
+- **Más pasos para el cliente** (crear la app lleva unos 15 a 30 minutos y la pantalla de Meta cambia seguido): hay que hacer la guía muy clara y mantenerla al día.
+- **Instagram** requiere cuenta profesional (Business o Creator) vinculada a una página de Facebook.
+- **TikTok no se resuelve así**: la auditoría la exige TikTok a cada app y, sin ella, solo se publica en privado. Para TikTok queda el kit y el botón Compartir.
+- Si más adelante conviene un camino de un solo clic, se puede sumar una **app central de Akira** (con la verificación de Meta de la sección 3) como segunda opción, sin tirar nada de lo anterior.
+
+## 3. La alternativa central: la aprobación de Meta (opcional, más adelante)
+
+Para que **otros** negocios autoricen a una única app de Akira a publicar en sus páginas y cuentas, esa app necesita **Acceso Avanzado**, que exige:
 
 - **Verificación del negocio** (de quien tiene la app, o sea Akira/TinchoDev): documentación legal, por ejemplo CUIT.
 - **Verificación como Tech Provider** (hasta 5 días hábiles) para los permisos `pages_manage_posts` e `instagram_content_publish`.
@@ -52,11 +74,12 @@ Es el punto de diseño más delicado. Hoy el catálogo, las fotos y las claves e
 - Para Facebook, Instagram, Mercado Libre y TikTok: **un kit listo** para copiar y descargar, y desde el celular un botón **Compartir** (la app web del celular puede abrir el menú de compartir del teléfono con la imagen y el texto, y de ahí a Instagram, historias o TikTok). Funciona desde el día 1 y no depende de nadie.
 - Calendario de publicaciones y recordatorio “hoy toca publicar”.
 
-**Etapa 2: Facebook e Instagram (página, feed, reels e historias).**
-- Empezar en paralelo y cuanto antes los trámites de Meta (verificación del negocio, Tech Provider, App Review), porque es lo que más tarda.
-- Construir y probar con las cuentas de Akira en modo desarrollo; cuando Meta apruebe, abrirlo a clientes.
+**Etapa 2: Facebook e Instagram (página, feed, reels e historias) con la app propia de cada cliente.**
+- Sin esperar aprobaciones: cada negocio conecta su propia app (sección 2b).
+- Se construye y se prueba de punta a punta con **tu cuenta** (tu página y tu Instagram profesional): la guía de conexión, el inicio de sesión, las publicaciones y las historias.
+- Después se prueba con 2 o 3 clientes reales antes de abrirlo a todos.
 
-**Etapa 3: Mercado Libre.**
+**Etapa 3: Mercado Libre (también con la app propia de cada vendedor).**
 - Publicar como **borrador** revisado por el dueño: Akira propone categoría, título, atributos y fotos; el dueño corrige y confirma. Empezar con pocas categorías (por ejemplo ropa, accesorios, productos de belleza) y ampliar.
 - Sincronizar stock y precio con el Catálogo (que una venta en el local baje el stock en Mercado Libre y al revés).
 
@@ -66,10 +89,10 @@ Es el punto de diseño más delicado. Hoy el catálogo, las fotos y las claves e
 ## 6. Qué necesito de vos (👤)
 
 1. **Decidir el alcance de la etapa 1** (¿empezamos ya por ahí? es lo único que no depende de nadie).
-2. **Meta:** crear la app en developers.facebook.com con la cuenta de Akira y hacer la **verificación del negocio** (hace falta CUIT y documentación; si preferís, lo hacemos juntos paso a paso por la pantalla).
-3. **Mercado Libre:** registrar la app en developers.mercadolibre.com.ar (necesita redirect HTTPS: usamos akiracloud.lat).
+2. **Meta (solo para probar con tu cuenta):** crear una app en developers.facebook.com con tu usuario (modo desarrollo, sin verificación ni CUIT). Los pasos que hagas quedan como base de la guía para clientes; si querés, los hacemos juntos por la pantalla.
+3. **Mercado Libre (solo para probar con tu cuenta):** registrar tu aplicación en developers.mercadolibre.com.ar (el retorno HTTPS lo resuelve la página de akiracloud.lat).
 4. **TikTok:** cuenta de desarrollador y verificación del dominio, más adelante.
-5. Una cuenta de **prueba de Instagram profesional** y una **página de Facebook** para probar sin tocar las de un cliente.
+5. Tener a mano tu **página de Facebook** (Akira Cloud) y una cuenta de **Instagram profesional** vinculada a ella, para las pruebas.
 
 ## 7. Riesgos y reglas que vamos a respetar
 
@@ -84,8 +107,8 @@ Es el punto de diseño más delicado. Hoy el catálogo, las fotos y las claves e
 | Etapa | Esfuerzo | Depende de terceros |
 |---|---|---|
 | 1. Kit + estado de WhatsApp + compartir desde el celular | Medio (S/M) | No |
-| 2. Facebook e Instagram | Medio/Grande (M/L) | **Sí: Meta (semanas)** |
-| 3. Mercado Libre | Grande (L) | Poco (registro de app) |
+| 2. Facebook e Instagram (app propia de cada cliente) | Medio/Grande (M/L): guía de conexión + inicio de sesión + publicar | No (se prueba con tu cuenta) |
+| 3. Mercado Libre (app propia de cada vendedor) | Grande (L) | Poco (registro de app de cada uno) |
 | 4. TikTok | Grande (L) | **Sí: auditoría de TikTok** |
 
 ## Fuentes (documentación oficial, consultadas el 7/10/2026)
