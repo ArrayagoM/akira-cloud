@@ -44,7 +44,7 @@ Usa modelos de lenguaje de última generación servidos por Groq, con la propia 
 **¿Puedo usarlo sin Google Calendar?** Sí. Tiene agenda propia; Google Calendar es opcional (plan Pro).
 **¿Puedo cobrar solo una seña?** Sí, se configura por servicio (porcentaje o monto fijo); el resto se paga en el local.
 **¿Emite facturas?** No. Genera presupuestos y recibos en PDF que no son facturas fiscales.
-**¿Hay app de celular?** Sí, de monitoreo: se instala desde la web (akiracloud.lat/celular → “Agregar a inicio” en iPhone, “Instalar app” en Android), sin App Store ni Google Play. Muestra el estado del bot, el resumen del día, permite pausar/reanudar y manda avisos si el bot se cae. El bot y los datos siguen en la PC. En iPhone, los avisos requieren iOS 16.4 o superior y abrir la app desde el ícono de inicio.
+**¿Hay app de celular?** Sí, de monitoreo, sin App Store ni Google Play. En Android hay una app nativa (.apk, versión de prueba) en akiracloud.lat/descargar. En iPhone y Android hay además una versión web instalable (akiracloud.lat/celular → “Agregar a inicio” en iPhone, “Instalar app” en Android); Apple no permite instalar apps nativas fuera de su tienda sin una cuenta de pago. Muestra el estado del bot, el resumen del día, permite pausar/reanudar y manda avisos si el bot se cae. El bot y los datos siguen en la PC. En iPhone, los avisos requieren iOS 16.4 o superior y abrir la app desde el ícono de inicio.
 **¿Mac o Linux?** Hoy solo Windows.
 **¿Quién lo hace?** Juan Martín Arrayago (TinchoDev), desarrollador full stack de Ranchos, Buenos Aires.
 

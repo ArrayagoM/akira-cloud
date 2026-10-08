@@ -546,13 +546,16 @@ export default function Documentacion() {
           <div style={bodyStyle}>
             <P>
               Es un <B>control remoto</B> de tu bot: ves si está atendiendo, mirás unos números del negocio, lo pausás o lo ponés en
-              modo vacaciones, y recibís un aviso si se cae. No se descarga de la App Store ni de Google Play: se instala desde la web, y
-              funciona en <B>iPhone y en Android</B>. El bot, WhatsApp y los datos de tus clientes siguen en tu computadora.
+              modo vacaciones, y recibís un aviso si se cae. No se descarga de la App Store ni de Google Play. En <B>Android</B> hay una
+              app nativa (un archivo .apk) que bajás desde <B>akiracloud.lat/descargar</B>; en <B>iPhone</B> se instala desde la web (Apple no
+              permite instalar apps nativas fuera de su tienda sin una cuenta de desarrollador de pago). El bot, WhatsApp y los datos de tus
+              clientes siguen en tu computadora.
             </P>
 
             <Sub id="celular-instalar">Instalarla en tu celular</Sub>
             <Steps>
-              <Step>Abrí <B>akiracloud.lat/celular</B> en el navegador del celular e ingresá con tu cuenta (la misma de Akira en la computadora).</Step>
+              <Step><B>Android (app nativa):</B> en <B>akiracloud.lat/descargar</B> tocá “Descargar app para Android (.apk)”, abrí el archivo y, cuando el celular lo pida, permití instalar desde esa fuente. Es una versión de prueba: para actualizarla, desinstalá la anterior. Por ahora no manda avisos de caída (los avisos están en la versión web instalable).</Step>
+              <Step><B>Versión web (iPhone y Android):</B> abrí <B>akiracloud.lat/celular</B> en el navegador del celular e ingresá con tu cuenta (la misma de Akira en la computadora).</Step>
               <Step><B>iPhone:</B> tiene que ser en <B>Safari</B>. Tocá el botón Compartir (el cuadrado con la flecha) → <B>"Agregar a inicio"</B> → confirmá.</Step>
               <Step><B>Android:</B> en Chrome, menú ⋮ → <B>"Instalar app"</B> (o "Agregar a la pantalla de inicio"). En la pestaña Ajustes también hay un botón "Instalar Akira".</Step>
               <Step>Abrí Akira desde el ícono nuevo de tu pantalla de inicio: se ve como una app más.</Step>
@@ -707,7 +710,7 @@ export default function Documentacion() {
               responde con honestidad.
             </Faq>
             <Faq q="¿Hay app para el celular?">
-              Sí, de monitoreo. Se instala desde la web (<B>akiracloud.lat/celular</B>), sin App Store ni Google Play, en iPhone y en Android.
+              Sí, de monitoreo. En Android hay una app nativa (.apk) que se baja de <B>akiracloud.lat/descargar</B>; en iPhone y en Android también se puede instalar la versión web (<B>akiracloud.lat/celular</B>). No usan App Store ni Google Play.
               Ves el estado de tu bot, el resumen del día, podés pausarlo y recibís avisos si se cae. El bot sigue corriendo en tu computadora.
               Más detalle en <a href="#celular" style={{ color: 'var(--accent)' }}>App del celular</a>.
             </Faq>

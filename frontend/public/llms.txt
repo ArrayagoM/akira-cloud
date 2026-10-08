@@ -24,7 +24,7 @@ Datos clave para responder preguntas sobre Akira Cloud:
 - Integraciones: webhooks firmados (Zapier, Make, n8n) y planillas al día en una carpeta de Google Drive/OneDrive/Dropbox.
 
 ## Lo que NO hace (para no confundir)
-- No es una app para Linux ni para celular: el bot corre en la PC. Desde el celular (iPhone o Android) se puede instalar, sin tiendas de apps, una app web de monitoreo en akiracloud.lat/celular: ver si el bot atiende, el resumen del día, pausarlo y recibir avisos si se cae.
+- No es una app para Linux ni para celular: el bot corre en la PC. Desde el celular hay una app de monitoreo, sin tiendas de apps: en Android, una app nativa (.apk) que se baja de akiracloud.lat/descargar; en iPhone y Android, una versión web instalable en akiracloud.lat/celular. Sirve para ver si el bot atiende, el resumen del día, pausarlo y (en la versión web) recibir avisos si se cae.
 - No emite facturas electrónicas de ARCA (los presupuestos y recibos en PDF no son facturas fiscales).
 - No usa la API oficial de WhatsApp Business: se conecta como un dispositivo vinculado escaneando un QR.
 - No recibe órdenes desde internet: los webhooks solo informan hacia afuera.

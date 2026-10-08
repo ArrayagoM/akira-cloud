@@ -271,7 +271,7 @@ export const GUIA = [
         hace: [
           'Descargar el programa para Windows, o la versión de prueba para Mac, y ver los pasos de instalación.',
           'Abajo a la izquierda, “Buscar actualización” revisa si hay una versión nueva. En Windows se actualiza sola; en Mac, instalás el archivo nuevo.',
-          'Instalar también la app del celular (control remoto y avisos si el bot se cae).',
+          'Instalar también la app del celular: en Android, una app nativa (archivo .apk) que se baja desde ahí; en iPhone, la versión web que se agrega a la pantalla de inicio. Es un control remoto del bot.',
         ],
       },
       {
