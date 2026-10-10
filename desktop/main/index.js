@@ -294,8 +294,9 @@ if (!bloqueo) {
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
     // Actualizaciones automáticas (solo en la app instalada). En Mac exigen que la app esté firmada por Apple:
-    // mientras no lo esté, se desactivan y se instala la versión nueva a mano.
-    if (app.isPackaged && !ES_MAC) {
+    // mientras no lo esté, se desactivan y se instala la versión nueva a mano. En la versión de la Microsoft Store
+    // (process.windowsStore) las actualizaciones las hace la propia Store.
+    if (app.isPackaged && !ES_MAC && !process.windowsStore) {
       try {
         const { autoUpdater } = require('electron-updater');
         actualizador = require('./updater').crearUpdater({

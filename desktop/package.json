@@ -79,6 +79,13 @@
       "artifactName": "AkiraCloud-mac-${arch}.${ext}"
     },
     "afterPack": "scripts/mac-adhoc.js",
+    "appx": {
+      "displayName": "Akira",
+      "applicationId": "Akira",
+      "backgroundColor": "#0a0f16",
+      "showNameOnTiles": false,
+      "languages": ["es-AR", "es-ES"]
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

@@ -1,0 +1,70 @@
+# Arma el paquete de Akira para la Microsoft Store (.appx/MSIX). La Store lo firma sola al aprobarlo: no hace falta certificado.
+# Se corre a mano: pestaña Actions → "Armar Akira para la Microsoft Store" → Run workflow.
+# Necesita 3 "Variables" del repositorio (Settings → Secrets and variables → Actions → Variables), que salen de
+# Partner Center → tu app → "Product identity". Guía paso a paso: docs/PUBLICAR-EN-MICROSOFT-STORE.md.
+# NO publica nada: el .appx queda en "Artifacts" para subirlo a mano a Partner Center.
+name: Armar Akira para la Microsoft Store
+
+on:
+  workflow_dispatch:
+
+jobs:
+  store:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Revisar los datos de la Store
+        shell: bash
+        env:
+          NOMBRE: ${{ vars.STORE_IDENTITY_NAME }}
+          EDITOR: ${{ vars.STORE_PUBLISHER }}
+          VISIBLE: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          faltan=""
+          [ -z "$NOMBRE" ] && faltan="$faltan STORE_IDENTITY_NAME"
+          [ -z "$EDITOR" ] && faltan="$faltan STORE_PUBLISHER"
+          [ -z "$VISIBLE" ] && faltan="$faltan STORE_PUBLISHER_DISPLAY_NAME"
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan variables del repositorio:$faltan (salen de Partner Center → Product identity). Ver docs/PUBLICAR-EN-MICROSOFT-STORE.md"
+            exit 1
+          fi
+
+      - name: Instalar dependencias de la interfaz
+        working-directory: frontend
+        run: npm ci
+
+      - name: Instalar dependencias del programa
+        working-directory: desktop
+        run: npm ci
+
+      - name: Compilar la interfaz
+        working-directory: desktop
+        run: npm run build:ui
+
+      - name: Armar el paquete (.appx)
+        working-directory: desktop
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          NOMBRE: ${{ vars.STORE_IDENTITY_NAME }}
+          EDITOR: ${{ vars.STORE_PUBLISHER }}
+          VISIBLE: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          npx electron-builder --win appx --x64 --publish never \
+            "-c.appx.identityName=$NOMBRE" \
+            "-c.appx.publisher=$EDITOR" \
+            "-c.appx.publisherDisplayName=$VISIBLE"
+
+      - name: Subir el paquete
+        uses: actions/upload-artifact@v4
+        with:
+          name: Akira-para-Microsoft-Store
+          path: desktop/dist/*.appx
+          if-no-files-found: error
+          retention-days: 30

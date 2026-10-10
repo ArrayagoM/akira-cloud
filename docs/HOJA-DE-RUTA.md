@@ -140,7 +140,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 |---|-------|:----:|:----:|:------:|
 | 9.1 | **Estadísticas de uso** de tus propios usuarios (qué funciones usan; sin datos de sus clientes)  — opcional (apagado por defecto), solo contadores de pantallas; se ve en Admin → “Uso de la app” | 🟡 | S | ✅ 1.0.24 |
 | 9.2 | **Centro de ayuda** con búsqueda y videos cortos  — Ayuda dentro de la app, con buscador y 35 respuestas paso a paso (los videos cortos quedan para cuando se graben) | 🟡 | M | ✅ 1.0.24 |
-| 9.3 | **Instalador firmado** (Microsoft Store/MSIX ≈ US$19 u OV) | 🟠 | M | ⬜ 👤 |
+| 9.3 | **Instalador firmado** (Microsoft Store/MSIX: gratis desde sept. 2025, cuenta de empresa; o certificado OV ≈ US$116–300/año. Azure Artifact Signing no está disponible en Argentina) | 🟠 | M | ⬜ 👤 |
 | 9.4 | **Versión para Linux y Mac** — Mac: configuración de armado sin firma de Apple + armado automático en GitHub Actions (`.github/workflows/mac.yml`) + guía `docs/INSTALAR-EN-MAC.md`; en prueba con un conocido. Sin actualización automática hasta firmar con Apple (US$99/año). Linux: pendiente | 🟠 | L | 🟡 Mac listo para probar |
 | 10.1 | **Central de publicidad** (publicar productos del Catálogo en Facebook, Instagram, Mercado Libre, estados de WhatsApp, historias de Facebook/Instagram y TikTok): plan, requisitos y etapas en `docs/PLAN-CENTRAL-DE-PUBLICIDAD.md`. Etapa 1 (kit de publicación + estado de WhatsApp + compartir desde el celular) no depende de terceros; Meta, Mercado Libre y TikTok requieren trámites y aprobaciones 👤 | 🟠 | L | ⬜ planificado |
 
