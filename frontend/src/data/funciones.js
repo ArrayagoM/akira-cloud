@@ -206,6 +206,19 @@ export const GUIA = [
         nota: 'Se guardan solo las preguntas, sin teléfonos ni mails, durante 90 días y únicamente en tu PC. Podés borrarlas cuando quieras.',
       },
       {
+        id: 'f-marketing', menu: 'Marketing', titulo: 'Marketing',
+        que: 'Un equipo de especialistas con IA que te escribe borradores de marketing usando los datos reales de tu negocio: tus servicios, precios, productos y horarios.',
+        hace: [
+          'Redactor de publicaciones: textos para Instagram, Facebook, Estado de WhatsApp, LinkedIn o TikTok, con una idea de foto para sacar con el celular.',
+          'Armador de promociones: ideas de promos y el mensaje para comunicarlas. Si no ponés un descuento, no inventa ninguno.',
+          'Respuestas a reseñas y comentarios: respuestas amables a reseñas de Google o comentarios de redes, incluso a las negativas.',
+          'Planificador semanal: qué publicar cada día de la semana, en qué red y con qué texto.',
+          'Mensajes para tus clientes: textos de WhatsApp para reactivar clientes, contar una novedad, saludar un cumpleaños o pedir una reseña (los masivos llevan la opción "BAJA").',
+          'Consultor de crecimiento: mira tus números reales de los últimos 90 días (turnos, servicios más pedidos, ausencias, clientes que no vuelven) y propone 5 acciones. No usa nombres ni teléfonos de clientes.',
+        ],
+        nota: 'Todo es un borrador: nada se publica ni se envía solo, y la IA no inventa precios, descuentos ni opiniones; lo que le falta lo deja entre [corchetes] para que lo completes. Usa tu propia clave de Groq (la misma del bot, es gratis) y tiene un tope de 30 borradores por hora. Revisalo siempre antes de usarlo.',
+      },
+      {
         id: 'f-bot-solo', menu: '(automático)', titulo: 'Lo que el bot hace por su cuenta',
         que: 'Todo esto funciona sin que toques nada, una vez conectado tu WhatsApp.',
         hace: [

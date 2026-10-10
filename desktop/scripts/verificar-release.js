@@ -166,6 +166,11 @@ const raiz = process.argv[2];
   for (const m of ['main/mcp/servicio', 'main/mcp/tokens', 'main/mcp/herramientas', 'main/mcp/protocolo', 'main/mcp/servidor', 'main/mcp/auditoria', 'main/local-api/routes/mcp.routes']) require(path.join(raiz, m));
   const svcMcp = require(path.join(raiz, 'main/mcp/servicio')).crearServicio({ userDataDir: dirUso, obtenerUserId: () => null });
   if (svcMcp.estado().activo || svcMcp.estado().escuchando || svcMcp.estado().herramientas.length !== 7) throw new Error('la conexión con asistentes de IA debería arrancar apagada y con 7 herramientas');
+  // equipo de marketing con IA: tiene que cargar dentro del paquete y armar un pedido sin red
+  for (const m of ['main/marketing/agentes', 'main/marketing/servicio', 'main/local-api/routes/marketing.routes']) require(path.join(raiz, m));
+  const mkt = require(path.join(raiz, 'main/marketing/agentes'));
+  const ped = mkt.armarPedido('posts', { tema: 'Prueba', red: 'instagram' }, { negocio: 'N', hoy: '2026-10-12', servicios: [], catalogo: [] });
+  if (mkt.lista().length !== 6 || !ped.sistema.includes('No inventes precios')) throw new Error('el equipo de marketing falla dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

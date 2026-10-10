@@ -234,6 +234,8 @@ if (!bloqueo) {
     });
     // Webhooks de salida hacia Zapier / Make / n8n (opcional; ver webhooks.js)
     appHooks.servicioWebhooks = require('./webhooks').crearServicio({ userDataDir, log });
+    // Equipo de marketing (borradores con IA a partir de los datos del negocio; ver marketing/)
+    appHooks.servicioMarketing = require('./marketing/servicio').crearServicio({ log });
     // Conexión de asistentes de IA por MCP: solo lectura, solo en esta PC, apagada por defecto (ver mcp/servicio.js)
     appHooks.servicioMcp = require('./mcp/servicio').crearServicio({ userDataDir, obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null, version: app.getVersion(), log });
     // Gastos fijos y vencimientos: se cargan solos a la Caja y avisan unos días antes (ver recurrentes-servicio.js)
