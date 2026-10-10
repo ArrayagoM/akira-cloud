@@ -162,6 +162,10 @@ const raiz = process.argv[2];
   const usoLib = require(path.join(raiz, 'main/uso-estadisticas'));
   if (usoLib.paraEnviar(dirUso) !== undefined || usoLib.contar(dirUso, '/caja')) throw new Error('las estadísticas de uso deberían arrancar apagadas');
   if (!require(path.join(raiz, 'main/exportacion-auto')).leerConfig(dirUso).cadaHoras) throw new Error('la exportación automática falla dentro del paquete');
+  // conexión de asistentes de IA (MCP): tiene que cargar dentro del paquete y arrancar APAGADA (sin puerto abierto)
+  for (const m of ['main/mcp/servicio', 'main/mcp/tokens', 'main/mcp/herramientas', 'main/mcp/protocolo', 'main/mcp/servidor', 'main/mcp/auditoria', 'main/local-api/routes/mcp.routes']) require(path.join(raiz, m));
+  const svcMcp = require(path.join(raiz, 'main/mcp/servicio')).crearServicio({ userDataDir: dirUso, obtenerUserId: () => null });
+  if (svcMcp.estado().activo || svcMcp.estado().escuchando || svcMcp.estado().herramientas.length !== 7) throw new Error('la conexión con asistentes de IA debería arrancar apagada y con 7 herramientas');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

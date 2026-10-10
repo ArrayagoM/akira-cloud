@@ -148,7 +148,7 @@ const EMPLEADO = [
 ];
 // Lo que se NIEGA al encargado (todo lo demás lo puede)
 const ENCARGADO_NO = [
-  /^\/api\/app\/webhooks(\/|$)/, /^\/api\/app\/uso$/, /^\/api\/app\/exportacion(\/|$)/, /^\/api\/app\/respaldo(\/|$)/, /^\/api\/app\/perfiles(\/|$)(?!yo$)/, /^\/api\/subscriptions(\/|$)/, /^\/api\/admin(\/|$)/, /^\/api\/sync(\/|$)/, /^\/api\/app\/resumen-web$/,
+  /^\/api\/app\/webhooks(\/|$)/, /^\/api\/app\/mcp(\/|$)/, /^\/api\/app\/uso$/, /^\/api\/app\/exportacion(\/|$)/, /^\/api\/app\/respaldo(\/|$)/, /^\/api\/app\/perfiles(\/|$)(?!yo$)/, /^\/api\/subscriptions(\/|$)/, /^\/api\/admin(\/|$)/, /^\/api\/sync(\/|$)/, /^\/api\/app\/resumen-web$/,
   /^\/api\/bot\/(keys|google|accounts|reset-session)(\/|$)/,
 ];
 const ENCARGADO_SOLO_LEER = [/^\/api\/config$/, /^\/api\/app\/avisos(\/|$)/, /^\/api\/auth\//, /^\/api\/app\/programas(\/|$)/];

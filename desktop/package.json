@@ -36,6 +36,7 @@
     "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "electron": "^33.0.0",
     "electron-builder": "^26.15.3"
   },
@@ -69,7 +70,13 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.business",
       "icon": "build-resources/icon.png",
@@ -84,7 +91,10 @@
       "applicationId": "Akira",
       "backgroundColor": "#0a0f16",
       "showNameOnTiles": false,
-      "languages": ["es-AR", "es-ES"]
+      "languages": [
+        "es-AR",
+        "es-ES"
+      ]
     },
     "nsis": {
       "oneClick": true,

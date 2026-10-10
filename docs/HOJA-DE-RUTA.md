@@ -133,6 +133,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 8.3 | **Tienda Nube / Mercado Libre**: stock y ventas sincronizados | 🟠 | L | ⬜ |
 | 8.4 | **Instagram y Messenger**: el mismo bot atiende esos mensajes | 🟠 | L | ⬜ |
 | 8.5 | **Mercado Pago Point** (posnet): cobros con tarjeta que entran solos a la Caja | 🟡 | L | ⬜ |
+| 8.6 | **Asistentes de IA (MCP)**: un asistente como Claude consulta el negocio (7 herramientas de solo lectura), solo en esta PC, apagado por defecto, con llaves que vencen y se revocan, registro de actividad y pruebas de seguridad — diseño en `docs/MCP-SEGURIDAD.md`. Escritura (con aprobación del dueño) y chats quedan para una etapa aparte | 🟡 | L | ✅ en la próxima versión |
 
 ## E9 — La plataforma en sí
 

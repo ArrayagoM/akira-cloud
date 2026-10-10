@@ -240,8 +240,9 @@ export const GUIA = [
         hace: [
           'Webhooks firmados (HMAC-SHA256) hacia Zapier, Make o n8n: avisan una venta registrada, un pedido pagado, un turno confirmado, un movimiento de caja o un comprobante creado.',
           'Planillas siempre actualizadas (Caja, Clientes, Productos y Servicios) en una carpeta que se sincronice con Google Drive, OneDrive o Dropbox.',
+          'Asistentes de IA (MCP): conectás un asistente como Claude para que consulte tu negocio (turnos, caja, catálogo, deudores…). Es solo lectura, solo funciona en esta computadora y cada conexión usa una llave que vence y se puede revocar. Los teléfonos salen enmascarados y nunca se comparten claves ni el texto de los chats.',
         ],
-        nota: 'Los webhooks solo informan hacia afuera: nadie puede mandarle órdenes a tu Akira desde internet.',
+        nota: 'Nadie puede mandarle órdenes a tu Akira desde internet: los webhooks solo informan hacia afuera y los asistentes de IA solo pueden consultar, desde esta misma computadora y con una llave que vos creás.',
       },
       {
         id: 'f-respaldo', menu: 'Respaldo', titulo: 'Respaldo',

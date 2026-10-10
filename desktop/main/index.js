@@ -234,6 +234,8 @@ if (!bloqueo) {
     });
     // Webhooks de salida hacia Zapier / Make / n8n (opcional; ver webhooks.js)
     appHooks.servicioWebhooks = require('./webhooks').crearServicio({ userDataDir, log });
+    // Conexión de asistentes de IA por MCP: solo lectura, solo en esta PC, apagada por defecto (ver mcp/servicio.js)
+    appHooks.servicioMcp = require('./mcp/servicio').crearServicio({ userDataDir, obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null, version: app.getVersion(), log });
     // Gastos fijos y vencimientos: se cargan solos a la Caja y avisan unos días antes (ver recurrentes-servicio.js)
     appHooks.servicioRecurrentes = require('./recurrentes-servicio').crearServicio({
       obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
@@ -290,6 +292,7 @@ if (!bloqueo) {
     appHooks.servicioResenas.programar();
     appHooks.servicioRecurrentes.programar();
     appHooks.servicioExportacion.programar();
+    appHooks.servicioMcp.iniciarSiActivo();
     aplicarInicioAutomatico(leerPrefs().inicioAutomatico !== false);
     log('[arranque] listo en', localApi.url, iniciaOculta ? '(oculta)' : '');
 
@@ -333,5 +336,5 @@ if (!bloqueo) {
   app.on('activate', () => { mostrarVentana(); }); // Mac: clic en el ícono del Dock
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); appHooks.servicioMcp?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

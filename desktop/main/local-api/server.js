@@ -126,7 +126,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/admin', aNube); // panel de administración: vive en la nube (solo rol admin)
 
   // ── Lo que corre local ─────────────────────────────────────────
-  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, servicioRecurrentes: appHooks.servicioRecurrentes, servicioWebhooks: appHooks.servicioWebhooks, servicioExportacion: appHooks.servicioExportacion, estadoImport: () => estadoImp, ejecutarImport };
+  const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, servicioRecurrentes: appHooks.servicioRecurrentes, servicioWebhooks: appHooks.servicioWebhooks, servicioMcp: appHooks.servicioMcp, servicioExportacion: appHooks.servicioExportacion, estadoImport: () => estadoImp, ejecutarImport };
   app.use('/api/config', require('./routes/config.routes')(deps));
   app.use('/api/bot', require('./routes/bot.routes')(deps));
   app.use('/api/turnos', require('./routes/turnos.routes')(deps));
@@ -145,6 +145,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/app/recurrentes', require('./routes/recurrentes.routes')(deps));
   app.use('/api/app/cierres', require('./routes/cierres.routes')(deps));
   app.use('/api/app/webhooks', require('./routes/webhooks.routes')(deps));
+  app.use('/api/app/mcp', require('./routes/mcp.routes')(deps));
   app.use('/api/app/uso', require('./routes/uso.routes')(deps));
   app.use('/api/app/exportacion', require('./routes/exportacion.routes')(deps));
   app.use('/api/app/profesionales', require('./routes/profesionales.routes')(deps));
