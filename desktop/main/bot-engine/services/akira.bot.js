@@ -43,6 +43,7 @@ const conocimientoSvc = require('./bot/conocimiento.service');
 const pedidosSvc = require('./bot/pedidos.service');
 const analiticaSvc = require('./bot/analitica.service');
 const copilotoSvc = require('./bot/copiloto.service');
+const saludoSvc = require('./bot/saludo.service');
 const senasLib = require('../../gestion/senas');
 const { crearPedidosBot } = require('./bot/pedidos-bot');
 const programasLib = require('../../programas');
@@ -73,7 +74,7 @@ function construirSystemPromptRespuestaFinal(miNombre, nombreCliente, toolCallsL
     ? toolCallsLlamadas.some((t) => TOOLS_QUE_REQUIEREN_LISTAR_OPCIONES.has(t?.function?.name))
     : false;
 
-  let content = `Sos Akira de ${miNombre}. Natural, cálido, WhatsApp con ${nombreCliente}. Max 3 líneas.`;
+  let content = `Sos Akira de ${miNombre}. Natural, cálido y amable, por WhatsApp con ${nombreCliente}. Max 3 líneas. Hablás en español rioplatense con voseo ("tenés", "querés", "decime"), nunca con tuteo ("tienes", "quieres"). Si el cliente recién empieza la charla, devolvé el saludo con una frase cálida antes de dar la información, y cerrá con una pregunta amable.`;
 
   if (llamoToolDeOpciones) {
     content +=
@@ -995,7 +996,8 @@ Revisalo en Akira → Documentos.`);
           `  - Si el cliente dice "también quiero el de las X" → es un NUEVO turno, no un reagendamiento\n` +
           `  - Si el cliente dice "el de las X" y X es la hora de FIN de un slot (ej: slot 12:00-13:00, cliente dice "el de las 13") → interpretarlo como ese slot (12:00)\n` +
           `  - Si el cliente pide una hora que no fue mostrada como disponible, explicale cuáles SÍ están disponibles y ofrecele esas opciones\n` +
-          `💬 ESTILO DE RESPUESTA: Natural, cálido y profesional. Máximo 6 líneas. Sin listas largas ni tecnicismos.\n` +
+          `💬 ESTILO DE RESPUESTA: Natural, cálido y profesional. Máximo 6 líneas. Sin listas largas ni tecnicismos. Hablá con voseo rioplatense ("tenés", "querés", "decime"), nunca con tuteo ("tienes", "quieres").\n` +
+          `👋 SI EL MENSAJE ES SOLO UN SALUDO ("hola", "buenas") NO llames a ninguna herramienta: saludá con calidez y preguntá en qué lo podés ayudar. Los horarios o precios se dan solo cuando los pide.\n` +
           (catalogoStr
             ? `📦 PRODUCTOS DISPONIBLES:\n${catalogoStr}\nUsá consultar_catalogo si el cliente pregunta por algún producto.\n`
             : '') +
@@ -3258,7 +3260,10 @@ Revisalo en Akira → Documentos.`);
         log(`⚠️ [Cupo] user=${USER_ID} plan=${PLAN} superó el límite mensual (${cupo.usados}/${cupo.limite}) — no se llamó a Groq`);
         notificarDueno(`🚨 *Límite de mensajes alcanzado este mes* (${cupo.usados}/${cupo.limite}). Los clientes nuevos no reciben respuesta de IA hasta que actualices tu plan o empiece el próximo mes.`);
       } else {
-        respuesta = await procesarConIA(jid, usuario);
+        // Un saludo solo ("Hola", "Buenas tardes") se responde con calidez y sin pasar por la IA: antes podía terminar en una lista de horarios.
+        respuesta = saludoSvc.esSoloSaludo(texto) && !fueAudio
+          ? saludoSvc.armarSaludo({ nombre: usuario.nombre, negocio: NEGOCIO, miNombre: MI_NOMBRE, conocido: (usuario.historial || []).some((m) => m.role === 'assistant') })
+          : await procesarConIA(jid, usuario);
       }
       usuario.historial.push({ role: 'assistant', content: respuesta });
       clientesSvc.guardarMemoria(jid, usuario);
