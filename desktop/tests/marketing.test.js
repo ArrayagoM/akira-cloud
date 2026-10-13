@@ -21,7 +21,8 @@ const CTX = { negocio: 'Peluquería Lola', miNombre: 'Lola', tipoNegocio: 'turno
 
   // ── catálogo de especialistas ──
   const L = A.lista();
-  assert(L.length === 6 && L.map((x) => x.id).join() === 'posts,promociones,resenas,planificador,mensajes,estratega', 'hay 6 especialistas');
+  assert(L.length === 9 && L.map((x) => x.id).join() === 'posts,promociones,resenas,planificador,mensajes,estratega,catalogo_mayorista,prospeccion,seguimiento', 'hay 9 especialistas (6 generales y 3 para quienes venden por mayor)');
+  assert(L.filter((x) => x.paraMayoristas).map((x) => x.id).join() === 'catalogo_mayorista,prospeccion,seguimiento', 'los 3 de mayoristas están marcados');
   assert(L.every((x) => x.nombre && x.descripcion && x.icono && Array.isArray(x.campos) && !('rol' in x) && !('pedido' in x)), 'a la pantalla solo le llegan los datos, no el código ni los prompts');
   assert(L.find((x) => x.id === 'estratega').usaNumeros === true && L.filter((x) => x.usaNumeros).length === 1, 'solo el consultor usa los números del negocio');
 
@@ -77,7 +78,7 @@ const CTX = { negocio: 'Peluquería Lola', miNombre: 'Lola', tipoNegocio: 'turno
   const llamarIA = async (x) => { llamadas.push(x); if (respuesta instanceof Error) throw respuesta; return respuesta; };
   const svc = S.crearServicio({ llamarIA, ahora });
 
-  assert((await svc.estado('u1')).claveCargada === true && (await svc.estado('otro')).claveCargada === false && (await svc.estado('u1')).agentes.length === 6, 'el estado indica si hay clave de Groq cargada (sin mostrarla)');
+  assert((await svc.estado('u1')).claveCargada === true && (await svc.estado('otro')).claveCargada === false && (await svc.estado('u1')).agentes.length === 9, 'el estado indica si hay clave de Groq cargada (sin mostrarla)');
   assert(!JSON.stringify(await svc.estado('u1')).includes('gsk_'), 'el estado nunca incluye la clave');
   const g1 = await svc.generar('u1', { agente: 'posts', datos: { tema: 'Stock nuevo', red: 'instagram', producto: 'Shampoo' } });
   assert(g1.agente === 'posts' && g1.opciones.length === 2 && g1.opciones[0] === 'Texto uno', 'genera el borrador y lo separa en opciones');
@@ -103,12 +104,75 @@ const CTX = { negocio: 'Peluquería Lola', miNombre: 'Lola', tipoNegocio: 'turno
   assert(tope && tope.status === 429 && tope.codigo === 'LIMITE', `tope de ${S.MAX_POR_HORA} borradores por hora por usuario`);
   assert((await svc.generar('u1', { agente: 'posts', datos: { tema: 'otro', red: 'facebook' } })).texto === 'ok', 'el tope es por usuario (otro usuario sigue pudiendo)');
 
+
+  // ── mayoristas / venta por cantidad ──
+  const Perfil = require('../main/marketing/perfil');
+  const dPerfil = fs.mkdtempSync(path.join(os.tmpdir(), 'akira-perfil-'));
+  assert(Perfil.leer(dPerfil).tipoVenta === 'minorista' && Perfil.leer(dPerfil).condiciones === '', 'por defecto vende al público y sin condiciones');
+  assert(!Perfil.guardar(dPerfil, { tipoVenta: 'raro' }).ok && !Perfil.guardar(dPerfil, { condiciones: 5 }).ok && !Perfil.guardar(dPerfil, { condiciones: 'x'.repeat(601) }).ok, 'rechaza tipos inventados y condiciones que no son texto o son larguísimas');
+  assert(Perfil.guardar(dPerfil, { tipoVenta: 'mayorista', condiciones: '  Mínimo $50.000.\n\n\n\nEntrega en 48 hs  ' }).ok && Perfil.leer(dPerfil).tipoVenta === 'mayorista' && Perfil.leer(dPerfil).condiciones === 'Mínimo $50.000.\n\nEntrega en 48 hs' && Perfil.guardar(dPerfil, { tipoVenta: 'ambos' }).perfil.condiciones.startsWith('Mínimo'), 'guarda el tipo y las condiciones (ordenadas) y cambiar uno no borra el otro');
+  const CTXM = { ...CTX, perfil: { tipoVenta: 'mayorista', condiciones: 'Mínimo $50.000. Entrega en 48 hs. 10% desde 20 cajas.' } };
+  assert(A.armarPedido('posts', { tema: 'x', red: 'facebook' }, CTX).sistema.indexOf('TIPO DE VENTA') === -1 && A.armarPedido('posts', { tema: 'x', red: 'facebook' }, { ...CTX, perfil: { tipoVenta: 'minorista', condiciones: 'IGNORAR' } }).sistema.indexOf('IGNORAR') === -1, 'al público: el pedido no cambia (ni muestra condiciones de mayorista)');
+  const pm = A.armarPedido('promociones', { objetivo: 'Mover stock' }, CTXM);
+  assert(pm.sistema.includes('TIPO DE VENTA: por mayor') && pm.sistema.includes('Mínimo $50.000. Entrega en 48 hs. 10% desde 20 cajas.') && /descuento por volumen/.test(pm.sistema) && /sin inventar escalas/.test(pm.sistema), 'si vende por mayor, las promociones piensan en volumen y usan SOLO las condiciones del dueño');
+  assert(/NO inventes pedido mínimo, escalas de precios/.test(A.armarPedido('promociones', { objetivo: 'x' }, { ...CTX, perfil: { tipoVenta: 'mayorista', condiciones: '' } }).sistema), 'sin condiciones cargadas, el pedido prohíbe inventar mínimos, escalas, plazos y formas de pago');
+  assert(/y también al público/.test(A.armarPedido('posts', { tema: 'x', red: 'facebook' }, { ...CTXM, perfil: { tipoVenta: 'ambos', condiciones: '' } }).sistema), 'el perfil "las dos" también se reconoce');
+  const cm = A.armarPedido('catalogo_mayorista', { destinatario: 'Kioscos de la zona', canal: 'whatsapp' }, CTXM);
+  assert(cm.sistema.includes('sin inventar escalas ni descuentos por cantidad') && cm.sistema.includes('Shampoo: $3.000') && cm.sistema.includes('máximo 6 líneas') && cm.usuario.includes('Kioscos de la zona'), 'la presentación usa los precios reales del catálogo y no inventa escalas');
+  assert(/asunto/.test(A.armarPedido('catalogo_mayorista', { destinatario: 'x', canal: 'email' }, CTXM).sistema) && /catálogo está vacío/.test(A.armarPedido('catalogo_mayorista', { destinatario: 'x', canal: 'whatsapp' }, { ...CTXM, catalogo: [] }).sistema), 'por email lleva asunto; con catálogo vacío deja marcadores');
+  assert(rechaza(() => A.validar('catalogo_mayorista', { canal: 'whatsapp' }, { hoy }), /Falta/) && rechaza(() => A.validar('prospeccion', { tipoCliente: 'x', propuesta: 'y', canal: 'sms' }, { hoy }), /opción/) && A.validar('prospeccion', { tipoCliente: 'x', propuesta: 'y', canal: 'whatsapp' }, { hoy }).mensajes === 3, 'los especialistas nuevos validan sus datos (3 mensajes por defecto)');
+  const pro = A.armarPedido('prospeccion', { tipoCliente: 'Kioscos', propuesta: 'Entrega en el día', canal: 'whatsapp', mensajes: 3 }, CTXM);
+  assert(/Día 0/.test(pro.sistema) && /Día 3/.test(pro.sistema) && /Día 7/.test(pro.sistema) && /no te escribo más/.test(pro.sistema) && /no finge una relación previa/.test(pro.sistema) && pro.usuario.includes('Entrega en el día'), 'la prospección arma secuencia a 0/3/7 días, con salida fácil y sin fingir relación ni exagerar');
+  assert(/y nada más/.test(A.armarPedido('prospeccion', { tipoCliente: 'K', propuesta: 'p', canal: 'whatsapp', mensajes: 1 }, CTXM).sistema), 'con 1 solo mensaje no pide seguimientos');
+  const cb = A.armarPedido('seguimiento', { situacion: 'cobranza_firme', detalle: 'Factura 123 por $120.000 vencida' }, CTXM);
+  assert(/nunca amenaces/.test(cb.sistema) && /abogados/.test(cb.sistema) && /\[monto\]/.test(cb.sistema) && cb.usuario.includes('Factura 123'), 'las cobranzas no amenazan, no mencionan abogados y dejan marcadores si falta el dato');
+  assert(!/nunca amenaces/.test(A.armarPedido('seguimiento', { situacion: 'cotizacion' }, CTXM).sistema) && /\[porcentaje\]/.test(A.armarPedido('seguimiento', { situacion: 'precios' }, CTXM).sistema), 'solo las cobranzas llevan esa regla; el cambio de precios no inventa porcentajes');
+  const es2 = A.armarPedido('estratega', {}, { ...CTXM, metricasVentas: { cantidad: 30, total: 900000, ticketPromedio: 30000, productos: [{ nombre: 'Aceite', unidades: 200, ingresos: 400000 }], meses: [{ mes: '2026-09', total: 300000, cantidad: 10 }], clientes: 8, recurrentes: 5, inactivos: 2, concentracionTop1: 35, concentracionTop3: 70, porCobrar: 150000, clientesConDeuda: 3, deudaMasVieja: 40, pocosDatos: false } });
+  assert(es2.sistema.includes('Aceite (200 unidades, $400.000)') && es2.sistema.includes('representa el 35%') && es2.sistema.includes('Cuentas por cobrar: $150.000 de 3 cliente(s); la deuda más vieja tiene 40 días') && /venden por mayor/.test(es2.sistema) && /reposición/.test(es2.sistema), 'el consultor de mayoristas recibe ventas, concentración de clientes, recompra y cobranzas');
+
+  // métricas de ventas desde la base real
+  const Movimiento = require('../main/bot-engine/models/Movimiento'); const Pedido = require('../main/bot-engine/models/Pedido'); const CtaCte = require('../main/bot-engine/models/CtaCte');
+  const f = (n) => new Date(Date.UTC(2026, 9, 12 - n, 12)).toISOString().slice(0, 10);
+  const venta = (n, cliente, monto, items) => Movimiento.create({ userId: 'mayo', origen: 'venta', tipo: 'ingreso', monto, fecha: f(n), metodo: 'transferencia', categoria: 'Ventas', cliente, items });
+  await venta(2, 'Almacén Don Pepe', 100000, [{ nombre: 'Aceite 900ml', precio: 2000, cantidad: 50 }]);
+  await venta(10, 'Almacén Don Pepe', 60000, [{ nombre: 'Aceite 900ml', precio: 2000, cantidad: 20 }, { nombre: 'Fideos', precio: 1000, cantidad: 20 }]);
+  await venta(5, 'Kiosco Sol', 20000, [{ nombre: 'Fideos', precio: 1000, cantidad: 20 }]);
+  await venta(120, 'Despensa Luz', 30000, [{ nombre: 'Fideos', precio: 1000, cantidad: 30 }]);
+  await venta(1, '', 5000, [{ nombre: 'Aceite 900ml', precio: 2000, cantidad: 2 }]);
+  await Pedido.create({ userId: 'mayo', numero: 1, estado: 'pagado', total: 40000, nombre: 'Kiosco Sol', items: [{ nombre: 'Yerba', precio: 4000, cantidad: 10 }], pagadoEn: `${f(3)}T15:00:00.000Z` });
+  await Pedido.create({ userId: 'mayo', numero: 2, estado: 'pendiente-pago', total: 999999, nombre: 'No cuenta', items: [{ nombre: 'X', precio: 1, cantidad: 1 }], creadoEn: `${f(1)}T15:00:00.000Z` });
+  await CtaCte.create({ userId: 'mayo', entidad: 'cliente', entidadClave: 'k1', nombre: 'Despensa Luz', tipo: 'cargo', monto: 80000, fecha: f(40) });
+  await CtaCte.create({ userId: 'mayo', entidad: 'cliente', entidadClave: 'k1', nombre: 'Despensa Luz', tipo: 'pago', monto: 30000, fecha: f(20) });
+  const mv = S.calcularMetricasVentas({ movimientos: await Movimiento.find({ userId: 'mayo' }).lean(), pedidos: await Pedido.find({ userId: 'mayo' }).lean(), cuentas: await CtaCte.find({ userId: 'mayo' }).lean(), ahora: AHORA });
+  assert(mv.cantidad === 5 && mv.total === 225000 && mv.ticketPromedio === 45000, 'ventas: cuenta ventas y pedidos pagados (no los pendientes ni los de hace más de 90 días)');
+  assert(mv.productos[0].nombre === 'Aceite 900ml' && mv.productos[0].unidades === 72 && mv.productos[0].ingresos === 144000, 'productos más vendidos por ingresos');
+  assert(mv.clientes === 2 && mv.recurrentes === 2 && mv.inactivos === 0, 'clientes con nombre: Don Pepe y Kiosco Sol (los dos compraron 2 veces)');
+  assert(mv.concentracionTop1 > 0 && mv.concentracionTop1 <= 100 && mv.concentracionTop3 === 100, 'concentración de clientes calculada');
+  assert(mv.porCobrar === 50000 && mv.clientesConDeuda === 1 && mv.deudaMasVieja > 0, 'cuentas por cobrar con antigüedad');
+  assert(mv.meses.length === 3 && mv.meses[2].mes === '2026-10', 'ventas de los últimos 3 meses');
+  assert(!JSON.stringify(mv).includes('Pepe') && !JSON.stringify(mv).includes('Kiosco') && !JSON.stringify(mv).includes('Despensa'), 'las métricas no incluyen nombres de clientes');
+  const dMay = fs.mkdtempSync(path.join(os.tmpdir(), 'akira-may-')); Perfil.guardar(dMay, { tipoVenta: 'mayorista', condiciones: 'Mínimo $50.000' });
+  await Config.findOneAndUpdate({ userId: 'mayo' }, { negocio: 'Distribuidora Sur', miNombre: 'Pedro', tipoNegocio: 'servicios', catalogo: [{ nombre: 'Aceite 900ml', precio: 2000, stock: 300, disponible: true }], serviciosList: [] }, { upsert: true });
+  const cMay = await Config.findOne({ userId: 'mayo' }); cMay.setKey('keyGroq', 'gsk_mayo'); await cMay.save();
+  llamadas.length = 0; respuesta = 'Opción 1:\nA\n\nOpción 2:\nB';
+  const svcM = S.crearServicio({ llamarIA, ahora, userDataDir: dMay });
+  const eM = await svcM.estado('mayo');
+  assert(eM.perfil.tipoVenta === 'mayorista' && eM.tiposVenta.ambos && eM.maxCondiciones === 600, 'el estado incluye el perfil de venta');
+  await svcM.generar('mayo', { agente: 'estratega', datos: {} });
+  const sisM = llamadas[0].mensajes[0].content;
+  assert(sisM.includes('NÚMEROS REALES DE VENTAS') && !sisM.includes('NÚMEROS REALES DEL NEGOCIO') && sisM.includes('Mínimo $50.000') && !sisM.includes('Pepe') && !sisM.includes('Kiosco Sol'), 'un mayorista recibe sus números de ventas (no los de turnos), con sus condiciones y sin nombres');
+  await svcM.generar('mayo', { agente: 'catalogo_mayorista', datos: { destinatario: 'Almacenes', canal: 'whatsapp' } });
+  assert(llamadas[1].mensajes[0].content.includes('Aceite 900ml: $2.000') && llamadas[1].mensajes[0].content.includes('Mínimo $50.000'), 'la presentación sale con el catálogo y las condiciones reales del mayorista');
+  const gM = await svcM.guardarPerfil({ tipoVenta: 'ambos' }); assert(gM.ok && (await svcM.estado('mayo')).perfil.tipoVenta === 'ambos' && !svc.guardarPerfil({ tipoVenta: 'ambos' }).ok, 'se puede cambiar el perfil (y sin carpeta de datos no hace nada)');
+  await svcM.generar('mayo', { agente: 'estratega', datos: {} }); const sisAmbos = llamadas[llamadas.length - 1].mensajes[0].content;
+  assert(sisAmbos.includes('NÚMEROS REALES DE VENTAS') && sisAmbos.includes('NÚMEROS REALES DEL NEGOCIO'), 'quien vende de las dos formas recibe ambos bloques de números');
+
   // ── rutas ──
   const app = express(); app.use(express.json());
   app.use('/m', require('../main/local-api/routes/marketing.routes')({ requerirSesion: (q, _r, n) => { q.user = { _id: q.headers['x-user'] || 'u1' }; n(); }, servicioMarketing: svc }));
   const srv = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); }); const base = `http://127.0.0.1:${srv.address().port}/m`;
   const j = async (m, p2, b, u) => { const r = await fetch(base + p2, { method: m, headers: { 'Content-Type': 'application/json', ...(u ? { 'x-user': u } : {}) }, body: b ? JSON.stringify(b) : undefined }); return { status: r.status, body: await r.json() }; };
-  assert((await j('GET', '/')).body.agentes.length === 6, 'GET lista los especialistas');
+  assert((await j('GET', '/')).body.agentes.length === 9, 'GET lista los especialistas');
   respuesta = 'Opción 1:\nUno\n\nOpción 2:\nDos';
   const rg = await j('POST', '/generar', { agente: 'mensajes', datos: { situacion: 'reactivar' } });
   assert(rg.status === 200 && rg.body.opciones.length === 2, 'POST /generar devuelve el borrador');

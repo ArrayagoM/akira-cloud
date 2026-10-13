@@ -8,6 +8,7 @@ const caja = require('../gestion/caja');
 const reportes = require('../gestion/reportes');
 const ctacte = require('../gestion/ctacte');
 const A = require('./agentes');
+const perfilLib = require('./perfil');
 
 const MAX_POR_HORA = 30;
 const VENTANA_MS = 60 * 60 * 1000;
@@ -64,7 +65,35 @@ function calcularMetricas({ turnos, movimientos, ahora }) {
   };
 }
 
-function crearServicio({ modelos, llamarIA, obtenerClave, ahora = () => new Date(), log = () => {} } = {}) {
+// Números de ventas por mayor para el consultor: agregados, sin nombres ni teléfonos.
+function calcularMetricasVentas({ movimientos = [], pedidos = [], cuentas = [], ahora }) {
+  const desde = iso(new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - 90));
+  const norm = (n) => ctacte.normalizarNombre(n);
+  const registros = [];
+  for (const m of movimientos) if (m.origen === 'venta' && m.tipo === 'ingreso') registros.push({ fecha: String(m.fecha || ''), total: Number(m.monto) || 0, items: Array.isArray(m.items) ? m.items : [], cliente: norm(m.cliente) });
+  for (const p of pedidos) if (p.estado === 'pagado' || p.estado === 'entregado') registros.push({ fecha: iso(new Date(p.pagadoEn || p.creadoEn || p.createdAt || ahora)), total: Number(p.total) || 0, items: Array.isArray(p.items) ? p.items : [], cliente: norm(p.nombre) });
+  const rec = registros.filter((r) => r.fecha >= desde && r.fecha <= iso(ahora) && r.total > 0);
+  const total = caja.redondear(rec.reduce((s, r) => s + r.total, 0));
+  const prod = new Map();
+  for (const r of rec) for (const it of r.items) { const k = String(it.nombre || '').trim(); if (!k) continue; const x = prod.get(k) || { nombre: k, unidades: 0, ingresos: 0 }; x.unidades += Number(it.cantidad) || 0; x.ingresos += (Number(it.precio) || 0) * (Number(it.cantidad) || 0); prod.set(k, x); }
+  const productos = [...prod.values()].map((x) => ({ ...x, ingresos: caja.redondear(x.ingresos) })).sort((a, b) => b.ingresos - a.ingresos).slice(0, 5);
+  const meses = []; for (let i = 2; i >= 0; i--) { const d = new Date(ahora.getFullYear(), ahora.getMonth() - i, 1); const mes = iso(d).slice(0, 7); const delMes = registros.filter((r) => r.fecha.startsWith(mes) && r.total > 0); meses.push({ mes, total: caja.redondear(delMes.reduce((s, r) => s + r.total, 0)), cantidad: delMes.length }); }
+  const cli = new Map();
+  for (const r of rec) { if (!r.cliente) continue; const x = cli.get(r.cliente) || { compras: 0, total: 0, ultima: '' }; x.compras++; x.total += r.total; if (r.fecha > x.ultima) x.ultima = r.fecha; cli.set(r.cliente, x); }
+  const nominales = [...cli.values()].sort((a, b) => b.total - a.total); const totalNominal = nominales.reduce((s, c) => s + c.total, 0);
+  const corte = iso(new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - 45));
+  const pct = (n) => (totalNominal ? Math.round((n / totalNominal) * 100) : 0);
+  const sal = ctacte.saldos(cuentas.filter((m) => (m.tipo === 'cargo' || m.tipo === 'pago') && m.entidad === 'cliente'), ahora).filter((x) => x.saldo > 0.005);
+  return {
+    cantidad: rec.length, total, ticketPromedio: rec.length ? caja.redondear(total / rec.length) : 0, productos, meses,
+    clientes: nominales.length, recurrentes: nominales.filter((c) => c.compras >= 2).length, inactivos: nominales.filter((c) => c.ultima < corte).length,
+    concentracionTop1: pct(nominales.slice(0, 1).reduce((s, c) => s + c.total, 0)), concentracionTop3: pct(nominales.slice(0, 3).reduce((s, c) => s + c.total, 0)),
+    porCobrar: caja.redondear(sal.reduce((s, x) => s + x.saldo, 0)), clientesConDeuda: sal.length, deudaMasVieja: sal.reduce((m, x) => Math.max(m, Number(x.antiguedadDias) || 0), 0),
+    pocosDatos: rec.length < 10,
+  };
+}
+
+function crearServicio({ modelos, llamarIA, obtenerClave, userDataDir, ahora = () => new Date(), log = () => {} } = {}) {
   const M = (n) => (modelos && modelos[n]) || require(`../bot-engine/models/${n}`);
   const llamar = llamarIA || crearLlamadorGroq({ log });
   const usos = new Map(); // userId → marcas de tiempo (tope por hora, para no gastar la cuota gratuita de la IA)
@@ -73,14 +102,21 @@ function crearServicio({ modelos, llamarIA, obtenerClave, ahora = () => new Date
   const claveDe = async (userId) => (obtenerClave ? obtenerClave(userId) : (await configDe(userId))?.getKey?.('keyGroq'));
 
   async function estado(userId) {
-    return { claveCargada: !!(await claveDe(userId)), agentes: A.lista(), maxPorHora: MAX_POR_HORA };
+    return { claveCargada: !!(await claveDe(userId)), agentes: A.lista(), maxPorHora: MAX_POR_HORA, perfil: perfilActual(), tiposVenta: perfilLib.TIPOS, maxCondiciones: perfilLib.MAX_CONDICIONES };
   }
+  const perfilActual = () => (userDataDir ? perfilLib.leer(userDataDir) : { tipoVenta: 'minorista', condiciones: '' });
+  function guardarPerfil(b) { if (!userDataDir) return { ok: false, error: 'No disponible.' }; return perfilLib.guardar(userDataDir, b); }
 
   async function contexto(userId, usaMetricas) {
     const cfg = await configDe(userId); if (!cfg) throw new ErrorServicio('Completá primero los datos de tu negocio en Config.', 409, 'SIN_CONFIG');
     const ya = ahora();
-    const ctx = { negocio: cfg.negocio, miNombre: cfg.miNombre, tipoNegocio: cfg.tipoNegocio, horarios: A.textoHorarios(cfg.horariosAtencion), servicios: cfg.serviciosList || [], catalogo: cfg.catalogo || [], hoy: iso(ya) };
-    if (usaMetricas) ctx.metricas = calcularMetricas({ turnos: await M('Turno').find({ userId: String(userId) }).lean(), movimientos: await M('Movimiento').find({ userId: String(userId) }).lean(), ahora: ya });
+    const perfil = perfilActual();
+    const ctx = { negocio: cfg.negocio, miNombre: cfg.miNombre, tipoNegocio: cfg.tipoNegocio, horarios: A.textoHorarios(cfg.horariosAtencion), servicios: cfg.serviciosList || [], catalogo: cfg.catalogo || [], hoy: iso(ya), perfil };
+    if (usaMetricas) {
+      const uid = String(userId); const movimientos = await M('Movimiento').find({ userId: uid }).lean();
+      if (perfil.tipoVenta !== 'mayorista') ctx.metricas = calcularMetricas({ turnos: await M('Turno').find({ userId: uid }).lean(), movimientos, ahora: ya });
+      if (perfilLib.vendePorMayor(perfil)) ctx.metricasVentas = calcularMetricasVentas({ movimientos, pedidos: await M('Pedido').find({ userId: uid }).lean(), cuentas: await M('CtaCte').find({ userId: uid }).lean(), ahora: ya });
+    }
     return ctx;
   }
 
@@ -107,7 +143,7 @@ function crearServicio({ modelos, llamarIA, obtenerClave, ahora = () => new Date
     return { agente, texto, opciones: A.dividirOpciones(texto) };
   }
 
-  return { estado, generar };
+  return { estado, generar, guardarPerfil };
 }
 
-module.exports = { crearServicio, crearLlamadorGroq, calcularMetricas, ErrorServicio, MAX_POR_HORA };
+module.exports = { crearServicio, crearLlamadorGroq, calcularMetricas, calcularMetricasVentas, ErrorServicio, MAX_POR_HORA };

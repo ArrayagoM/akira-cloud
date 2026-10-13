@@ -215,6 +215,7 @@ export const GUIA = [
           'Planificador semanal: qué publicar cada día de la semana, en qué red y con qué texto.',
           'Mensajes para tus clientes: textos de WhatsApp para reactivar clientes, contar una novedad, saludar un cumpleaños o pedir una reseña (los masivos llevan la opción "BAJA").',
           'Consultor de crecimiento: mira tus números reales de los últimos 90 días (turnos, servicios más pedidos, ausencias, clientes que no vuelven) y propone 5 acciones. No usa nombres ni teléfonos de clientes.',
+          'Si vendés por mayor (a comercios y empresas), elegí “Por mayor” en “¿Cómo vendés?” y cargá tus condiciones (pedido mínimo, entrega, formas de pago, escalas). Se suman tres especialistas: Presentación para mayoristas (tus productos y condiciones listos para mandar), Prospección de nuevos clientes (primer contacto y seguimientos a los 3 y 7 días) y Seguimiento comercial y cobranzas (cotizaciones, reposición, pagos atrasados sin amenazas, cambios de precios). El consultor pasa a mirar tus ventas, tus productos más vendidos, qué tanto dependés de pocos clientes, quiénes dejaron de comprar y lo que tenés por cobrar.',
         ],
         nota: 'Todo es un borrador: nada se publica ni se envía solo, y la IA no inventa precios, descuentos ni opiniones; lo que le falta lo deja entre [corchetes] para que lo completes. Usa tu propia clave de Groq (la misma del bot, es gratis) y tiene un tope de 30 borradores por hora. Revisalo siempre antes de usarlo.',
       },

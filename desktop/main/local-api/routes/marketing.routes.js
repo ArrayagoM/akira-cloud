@@ -13,6 +13,11 @@ module.exports = function crearRouter({ requerirSesion, servicioMarketing }) {
     if (!servicioMarketing) return sin(res);
     try { res.json(await servicioMarketing.estado(String(req.user._id))); } catch (e) { res.status(500).json({ error: 'No se pudo cargar.' }); }
   });
+  router.put('/perfil', (req, res) => {
+    if (!servicioMarketing) return sin(res);
+    const r = servicioMarketing.guardarPerfil(req.body || {});
+    res.status(r.ok ? 200 : 400).json(r.ok ? { perfil: r.perfil } : { error: r.error });
+  });
   router.post('/generar', async (req, res) => {
     if (!servicioMarketing) return sin(res);
     try { res.json(await servicioMarketing.generar(String(req.user._id), req.body || {})); }

@@ -11,6 +11,7 @@
 'use strict';
 
 const { textoHorarios } = require('../bot-engine/services/bot/copiloto.service');
+const { vendePorMayor } = require('./perfil');
 
 const MAX_ITEMS = 20;
 const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -44,7 +45,7 @@ const AGENTES = {
       { id: 'llamado', etiqueta: 'Qué querés que hagan (opcional)', tipo: 'texto', max: 120, placeholder: 'Ej: Escribinos por WhatsApp para reservar' },
       { id: 'variantes', etiqueta: 'Cuántas opciones', tipo: 'numero', min: 1, max: 3, porDefecto: 2 },
     ],
-    rol: (d) => `Sos redactor de redes sociales para pequeños negocios. Escribí ${d.variantes} opciones distintas de publicación para ${RED_TXT[d.red]}, con tono ${TONO_TXT[d.tono || 'cercano']}. Cada opción tiene: el texto de la publicación${d.red === 'tiktok' ? ' (epígrafe + guion corto)' : ''} y, en una línea aparte que empiece con "Foto o video sugerido:", una idea simple de imagen que el dueño pueda sacar con su celular.`,
+    rol: (d, ctx) => `Sos redactor de redes sociales para ${vendePorMayor(ctx?.perfil) ? 'un negocio que vende por mayor: pensá en comercios y empresas como público, no solo en consumidores finales' : 'pequeños negocios'}. Escribí ${d.variantes} opciones distintas de publicación para ${RED_TXT[d.red]}, con tono ${TONO_TXT[d.tono || 'cercano']}. Cada opción tiene: el texto de la publicación${d.red === 'tiktok' ? ' (epígrafe + guion corto)' : ''} y, en una línea aparte que empiece con "Foto o video sugerido:", una idea simple de imagen que el dueño pueda sacar con su celular.`,
     pedido: (d, prod) => [`Tema de la publicación: «${plano(d.tema, 400)}»`, prod && `Producto o servicio: ${prod}`, d.llamado && `Llamado a la acción pedido por el dueño: «${plano(d.llamado, 120)}»`].filter(Boolean).join('\n'),
   },
   promociones: {
@@ -57,7 +58,7 @@ const AGENTES = {
       { id: 'vigencia', etiqueta: 'Hasta cuándo (opcional)', tipo: 'texto', max: 60, placeholder: 'Ej: hasta el domingo' },
       { id: 'tono', etiqueta: 'Tono', tipo: 'opcion', opciones: TONO },
     ],
-    rol: (d) => `Sos un especialista en promociones para pequeños negocios. Proponé 3 ideas de promoción distintas y, para cada una, el texto listo para mandar por WhatsApp o publicar, con tono ${TONO_TXT[d.tono || 'cercano']}. ${d.descuento ? 'Usá EXACTAMENTE el beneficio que indicó el dueño; no cambies los porcentajes ni los montos.' : 'El dueño NO indicó ningún descuento: no inventes porcentajes ni montos. Proponé promociones que no dependan de un número (combos, un regalo, prioridad de turno, un servicio extra) y dejá [monto o porcentaje a definir] donde haga falta.'} Terminá con una línea "Ojo con:" que le recuerde al dueño revisar que la promoción le convenga en números.`,
+    rol: (d, ctx) => `Sos un especialista en promociones para ${vendePorMayor(ctx?.perfil) ? 'negocios que venden por mayor y por menor' : 'pequeños negocios'}.${vendePorMayor(ctx?.perfil) ? ' Como el negocio vende por mayor, pensá también en incentivos para compras en cantidad (descuento por volumen, unidades bonificadas, pedido mínimo reducido, lanzamiento de producto, pronto pago), sin inventar escalas ni porcentajes: usá solo las condiciones comerciales del dueño o dejá [a definir].' : ''} Proponé 3 ideas de promoción distintas y, para cada una, el texto listo para mandar por WhatsApp o publicar, con tono ${TONO_TXT[d.tono || 'cercano']}. ${d.descuento ? 'Usá EXACTAMENTE el beneficio que indicó el dueño; no cambies los porcentajes ni los montos.' : 'El dueño NO indicó ningún descuento: no inventes porcentajes ni montos. Proponé promociones que no dependan de un número (combos, un regalo, prioridad de turno, un servicio extra) y dejá [monto o porcentaje a definir] donde haga falta.'} Terminá con una línea "Ojo con:" que le recuerde al dueño revisar que la promoción le convenga en números.`,
     pedido: (d, prod) => [`Objetivo del dueño: «${plano(d.objetivo, 300)}»`, prod && `Producto o servicio: ${prod}`, d.descuento && `Beneficio decidido por el dueño: «${plano(d.descuento, 80)}»`, d.vigencia && `Vigencia: «${plano(d.vigencia, 60)}»`].filter(Boolean).join('\n'),
   },
   resenas: {
@@ -102,8 +103,45 @@ const AGENTES = {
       { id: 'foco', etiqueta: 'Qué te preocupa (opcional)', tipo: 'texto', max: 200, placeholder: 'Ej: Los lunes casi no tengo turnos / Quiero que vuelvan los clientes' },
     ],
     usaMetricas: true,
-    rol: () => 'Sos un consultor de crecimiento para pequeños negocios. Con los NÚMEROS REALES del negocio que se te pasan, proponé exactamente 5 acciones concretas de marketing y ventas, ordenadas de mayor a menor impacto probable. Para cada una escribí: la acción, el número del negocio en que te basás (citá solo cifras que estén en los datos), y el primer paso para hacerla esta semana. Si los datos son pocos o no alcanzan para una conclusión, decilo con honestidad en vez de inventar. No prometas resultados ni porcentajes de mejora.',
+    rol: (d, ctx) => `Sos un consultor de crecimiento para ${vendePorMayor(ctx?.perfil) ? 'negocios que venden por mayor (a comercios y empresas)' : 'pequeños negocios'}. Con los NÚMEROS REALES del negocio que se te pasan, proponé exactamente 5 acciones concretas de marketing y ventas, ordenadas de mayor a menor impacto probable. Para cada una escribí: la acción, el número del negocio en que te basás (citá solo cifras que estén en los datos), y el primer paso para hacerla esta semana. ${vendePorMayor(ctx?.perfil) ? 'En ventas por mayor suele importar: que los clientes recompren (reposición), no depender de pocos compradores, cobrar a tiempo y empujar los productos de mejor salida; usá esos criterios solo si los números lo respaldan. ' : ''}Si los datos son pocos o no alcanzan para una conclusión, decilo con honestidad en vez de inventar. No prometas resultados ni porcentajes de mejora.`,
     pedido: (d) => (d.foco ? `Lo que le preocupa al dueño: «${plano(d.foco, 200)}»` : 'El dueño no indicó una preocupación puntual.'),
+  },
+
+  // ── Para quienes venden por mayor / en cantidad (proveedores, distribuidores, fabricantes) ──
+  catalogo_mayorista: {
+    nombre: 'Presentación para mayoristas', icono: 'FileText', mayorista: true,
+    descripcion: 'Arma el mensaje para presentar tus productos y condiciones a un comercio o empresa.',
+    campos: [
+      { id: 'destinatario', etiqueta: 'A quién se lo mandás', tipo: 'texto', requerido: true, max: 120, placeholder: 'Ej: Kioscos y almacenes de la zona / un restaurante nuevo' },
+      { id: 'destacar', etiqueta: 'Qué querés destacar (opcional)', tipo: 'texto', max: 200, placeholder: 'Ej: Los productos nuevos / lo de mejor salida' },
+      { id: 'canal', etiqueta: 'Por dónde lo mandás', tipo: 'opcion', requerido: true, opciones: [{ valor: 'whatsapp', etiqueta: 'WhatsApp' }, { valor: 'email', etiqueta: 'Email' }] },
+      { id: 'tono', etiqueta: 'Tono', tipo: 'opcion', opciones: TONO },
+    ],
+    rol: (d, ctx) => `Sos quien se ocupa de las ventas por mayor de un negocio y le presenta la propuesta comercial a ${plano(d.destinatario, 120)}, por ${d.canal === 'email' ? 'email (con asunto y cuerpo breve)' : 'WhatsApp (corto, máximo 6 líneas, listo para pegar)'}, con tono ${TONO_TXT[d.tono || 'profesional']}. Armá 2 versiones. Presentá quién es el negocio, 4 a 8 productos del catálogo con su precio TAL COMO FIGURA en el bloque de datos (sin inventar escalas ni descuentos por cantidad), las condiciones comerciales que cargó el dueño (usalas textuales) y un cierre con el siguiente paso (pedir la lista completa, hacer un primer pedido o coordinar una visita). Si no hay condiciones cargadas, dejá [pedido mínimo], [plazo de entrega] y [formas de pago] para que el dueño los complete.${ctx && !(ctx.catalogo || []).length ? ' Atención: el catálogo está vacío; en lugar de productos dejá [productos y precios].' : ''}`,
+    pedido: (d) => [`Destinatario: «${plano(d.destinatario, 120)}»`, d.destacar && `El dueño quiere destacar: «${plano(d.destacar, 200)}»`].filter(Boolean).join('\n'),
+  },
+  prospeccion: {
+    nombre: 'Prospección de nuevos clientes', icono: 'UserPlus', mayorista: true,
+    descripcion: 'Escribe el primer contacto con un posible cliente y los mensajes de seguimiento.',
+    campos: [
+      { id: 'tipoCliente', etiqueta: 'A qué tipo de clientes buscás', tipo: 'texto', requerido: true, max: 120, placeholder: 'Ej: Kioscos, almacenes y despensas de Ranchos' },
+      { id: 'propuesta', etiqueta: 'Qué les ofrecés y por qué conviene', tipo: 'largo', requerido: true, max: 400, placeholder: 'Ej: Entrega en el día, sin pedido mínimo el primer mes, precios fijos por 30 días' },
+      { id: 'mensajes', etiqueta: 'Cuántos mensajes (primero + seguimientos)', tipo: 'numero', min: 1, max: 3, porDefecto: 3 },
+      { id: 'canal', etiqueta: 'Por dónde', tipo: 'opcion', requerido: true, opciones: [{ valor: 'whatsapp', etiqueta: 'WhatsApp' }, { valor: 'email', etiqueta: 'Email' }] },
+    ],
+    rol: (d) => `Sos quien se ocupa de conseguir nuevos clientes mayoristas. Escribí una secuencia de ${d.mensajes} mensaje(s) por ${d.canal === 'email' ? 'email (con asunto)' : 'WhatsApp'} para contactar a ${plano(d.tipoCliente, 120)}: el primer contacto y ${d.mensajes > 1 ? 'luego un seguimiento corto a los 3 días y, si hay un tercero, otro a los 7 días' : 'nada más'}. Indicá antes de cada mensaje "Día 0", "Día 3" o "Día 7". Cada mensaje tiene máximo 5 líneas, es respetuoso, no finge una relación previa ni usa urgencia falsa, no exagera ("somos los mejores", "líderes") y ofrece algo concreto del dueño. Usá {nombre} o {comercio} donde iría el dato del cliente. Cerrá cada mensaje con una forma fácil de decir que no les interesa ("Si no te interesa, avisame y no te escribo más").`,
+    pedido: (d) => [`Tipo de clientes: «${plano(d.tipoCliente, 120)}»`, `Lo que ofrece el dueño (usá solo esto como propuesta): «${plano(d.propuesta, 400)}»`].join('\n'),
+  },
+  seguimiento: {
+    nombre: 'Seguimiento comercial y cobranzas', icono: 'Handshake', mayorista: true,
+    descripcion: 'Mensajes para dar seguimiento a cotizaciones, pedir reposición, avisar cambios y cobrar con buena onda.',
+    campos: [
+      { id: 'situacion', etiqueta: 'Qué necesitás decir', tipo: 'opcion', requerido: true, opciones: [{ valor: 'cotizacion', etiqueta: 'Seguimiento de una cotización enviada' }, { valor: 'reposicion', etiqueta: 'Ofrecer reposición a un cliente que ya compró' }, { valor: 'cobranza_amable', etiqueta: 'Recordar un pago pendiente (amable)' }, { valor: 'cobranza_firme', etiqueta: 'Reclamar un pago atrasado (firme y cordial)' }, { valor: 'inactivo', etiqueta: 'Retomar un cliente que dejó de comprar' }, { valor: 'novedad', etiqueta: 'Avisar un producto nuevo o falta de stock' }, { valor: 'precios', etiqueta: 'Avisar un cambio de precios' }] },
+      { id: 'detalle', etiqueta: 'Datos concretos (opcional pero recomendado)', tipo: 'largo', max: 300, placeholder: 'Ej: Factura 0001-123 por $120.000 vencida el 30/09 / Subieron los precios de la línea de limpieza' },
+      { id: 'tono', etiqueta: 'Tono', tipo: 'opcion', opciones: TONO },
+    ],
+    rol: (d) => `Sos quien se ocupa del seguimiento comercial y las cobranzas de un negocio que vende por mayor, con tono ${TONO_TXT[d.tono || 'profesional']}. Escribí 3 versiones del mensaje de WhatsApp (máximo 5 líneas cada una). Usá {cliente} donde iría el nombre del comercio o empresa y poné entre corchetes los datos que falten, por ejemplo [monto], [número de factura] o [fecha]. ${d.situacion.startsWith('cobranza') ? 'En cobranzas: nunca amenaces, no menciones abogados ni acciones legales, no inventes montos ni fechas, ofrecé ayuda para resolverlo (pasar los datos de pago, acordar una fecha) y mantené la relación comercial.' : ''}${d.situacion === 'precios' ? 'En un cambio de precios: no inventes porcentajes ni fechas; si el dueño no los dio, dejá [porcentaje] y [fecha desde la que rige], y explicá con honestidad y sin disculparte de más.' : ''}`,
+    pedido: (d) => [`Situación: ${(AGENTES.seguimiento.campos[0].opciones.find((o) => o.valor === d.situacion) || {}).etiqueta}`, d.detalle && `Datos que dio el dueño: «${plano(d.detalle, 300)}»`].filter(Boolean).join('\n'),
   },
 };
 
@@ -113,7 +151,7 @@ const fechaValida = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Da
 class ErrorDatos extends Error { constructor(m) { super(m); this.name = 'ErrorDatos'; this.status = 400; } }
 
 // Lo que se le muestra a la pantalla (sin las funciones)
-const lista = () => Object.entries(AGENTES).map(([id, a]) => ({ id, nombre: a.nombre, icono: a.icono, descripcion: a.descripcion, usaNumeros: a.usaMetricas === true, campos: a.campos }));
+const lista = () => Object.entries(AGENTES).map(([id, a]) => ({ id, nombre: a.nombre, icono: a.icono, descripcion: a.descripcion, usaNumeros: a.usaMetricas === true, paraMayoristas: a.mayorista === true, campos: a.campos }));
 
 // Valida y completa lo que cargó el dueño. Rechaza campos desconocidos, opciones inválidas y textos demasiado largos.
 function validar(agenteId, datos, { hoy }) {
@@ -186,6 +224,30 @@ function describirProducto(nombre, ctx) {
   return `${plano(nombre, 60)} (no está en el catálogo: no menciones su precio; si hace falta, poné [precio])`;
 }
 
+// Cómo vende el negocio y las condiciones que cargó el dueño (solo si vende por mayor; el resto no cambia)
+function bloquePerfil(ctx) {
+  const p = ctx.perfil; if (!vendePorMayor(p)) return '';
+  const L = [`TIPO DE VENTA: ${p.tipoVenta === 'ambos' ? 'por mayor (a comercios y empresas) y también al público' : 'por mayor, a comercios y empresas'}.`];
+  L.push(p.condiciones
+    ? `CONDICIONES COMERCIALES DEL DUEÑO (usalas tal cual; no agregues otras): «${plano(p.condiciones, 600)}»`
+    : 'El dueño todavía no cargó sus condiciones comerciales: NO inventes pedido mínimo, escalas de precios por cantidad, plazos de entrega, zonas ni formas de pago; dejá [a definir] donde haga falta.');
+  return L.join('\n');
+}
+
+// Números de ventas por mayor para el consultor (agregados; sin nombres ni teléfonos)
+function bloqueVentas(m) {
+  if (!m) return '';
+  const L = ['NÚMEROS REALES DE VENTAS (últimos 90 días; no hay nombres ni teléfonos de clientes):'];
+  L.push(`• Ventas y pedidos cobrados: ${m.cantidad}; total: ${pesos(m.total)}; ticket promedio: ${pesos(m.ticketPromedio)}`);
+  if (m.productos.length) L.push(`• Productos más vendidos: ${m.productos.map((p) => `${plano(p.nombre, 50)} (${p.unidades} unidades, ${pesos(p.ingresos)})`).join('; ')}`);
+  L.push(`• Ventas de los últimos 3 meses: ${m.meses.map((e) => `${e.mes} ${pesos(e.total)} (${e.cantidad} ventas)`).join('; ')}`);
+  L.push(`• Clientes distintos con nombre: ${m.clientes}; que compraron 2 o más veces: ${m.recurrentes}; que compraron antes y hace más de 45 días que no vuelven: ${m.inactivos}`);
+  if (m.clientes) L.push(`• El cliente que más compró representa el ${m.concentracionTop1}% de las ventas con nombre y los 3 primeros el ${m.concentracionTop3}%`);
+  L.push(`• Cuentas por cobrar: ${pesos(m.porCobrar)} de ${m.clientesConDeuda} cliente(s)${m.deudaMasVieja ? `; la deuda más vieja tiene ${m.deudaMasVieja} días` : ''}`);
+  if (m.pocosDatos) L.push('• Aviso: hay muy pocos datos todavía; hacelo notar.');
+  return L.join('\n');
+}
+
 function bloqueNumeros(m) {
   if (!m) return '';
   const L = ['NÚMEROS REALES DEL NEGOCIO (últimos 90 días; no hay nombres ni teléfonos de clientes):'];
@@ -204,7 +266,7 @@ function armarPedido(agenteId, datos, ctx) {
   const ag = AGENTES[agenteId];
   const d = validar(agenteId, datos, { hoy: ctx.hoy });
   const producto = describirProducto(d.producto, ctx);
-  const sistema = [ag.rol(d, ctx), REGLAS, 'DATOS DEL NEGOCIO:\n' + bloqueNegocio(ctx), ag.usaMetricas ? bloqueNumeros(ctx.metricas) : ''].filter(Boolean).join('\n\n');
+  const sistema = [ag.rol(d, ctx), REGLAS, 'DATOS DEL NEGOCIO:\n' + bloqueNegocio(ctx), bloquePerfil(ctx), ag.usaMetricas ? [bloqueNumeros(ctx.metricas), bloqueVentas(ctx.metricasVentas)].filter(Boolean).join('\n\n') : ''].filter(Boolean).join('\n\n');
   return { sistema, usuario: ag.pedido(d, producto, ctx), datos: d };
 }
 
@@ -223,4 +285,4 @@ function dividirOpciones(t) {
   return inline.length >= 2 ? inline : [String(t).trim()];
 }
 
-module.exports = { AGENTES, lista, validar, armarPedido, limpiarSalida, dividirOpciones, bloqueNegocio, describirProducto, textoHorarios, ErrorDatos, REGLAS, MAX_ITEMS };
+module.exports = { AGENTES, lista, validar, armarPedido, limpiarSalida, dividirOpciones, bloqueNegocio, bloquePerfil, bloqueVentas, describirProducto, textoHorarios, ErrorDatos, REGLAS, MAX_ITEMS };

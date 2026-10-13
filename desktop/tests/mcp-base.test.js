@@ -23,10 +23,10 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   const turno = (n, extra = {}) => Turno.create({ userId: 'u1', calendarId: 'principal', fechaInicio: dia(n), fechaFin: dia(n, 11), resumen: 'Corte — Ana', clienteNombre: 'Ana Gómez', clienteTelefono: '5492241111111', estado: 'confirmado', pago: { monto: 4000, metodo: 'mercadopago' }, ...extra });
   await turno(0); await turno(1, { calendarId: 'b', clienteNombre: 'Luis', clienteTelefono: '5492242222222', estado: 'pendiente', pago: undefined }); await turno(-3, { calendarId: 'c' });
   await Turno.create({ userId: 'otro', calendarId: 'principal', fechaInicio: dia(0), fechaFin: dia(0, 11), resumen: 'AJENO', clienteNombre: 'Persona Ajena', clienteTelefono: '5491100000000', estado: 'confirmado', pago: { monto: 99999, metodo: 'efectivo' } });
-  await Movimiento.create({ userId: 'u1', tipo: 'gasto', monto: 1500, fecha: new Date().toISOString().slice(0, 10), categoria: 'Insumos y mercadería', metodo: 'efectivo' });
+  await Movimiento.create({ userId: 'u1', tipo: 'gasto', monto: 1500, fecha: require('../main/gestion/caja').fechaLocal(new Date()), categoria: 'Insumos y mercadería', metodo: 'efectivo' });
   await BotCliente.create({ userId: 'u1', jid: '5492241111111@s.whatsapp.net', nombre: 'Ana Gómez', etiquetas: ['vip'], historial: [{ rol: 'user', texto: 'CHAT PRIVADO DE ANA' }] });
   await BotCliente.create({ userId: 'otro', jid: '5491100000000@s.whatsapp.net', nombre: 'Ana Ajena' });
-  await CtaCte.create({ userId: 'u1', entidad: 'cliente', entidadClave: '2241111111', nombre: 'Ana Gómez', tipo: 'cargo', monto: 2500, fecha: new Date().toISOString().slice(0, 10) });
+  await CtaCte.create({ userId: 'u1', entidad: 'cliente', entidadClave: '2241111111', nombre: 'Ana Gómez', tipo: 'cargo', monto: 2500, fecha: require('../main/gestion/caja').fechaLocal(new Date()) });
   await Config.findOneAndUpdate({ userId: 'u1' }, { negocio: 'Peluquería', groqApiKey: 'gsk_NO_DEBE_SALIR', catalogo: [{ nombre: 'Shampoo', precio: 3000, stock: 4, categoria: 'Cuidado', disponible: true }], serviciosList: [{ nombre: 'Corte', precio: 4000, duracion: 45 }] }, { upsert: true });
 
   const H = crearHerramientas({});

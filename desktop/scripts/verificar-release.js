@@ -170,7 +170,7 @@ const raiz = process.argv[2];
   for (const m of ['main/marketing/agentes', 'main/marketing/servicio', 'main/local-api/routes/marketing.routes']) require(path.join(raiz, m));
   const mkt = require(path.join(raiz, 'main/marketing/agentes'));
   const ped = mkt.armarPedido('posts', { tema: 'Prueba', red: 'instagram' }, { negocio: 'N', hoy: '2026-10-12', servicios: [], catalogo: [] });
-  if (mkt.lista().length !== 6 || !ped.sistema.includes('No inventes precios')) throw new Error('el equipo de marketing falla dentro del paquete');
+  if (mkt.lista().length !== 9 || !ped.sistema.includes('No inventes precios')) throw new Error('el equipo de marketing falla dentro del paquete');
   console.log('SMOKE_OK');
   process.exit(0);
 })().catch((e) => { console.error('SMOKE_ERROR ' + e.message); process.exit(1); });

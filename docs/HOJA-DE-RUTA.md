@@ -134,7 +134,7 @@ push con Expo Push. Requiere cuenta Expo (gratis) 👤.
 | 8.4 | **Instagram y Messenger**: el mismo bot atiende esos mensajes | 🟠 | L | ⬜ |
 | 8.5 | **Mercado Pago Point** (posnet): cobros con tarjeta que entran solos a la Caja | 🟡 | L | ⬜ |
 | 8.6 | **Asistentes de IA (MCP)**: un asistente como Claude consulta el negocio (7 herramientas de solo lectura), solo en esta PC, apagado por defecto, con llaves que vencen y se revocan, registro de actividad y pruebas de seguridad — diseño en `docs/MCP-SEGURIDAD.md`. Escritura (con aprobación del dueño) y chats quedan para una etapa aparte | 🟡 | L | ✅ en la próxima versión |
-| 8.7 | **Equipo de marketing con IA** dentro de Akira: 6 especialistas (publicaciones, promociones, reseñas, planificador semanal, mensajes a clientes y consultor de crecimiento) que escriben borradores con los datos reales del negocio y la clave de Groq del cliente; nada se publica solo, no inventan precios ni descuentos, tope de 30 por hora. Publicar directo en redes queda para la central de publicidad (10.1) | 🟡 | M | ✅ en la próxima versión |
+| 8.7 | **Equipo de marketing con IA** dentro de Akira: 9 especialistas (publicaciones, promociones, reseñas, planificador semanal, mensajes a clientes y consultor de crecimiento, más 3 para quienes venden por mayor: presentación a mayoristas, prospección y seguimiento/cobranzas; el consultor pasa a mirar ventas, concentración de clientes y cuentas por cobrar) que escriben borradores con los datos reales del negocio y la clave de Groq del cliente; nada se publica solo, no inventan precios ni descuentos, tope de 30 por hora. Publicar directo en redes queda para la central de publicidad (10.1) | 🟡 | M | ✅ en la próxima versión |
 
 ## E9 — La plataforma en sí
 

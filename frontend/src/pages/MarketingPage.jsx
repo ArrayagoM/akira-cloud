@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { Megaphone, PenLine, Tag, MessageSquareQuote, CalendarDays, Send, TrendingUp, Loader2, Copy, RefreshCw, Sparkles, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Megaphone, PenLine, Tag, MessageSquareQuote, CalendarDays, Send, TrendingUp, Loader2, Copy, RefreshCw, Sparkles, AlertTriangle, ArrowLeft, FileText, UserPlus, Handshake, Check, Store } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
 // Marketing: un equipo de especialistas con IA que le escribe BORRADORES al dueño usando los datos reales de su negocio
@@ -11,8 +11,34 @@ import { Megaphone, PenLine, Tag, MessageSquareQuote, CalendarDays, Send, Trendi
 // Funciona con la clave de Groq del propio negocio (la misma que usa el bot). Todo se calcula en esta PC.
 // ─────────────────────────────────────────────────────────────
 
-const ICONOS = { PenLine, Tag, MessageSquareQuote, CalendarDays, Send, TrendingUp };
+const ICONOS = { PenLine, Tag, MessageSquareQuote, CalendarDays, Send, TrendingUp, FileText, UserPlus, Handshake };
 const entrada = 'rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-[var(--accent)]/50 w-full';
+
+// Cómo vende el negocio: así los especialistas hablan el idioma correcto (público, comercios y empresas, o las dos).
+function PerfilVenta({ info, alGuardar }) {
+  const [tipo, setTipo] = useState(info.perfil.tipoVenta);
+  const [cond, setCond] = useState(info.perfil.condiciones);
+  const [guardando, setGuardando] = useState(false);
+  const porMayor = tipo === 'mayorista' || tipo === 'ambos';
+  const cambio = tipo !== info.perfil.tipoVenta || cond !== info.perfil.condiciones;
+  const guardar = async () => {
+    setGuardando(true);
+    try { const r = await api.put('/app/marketing/perfil', { tipoVenta: tipo, condiciones: cond }); alGuardar(r.data.perfil); toast.success('Guardado'); }
+    catch (e) { toast.error(e.response?.data?.error || 'No se pudo guardar'); } finally { setGuardando(false); }
+  };
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-start gap-3"><Store size={18} className="text-[var(--accent)] mt-0.5" /><div className="flex-1"><p className="text-sm font-semibold text-white">¿Cómo vendés?</p><p className="text-xs text-gray-500">Así los especialistas escriben pensando en tu público: consumidores, o comercios y empresas que compran en cantidad.</p></div></div>
+      <div className="flex flex-wrap gap-1.5">{Object.entries(info.tiposVenta).map(([k, t]) => { const on = tipo === k; return <button type="button" key={k} onClick={() => setTipo(k)} className="text-xs px-3 py-1.5 rounded-full border" style={on ? { color: 'var(--accent)', borderColor: 'rgba(0,232,123,0.4)', background: 'rgba(0,232,123,0.08)' } : { color: '#9ca3af', borderColor: 'rgba(255,255,255,0.12)' }}>{t}</button>; })}</div>
+      {porMayor && (
+        <label className="block space-y-1"><span className="text-[11px] text-gray-400">Tus condiciones para mayoristas (opcional, pero mejora mucho los textos)</span>
+          <textarea className={`${entrada} min-h-[72px] resize-y`} maxLength={info.maxCondiciones} value={cond} onChange={(e) => setCond(e.target.value)} placeholder="Ej: Pedido mínimo $60.000. Entrega en 48 hs en la zona. Transferencia o cuenta corriente a 7 días. 10% desde 20 cajas." />
+          <span className="text-[10px] text-gray-600 block">Los especialistas usan solo lo que escribas acá: si no cargás escalas de precios o plazos, no los inventan.</span></label>
+      )}
+      {cambio && <div className="flex justify-end"><button className="btn-primary text-xs flex items-center gap-1.5" disabled={guardando} onClick={guardar}>{guardando ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar</button></div>}
+    </div>
+  );
+}
 
 function Campo({ c, valor, cambiar, items }) {
   const etiqueta = <span className="text-[11px] text-gray-400">{c.etiqueta}{c.requerido ? ' *' : ''}</span>;
@@ -74,11 +100,13 @@ export default function MarketingPage() {
           <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3 text-xs text-amber-200/90 flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><p>Para usar el equipo de marketing falta tu clave de Groq (la misma que usa el bot, es gratis). Cargala en <Link to="/config" className="underline">Config</Link>.</p></div>
         )}
 
+        {!agente && info && <PerfilVenta key={`${info.perfil.tipoVenta}|${info.perfil.condiciones}`} info={info} alGuardar={(perfil) => setInfo((x) => ({ ...x, perfil }))} />}
+
         {!agente && info && (
           <div className="grid sm:grid-cols-2 gap-3">
-            {info.agentes.map((a) => { const Icono = ICONOS[a.icono] || Sparkles; return (
+            {[...info.agentes].sort((a, b) => (info.perfil.tipoVenta === 'minorista' ? 0 : (b.paraMayoristas ? 1 : 0) - (a.paraMayoristas ? 1 : 0))).map((a) => { const Icono = ICONOS[a.icono] || Sparkles; return (
               <button key={a.id} onClick={() => elegir(a)} className="card text-left hover:border-[var(--accent)]/40 transition-colors space-y-1.5">
-                <div className="flex items-center gap-2"><Icono size={18} className="text-[var(--accent)]" /><p className="text-sm font-semibold text-white">{a.nombre}</p></div>
+                <div className="flex items-center gap-2"><Icono size={18} className="text-[var(--accent)]" /><p className="text-sm font-semibold text-white">{a.nombre}</p>{a.paraMayoristas && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-400">Para mayoristas</span>}</div>
                 <p className="text-xs text-gray-500">{a.descripcion}</p>
                 {a.usaNumeros && <p className="text-[10px] text-gray-600">Usa tus números reales de los últimos 90 días (sin nombres de clientes).</p>}
               </button>); })}
