@@ -45,15 +45,43 @@ function accionesDisponibles(pc) {
   };
 }
 
-// Campos del resumen que mostramos, en orden (solo los que vinieron).
-function lineasResumen(r) {
+
+// ¿Los números del resumen siguen valiendo? La PC los manda cada 15 minutos; si se apaga, pierde internet o se le vence la sesión, el
+// último resumen queda guardado y se vería como si fuera de ahora (un "Mensajes hoy" de ayer, "Ingresos del mes" del mes pasado).
+// Argentina es UTC-3 fijo (sin cambio horario): se calcula sin Intl para que ande igual en el celular.
+const AR_MS = 3 * 60 * 60 * 1000;
+const LIMITE_OBSOLETO_MIN = 40; // el latido normal es cada 15 min (igual que PC_SIN_SENAL_MS del servidor)
+const CLAVES_HOY = ['mensajesHoy', 'turnosHoy'];
+const CLAVES_MES = ['turnosMes', 'ingresosMes', 'gastosMes'];
+const diaAR = (t) => new Date(new Date(t).getTime() - AR_MS).toISOString().slice(0, 10);
+
+function vigenciaResumen(resumen, resumenEn, ahora = new Date()) {
+  const t = resumenEn ? new Date(resumenEn).getTime() : NaN;
+  if (!resumen || !Number.isFinite(t)) return { conocido: false, obsoleto: false, esDeHoy: false, esDelMes: false, edadMin: null };
+  const edadMin = Math.max(0, Math.round((new Date(ahora).getTime() - t) / 60000));
+  const hoy = diaAR(ahora);
+  const mesDelResumen = /^\d{4}-\d{2}$/.test(String(resumen.mes || '')) ? resumen.mes : diaAR(t).slice(0, 7);
+  return { conocido: true, obsoleto: edadMin > LIMITE_OBSOLETO_MIN, esDeHoy: diaAR(t) === hoy, esDelMes: mesDelResumen === hoy.slice(0, 7), edadMin };
+}
+
+// Texto para el usuario cuando los números no están al día (null si están al día).
+function avisoResumen(vig, resumenEn, ahora = new Date()) {
+  if (!vig || !vig.conocido || (!vig.obsoleto && vig.esDeHoy && vig.esDelMes)) return null;
+  const ocultos = [!vig.esDeHoy && 'de “hoy”', !vig.esDelMes && '“del mes”'].filter(Boolean).join(' y ');
+  return `Estos números no están al día: tu PC no los actualiza desde ${hace(resumenEn, ahora)}. ` +
+    (ocultos ? `Ocultamos los ${ocultos} porque son de otro ${!vig.esDelMes ? 'mes' : 'día'}. ` : '') +
+    'Abrí Akira en la PC (con internet y la sesión iniciada) y se corrigen solos.';
+}
+
+// Campos del resumen que mostramos, en orden (solo los que vinieron). Con `vig` (de vigenciaResumen) se ocultan los "de hoy" / "del mes" que ya son de otro día o mes.
+function lineasResumen(r, vig) {
   if (!r) return [];
   const L = [
     ['mensajesHoy', 'Mensajes hoy', (v) => String(v)], ['turnosHoy', 'Turnos hoy', (v) => String(v)], ['turnosMes', 'Turnos del mes', (v) => String(v)],
     ['ingresosMes', 'Ingresos del mes', pesos], ['gastosMes', 'Gastos del mes', pesos], ['teDeben', 'Te deben', pesos], ['debes', 'Debés', pesos],
     ['clientes', 'Clientes', (v) => String(v)], ['documentosPendientes', 'Documentos sin revisar', (v) => String(v)],
   ];
-  return L.filter(([k]) => r[k] !== undefined && r[k] !== null).map(([k, etiqueta, f]) => ({ clave: k, etiqueta, valor: f(r[k]) }));
+  return L.filter(([k]) => r[k] !== undefined && r[k] !== null && !(vig && vig.conocido && ((!vig.esDeHoy && CLAVES_HOY.includes(k)) || (!vig.esDelMes && CLAVES_MES.includes(k))))).map(([k, etiqueta, f]) => ({ clave: k, etiqueta, valor: f(r[k]) }));
 }
 
-module.exports = { describirBot, hace, pesos, accionesDisponibles, lineasResumen, ETIQUETAS, DETALLES };
+module.exports = { describirBot, hace, pesos, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS, DETALLES };

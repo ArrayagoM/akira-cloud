@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { pesos } from '../utils/archivos';
 import { NOVEDADES } from '../data/novedades';
+import { vigenciaResumen, avisoResumen } from '../lib/estadoMovil';
 
 // Panel de la versión web. El bot, la agenda, los clientes y la configuración viven en la app de
 // escritorio (en la PC del negocio); la web es para la cuenta: plan, equipos, uso, novedades,
@@ -70,6 +71,10 @@ export default function CuentaPanel() {
   const enLinea = devices.filter((d) => Date.now() - new Date(d.ultimoHeartbeat).getTime() < EN_LINEA_MS).length;
   const conResumen = devices.filter((d) => d.resumen).sort((a, b) => new Date(b.resumenEn) - new Date(a.resumenEn))[0];
   const rs = conResumen?.resumen;
+  const vigRs = vigenciaResumen(rs, conResumen?.resumenEn);
+  const avisoRs = avisoResumen(vigRs, conResumen?.resumenEn);
+  const vHoy = (v) => (vigRs.conocido && !vigRs.esDeHoy ? '—' : v);
+  const vMes = (v) => (vigRs.conocido && !vigRs.esDelMes ? '—' : v);
   const pctUso = uso && uso.limite ? Math.min(100, Math.round((uso.usados / uso.limite) * 100)) : 0;
   const versionEquipo = devices.map((d) => d.version).filter(Boolean).sort().pop();
   const desactualizada = ultima?.version && versionEquipo && versionEquipo !== ultima.version;
@@ -121,9 +126,9 @@ export default function CuentaPanel() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {[
-                [MessageSquare, 'Mensajes hoy', rs.mensajesHoy, '#00e87b'], [Calendar, 'Turnos hoy', rs.turnosHoy, '#7dd3fc'],
-                [TrendingUp, 'Ingresos del mes', pesos(rs.ingresosMes), '#34d399'], [TrendingDown, 'Gastos del mes', pesos(rs.gastosMes), '#f87171'],
-                [TrendingUp, 'Resultado del mes', `${(rs.ingresosMes - rs.gastosMes) < 0 ? '-' : ''}${pesos(Math.abs(rs.ingresosMes - rs.gastosMes))}`, (rs.ingresosMes - rs.gastosMes) >= 0 ? '#34d399' : '#f87171'],
+                [MessageSquare, 'Mensajes hoy', vHoy(rs.mensajesHoy), '#00e87b'], [Calendar, 'Turnos hoy', vHoy(rs.turnosHoy), '#7dd3fc'],
+                [TrendingUp, 'Ingresos del mes', vMes(pesos(rs.ingresosMes)), '#34d399'], [TrendingDown, 'Gastos del mes', vMes(pesos(rs.gastosMes)), '#f87171'],
+                [TrendingUp, 'Resultado del mes', vMes(`${(rs.ingresosMes - rs.gastosMes) < 0 ? '-' : ''}${pesos(Math.abs(rs.ingresosMes - rs.gastosMes))}`), (rs.ingresosMes - rs.gastosMes) >= 0 ? '#34d399' : '#f87171'],
                 [HandCoins, 'Te deben', pesos(rs.teDeben), '#fbbf24'], [Truck, 'Debés', pesos(rs.debes), '#f87171'], [Users, 'Clientes', rs.clientes, '#e5e7eb'],
               ].map(([I, t, v, c]) => (
                 <div key={t} className="rounded-lg border border-white/10 p-2.5">
@@ -132,6 +137,7 @@ export default function CuentaPanel() {
                 </div>
               ))}
             </div>
+            {avisoRs && <p className="text-xs mt-3 font-semibold" style={{ color: '#fbbf24' }}>{avisoRs}</p>}
             {rs.documentosPendientes > 0 && <p className="text-xs mt-3 flex items-center gap-1.5" style={{ color: '#fbbf24' }}><FileText size={13} />Tenés {rs.documentosPendientes} documento(s) sin revisar en la app.</p>}
             <p className="text-[11px] mt-3" style={{ color: 'var(--muted)' }}>Son solo números que tu PC envía mientras tenga activado "Ver tu negocio desde el celular". Podés apagarlo cuando quieras desde el Dashboard de la app y se borra de acá.</p>
           </div>

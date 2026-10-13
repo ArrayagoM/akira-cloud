@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bot, Activity, BarChart3, Settings, RefreshCw, Bell, LogOut, Share, Plus, Smartphone, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { describirBot, hace, accionesDisponibles, lineasResumen, ETIQUETAS } from '../lib/estadoMovil';
+import { describirBot, hace, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS } from '../lib/estadoMovil';
 import { activarAvisos, desactivarAvisos, avisosActivos, soportaAvisos, esIPhone, estaInstalada } from '../services/avisosWeb';
 
 // App del celular de Akira, dentro de la web: se instala en la pantalla de inicio (iPhone y Android) y sirve para
@@ -143,15 +143,20 @@ function PestañaResumen({ estado }) {
       <h2 className="text-xl font-bold">Resumen del negocio</h2>
       <p className="text-sm mb-4" style={{ color: 'var(--text2, #9aa8b8)' }}>Solo números: nunca se ven ni se envían nombres, chats ni documentos de tus clientes.</p>
       {conResumen.length === 0 && <div className="card"><p className="font-bold">Todavía no hay datos para mostrar</p><p className="text-sm mt-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Activá “Ver tu negocio desde el celular” en Akira (PC) → Inicio. Es opcional y lo podés apagar cuando quieras.</p></div>}
-      {conResumen.map((pc) => (
+      {conResumen.map((pc) => {
+        const vig = vigenciaResumen(pc.resumen, pc.resumenEn, new Date(estado?.ahora || Date.now()));
+        const aviso = avisoResumen(vig, pc.resumenEn, new Date(estado?.ahora || Date.now()));
+        return (
         <div key={pc.deviceId} className="mb-5">
           {pcs.length > 1 && <p className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: 'var(--text2, #9aa8b8)' }}>{pc.nombre}</p>}
           <div className="grid grid-cols-2 gap-3">
-            {lineasResumen(pc.resumen).map((l) => <div key={l.clave} className="card"><p className="text-2xl font-extrabold truncate" style={{ color: '#00e87b' }}>{l.valor}</p><p className="text-xs mt-1" style={{ color: 'var(--text2, #9aa8b8)' }}>{l.etiqueta}</p></div>)}
+            {lineasResumen(pc.resumen, vig).map((l) => <div key={l.clave} className="card"><p className="text-2xl font-extrabold truncate" style={{ color: '#00e87b' }}>{l.valor}</p><p className="text-xs mt-1" style={{ color: 'var(--text2, #9aa8b8)' }}>{l.etiqueta}</p></div>)}
           </div>
           <p className="text-xs mt-2" style={{ color: 'var(--text2, #9aa8b8)' }}>Actualizado {hace(pc.resumenEn)}</p>
+          {aviso && <p className="text-xs mt-2 font-semibold" style={{ color: '#fbbf24' }}>{aviso}</p>}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, RefreshControl, StyleSheet } from 'react-native';
 import { C, Tarjeta, Titulo, Suave } from '../ui';
-import { lineasResumen, hace } from '../estado';
+import { lineasResumen, vigenciaResumen, avisoResumen, hace } from '../estado';
 
 // Contadores del negocio (solo números). Solo aparecen si el usuario activó "Ver tu negocio desde el celular" en la PC.
 export default function Resumen({ estado, cargando, recargar }) {
@@ -18,17 +18,23 @@ export default function Resumen({ estado, cargando, recargar }) {
         </Tarjeta>
       )}
 
-      {conResumen.map((pc) => (
+      {conResumen.map((pc) => {
+        const ahora = new Date(estado?.ahora || Date.now());
+        const vig = vigenciaResumen(pc.resumen, pc.resumenEn, ahora);
+        const aviso = avisoResumen(vig, pc.resumenEn, ahora);
+        return (
         <View key={pc.deviceId} style={{ marginBottom: 18 }}>
           {pcs.length > 1 && <Text style={s.pc}>{pc.nombre}</Text>}
           <View style={s.grilla}>
-            {lineasResumen(pc.resumen).map((l) => (
+            {lineasResumen(pc.resumen, vig).map((l) => (
               <View key={l.clave} style={s.celda}><Tarjeta><Text style={s.valor} numberOfLines={1} adjustsFontSizeToFit>{l.valor}</Text><Text style={s.etiqueta}>{l.etiqueta}</Text></Tarjeta></View>
             ))}
           </View>
           <Suave estilo={{ marginTop: 8 }}>Actualizado {hace(pc.resumenEn)}</Suave>
+          {aviso && <Text style={s.aviso}>{aviso}</Text>}
         </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -41,4 +47,5 @@ const s = StyleSheet.create({
   celda: { width: '50%', padding: 5 },
   valor: { color: C.verde, fontSize: 24, fontWeight: '800' },
   etiqueta: { color: C.suave, fontSize: 12, marginTop: 4 },
+  aviso: { color: '#fbbf24', fontSize: 12, fontWeight: '600', marginTop: 8 },
 });

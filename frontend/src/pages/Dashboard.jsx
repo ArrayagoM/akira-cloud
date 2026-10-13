@@ -473,9 +473,9 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard icon={<MessageSquare size={18}/>} label="Mensajes hoy"  value={stats.mensajes}
             color="text-green-400"  accentBg="rgba(0,232,123,0.08)"  />
-          <StatCard icon={<Calendar size={18}/>}      label="Reservas"      value={stats.reservas}
+          <StatCard icon={<Calendar size={18}/>}      label="Reservas nuevas hoy" value={stats.reservas}
             color="text-blue-400"   accentBg="rgba(59,130,246,0.1)"   />
-          <StatCard icon={<DollarSign size={18}/>}    label="Cobros del bot" value={stats.pagos}
+          <StatCard icon={<DollarSign size={18}/>}    label="Cobros del bot hoy" value={stats.pagos}
             color="text-purple-400" accentBg="rgba(168,85,247,0.1)"  />
           <StatCard icon={<Wifi size={18}/>}          label="Estado"         value={botStatus.conectado ? 'Activo' : 'Inactivo'}
             color={botStatus.conectado ? 'text-green-400' : 'text-gray-500'}
