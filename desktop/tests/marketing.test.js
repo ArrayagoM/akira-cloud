@@ -202,6 +202,17 @@ const CTX = { negocio: 'Peluquería Lola', miNombre: 'Lola', tipoNegocio: 'turno
   const f4 = llamarFalso(() => Object.assign(new Error('clave inválida'), { status: 401 })); let e401 = null; try { await f4({ apiKey: 'k', mensajes: [] }); } catch (e) { e401 = e; }
   assert(e401?.status === 401 && intentos.length === 1, 'un error de clave inválida se informa enseguida, sin probar otros modelos');
 
+  // ── la clave de Groq es la que cada usuario cargó en Config: cada uno usa la suya y nunca queda en los registros ──
+  llamadas.length = 0; respuesta = 'ok';
+  await svc.generar('u1', { agente: 'posts', datos: { tema: 'uno', red: 'facebook' } }); await svcM.generar('mayo', { agente: 'posts', datos: { tema: 'dos', red: 'facebook' } });
+  assert(llamadas[0].apiKey === 'gsk_clave_de_prueba' && llamadas[0].mensajes[0].content.includes('Peluquería Lola') && llamadas[1].apiKey === 'gsk_mayo' && llamadas[1].mensajes[0].content.includes('Distribuidora Sur'), 'cada usuario usa SU clave de Config y SUS datos (nunca la clave ni los datos de otro)');
+  const registros = []; const KEY = 'gsk_AbCdEf1234567890XyZ';
+  const conLog = S.crearServicio({ llamarIA: async () => { throw Object.assign(new Error(`401 Invalid API Key ${KEY} Authorization: Bearer ${KEY}`), { status: 500 }); }, obtenerClave: async () => KEY, modelos: { Config: { findOne: async () => ({ negocio: 'N', serviciosList: [], catalogo: [] }) } }, ahora, log: (...a) => registros.push(a.join(' ')) });
+  let msg = ''; try { await conLog.generar('uLog', { agente: 'posts', datos: { tema: 't', red: 'facebook' } }); } catch (e) { msg = e.message; }
+  assert(registros.length === 1 && !registros.join(' ').includes('AbCdEf') && registros[0].includes('gsk_***') && !msg.includes('AbCdEf'), 'si Groq repite la clave en un error, ni los registros ni el mensaje al usuario la muestran');
+  assert(S.sinClaves('x gsk_Zzzzzzzzzz y Bearer abcdefghijklmnop') === 'x gsk_*** y Bearer ***', 'se tapan las claves de Groq y los tokens Bearer');
+  assert(!fs.readFileSync(path.join(__dirname, '../main/marketing/servicio.js'), 'utf8').match(/process\.env\.GROQ|GROQ_API_KEY/) && !fs.readFileSync(path.join(__dirname, '../main/marketing/agentes.js'), 'utf8').match(/process\.env|apiKey/), 'el servicio no lee claves del entorno ni los especialistas tocan la clave');
+
   // ── rutas ──
   const app = express(); app.use(express.json());
   app.use('/m', require('../main/local-api/routes/marketing.routes')({ requerirSesion: (q, _r, n) => { q.user = { _id: q.headers['x-user'] || 'u1' }; n(); }, servicioMarketing: svc }));

@@ -14,6 +14,9 @@ const MAX_POR_HORA = 30;
 const VENTANA_MS = 60 * 60 * 1000;
 const PREFERIDOS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 
+// Nada que pueda parecerse a una clave de Groq (ni a otras claves largas) llega a los registros del programa.
+const sinClaves = (t) => String(t ?? '').replace(/gsk_[A-Za-z0-9_-]{6,}/g, 'gsk_***').replace(/Bearer\s+[A-Za-z0-9._-]{12,}/gi, 'Bearer ***');
+
 class ErrorServicio extends Error { constructor(m, status, codigo) { super(m); this.name = 'ErrorServicio'; this.status = status; this.codigo = codigo; } }
 
 // Llamada real a Groq. Si el modelo preferido ya no existe, se elige otro de la lista que tenga la cuenta.
@@ -139,7 +142,7 @@ function crearServicio({ modelos, llamarIA, obtenerClave, userDataDir, ahora = (
     let bruto;
     try { bruto = await llamar({ apiKey, mensajes: [{ role: 'system', content: pedido.sistema }, { role: 'user', content: pedido.usuario }], maxTokens: agente === 'planificador' || agente === 'estratega' ? 2500 : 1500 }); }
     catch (e) {
-      log('[marketing] la IA falló:', e.status || '', e.message);
+      log('[marketing] la IA falló:', e.status || '', sinClaves(e.message));
       if (e.status === 401) throw new ErrorServicio('Groq rechazó tu clave. Revisala en Config.', 409, 'CLAVE_INVALIDA');
       if (e.status === 429 || e.isRateLimit) throw new ErrorServicio('La IA está ocupada o llegaste al límite gratuito de Groq. Probá en un minuto.', 429, 'IA_OCUPADA');
       if (/timeout|timed out|abort/i.test(String(e.message)) || e.name === 'APIConnectionTimeoutError') throw new ErrorServicio('La IA tardó demasiado. Probá de nuevo.', 504, 'TIEMPO');
@@ -153,4 +156,4 @@ function crearServicio({ modelos, llamarIA, obtenerClave, userDataDir, ahora = (
   return { estado, generar, guardarPerfil };
 }
 
-module.exports = { crearServicio, crearLlamadorGroq, calcularMetricas, calcularMetricasVentas, ErrorServicio, MAX_POR_HORA };
+module.exports = { crearServicio, crearLlamadorGroq, calcularMetricas, calcularMetricasVentas, ErrorServicio, MAX_POR_HORA, sinClaves };
