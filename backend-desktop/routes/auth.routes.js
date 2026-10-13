@@ -15,6 +15,7 @@ const Log = require('../models/Log');
 const Referido = require('../models/Referido');
 const { requireAuth, generarJWT } = require('../middleware/auth');
 const logger = require('../config/logger');
+const { expiracionSegunCliente, payloadDe, evaluarRenovacion } = require('../lib/sesion');
 
 const registerValidations = [
   body('nombre').trim().notEmpty().withMessage('El nombre es obligatorio').isLength({ max: 100 }),
@@ -86,7 +87,7 @@ router.post('/register', registerValidations, async (req, res) => {
 
     let token;
     try {
-      token = generarJWT(user._id);
+      token = generarJWT(user._id, 0, { expiresIn: expiracionSegunCliente(req) });
     } catch (jwtErr) {
       logger.error('[Auth] Error generando JWT — borrando usuario recién creado:', jwtErr.message);
       await User.findByIdAndDelete(user._id).catch(() => {});
@@ -161,7 +162,7 @@ router.post(
 
       await Log.registrar({ userId: user._id, tipo: 'auth_login', mensaje: 'Login exitoso (desktop)', ip: req.ip, userAgent: req.headers['user-agent'] });
 
-      const token = generarJWT(user._id, user.tokenVersion ?? 0);
+      const token = generarJWT(user._id, user.tokenVersion ?? 0, { expiresIn: expiracionSegunCliente(req) });
       res.json({ token, user: user.toJSON() });
     })(req, res, next);
   },
@@ -172,6 +173,25 @@ router.post(
 // ─────────────────────────────────────────────────────────────
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user.toJSON() });
+});
+
+// ───────────────────────────────────────────────────────
+//  POST /api/auth/renovar — cambia la sesión actual (todavía vigente) por una nueva, para que la app de escritorio no venza mientras se usa.
+//  No renueva sesiones de más de 180 días desde el ingreso con contraseña (ver lib/sesion.js) y respeta cuenta bloqueada y tokenVersion
+//  (requireAuth ya los controla: cambiar la contraseña o cerrar sesión en todos invalida también esta renovación).
+// ───────────────────────────────────────────────────────
+router.post('/renovar', requireAuth, async (req, res) => {
+  try {
+    const actual = payloadDe((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+    const ev = evaluarRenovacion(actual);
+    if (!ev.ok) return res.status(401).json({ error: ev.motivo === 'sesion_muy_antigua' ? 'La sesión es muy antigua: volvé a ingresar con tu contraseña.' : 'Sesión inválida', motivo: ev.motivo });
+    const u = await User.findById(req.user._id).select('tokenVersion').lean();
+    const token = generarJWT(req.user._id, u?.tokenVersion ?? 0, { expiresIn: expiracionSegunCliente(req), oa: ev.oa });
+    res.json({ token });
+  } catch (err) {
+    logger.error('[Auth] renovar: ' + err.message);
+    res.status(500).json({ error: 'No se pudo renovar la sesión' });
+  }
 });
 
 // ───────────────────────────────────────────────────────
@@ -346,11 +366,11 @@ function callbackOAuth(proveedor, etiqueta) {
   });
   const finalizar = async (req, res) => {
     const userFull = await User.findById(req.user._id).select('tokenVersion').lean();
-    const token = generarJWT(req.user._id, userFull?.tokenVersion ?? 0);
+    const puerto = puertoDeEscritorio(req);
+    const token = generarJWT(req.user._id, userFull?.tokenVersion ?? 0, { expiresIn: puerto ? (process.env.DESKTOP_JWT_EXPIRES_IN || '30d') : undefined });
     await User.findByIdAndUpdate(req.user._id, { ultimoLogin: new Date(), $inc: { loginCount: 1 } });
     await Log.registrar({ userId: req.user._id, tipo: 'auth_login', mensaje: `Login ${etiqueta} (desktop)`, ip: req.ip });
     const code = await crearCodigoOAuth(token);
-    const puerto = puertoDeEscritorio(req);
     if (puerto) return res.redirect(`http://127.0.0.1:${puerto}/callback?code=${code}`);
     res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?code=${code}`);
   };

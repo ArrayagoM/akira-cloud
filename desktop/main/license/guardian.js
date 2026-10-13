@@ -11,6 +11,7 @@
 const licenseClient = require('./license-client');
 const offlineGrace = require('./offline-grace');
 const sessionStore = require('./session-store');
+const renovacion = require('./renovacion');
 const { obtenerDeviceId } = require('../device');
 
 const CADA_MS = 15 * 60 * 1000;
@@ -45,6 +46,17 @@ async function tick() {
   if (!s) return; // nadie inició sesión todavía
   licenseClient.configurar({ sessionToken: s.token, deviceId: obtenerDeviceId(ctx.userDataDir) });
   estado.ultimoIntento = new Date().toISOString();
+
+  // La sesión se renueva sola antes de vencer (así el bot no se pausa por "sesión vencida"); la ventana recibe la nueva por el socket.
+  await renovacion.renovarSiHaceFalta({
+    sesion: s, renovar: () => licenseClient.renovarSesion(),
+    guardar: (nueva) => sessionStore.guardar(ctx.userDataDir, nueva),
+    configurar: (token) => licenseClient.configurar({ sessionToken: token }),
+    avisar: (token) => ctx.emitir?.(s.userId, 'sesion:token', { token }),
+    log: (...a) => console.log(...a),
+  }).catch(() => {});
+  const vigente = sessionStore.leer(ctx.userDataDir); // puede haberse renovado recién
+  if (vigente) licenseClient.configurar({ sessionToken: vigente.token });
 
   try {
     const extra = await ctx.datosHeartbeat?.(s.userId).catch(() => ({})) || {};

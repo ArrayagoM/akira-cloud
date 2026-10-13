@@ -30,8 +30,13 @@ function leer(dir) {
   }
 }
 
+// Vencimiento (ms) del token guardado o recibido; null si no se puede leer
+function expiraDe(token) {
+  try { const p = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8')); return Number(p.exp) ? Number(p.exp) * 1000 : null; } catch { return null; }
+}
+
 function borrar(dir) {
   try { fs.unlinkSync(archivo(dir)); } catch {}
 }
 
-module.exports = { guardar, leer, borrar };
+module.exports = { guardar, leer, borrar, expiraDe };

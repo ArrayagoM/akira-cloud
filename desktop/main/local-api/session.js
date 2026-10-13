@@ -30,7 +30,10 @@ function crearSesion({ userDataDir, nombreEquipo, alActivar }) {
       const { user } = await licenseClient.request('/api/auth/me', 'GET');
       const estado = await licenseClient.activar({ deviceId: obtenerDeviceId(userDataDir), nombre: nombreEquipo, reemplazar });
       offlineGrace.guardar(userDataDir, estado);
-      sessionStore.guardar(userDataDir, { token, userId: user._id || user.id, email: user.email });
+      // Si ya hay guardada una sesión renovada (más nueva) de este mismo usuario, no se la pisa con una más vieja que mande la ventana.
+      const previa = sessionStore.leer(userDataDir);
+      const masNueva = previa && String(previa.userId) === String(user._id || user.id) && (sessionStore.expiraDe(previa.token) || 0) > (sessionStore.expiraDe(token) || 0);
+      if (!masNueva) sessionStore.guardar(userDataDir, { token, userId: user._id || user.id, email: user.email });
       const primeraVez = !actual.activada || actual.token !== token;
       Object.assign(actual, { token, user: { ...user, _id: user._id || user.id }, validadoEn: Date.now(), activada: true, errorActivacion: null });
       if (primeraVez) alActivar?.(actual);

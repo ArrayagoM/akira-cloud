@@ -50,11 +50,13 @@ function requireAdmin(req, res, next) {
  */
 const jwt = require('jsonwebtoken');
 
-function generarJWT(userId, tokenVersion = 0) {
+// opciones.expiresIn: duración distinta de la normal (la app de escritorio usa 30 días, ver lib/sesion.js).
+// opciones.oa: cuándo se ingresó de verdad con contraseña (segundos); al renovar se conserva, para poder limitar cuánto se puede renovar.
+function generarJWT(userId, tokenVersion = 0, opciones = {}) {
   return jwt.sign(
-    { id: userId, tv: tokenVersion },
+    { id: userId, tv: tokenVersion, oa: opciones.oa || Math.floor(Date.now() / 1000) },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    { expiresIn: opciones.expiresIn || process.env.JWT_EXPIRES_IN || '7d' }
   );
 }
 

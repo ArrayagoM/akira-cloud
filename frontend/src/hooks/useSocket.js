@@ -14,7 +14,7 @@ export function useSocket(userId) {
     if (!userId) return;
     if (!socketInstance || !socketInstance.connected) {
       socketInstance = io(SOCKET_URL, {
-        auth:                { token: localStorage.getItem('akira_token') },
+        auth:                (cb) => cb({ token: localStorage.getItem('akira_token') }), // se lee en cada (re)conexión: la sesión se renueva sola
         transports:          ['websocket', 'polling'],
         reconnection:        true,
         reconnectionDelay:   2000,

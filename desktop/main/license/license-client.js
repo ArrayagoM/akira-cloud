@@ -45,6 +45,7 @@ function request(pathname, method, body, extraHeaders) {
         method,
         headers: {
           'Content-Type': 'application/json',
+          'x-akira-cliente': 'escritorio',
           ...(estado.sessionToken ? { Authorization: `Bearer ${estado.sessionToken}` } : {}),
           ...(extraHeaders || {}),
           ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
@@ -96,6 +97,11 @@ async function heartbeat(extra = {}) {
   return guardarEstadoLicencia(resp);
 }
 
+// Cambia la sesión (todavía vigente) por una nueva: ver license/renovacion.js
+async function renovarSesion() {
+  return request('/api/auth/renovar', 'POST', {});
+}
+
 async function features() {
   const resp = await request('/api/bot/features', 'GET');
   return resp;
@@ -130,4 +136,4 @@ function licenciaCacheVigente() {
   return !!estado.licenseToken && Date.now() < estado.licenseTokenExp;
 }
 
-module.exports = { configurar, request, activar, heartbeat, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };
+module.exports = { configurar, request, activar, heartbeat, renovarSesion, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };

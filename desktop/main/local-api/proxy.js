@@ -18,7 +18,7 @@ function reenviar(serverUrl) {
     const hayCuerpo = req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0;
     const cuerpo = hayCuerpo ? JSON.stringify(req.body) : null;
 
-    const headers = { Accept: 'application/json' };
+    const headers = { Accept: 'application/json', 'x-akira-cliente': 'escritorio' }; // el servidor da sesiones de 30 días a la app de escritorio
     if (req.headers.authorization) headers.Authorization = req.headers.authorization;
     if (cuerpo) {
       headers['Content-Type'] = 'application/json';

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { PauseCircle, WifiOff, LogIn, Laptop } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useSocket } from '../hooks/useSocket';
 import { useAuth } from '../context/AuthContext';
@@ -16,11 +17,12 @@ const BLOQUEOS = {
 };
 const AVISOS = {
   sin_conexion: ['Sin conexión con Akira.', 'El bot sigue funcionando; si pasan 72 horas sin conexión se pausa.'],
-  sesion_expirada: ['Tu sesión venció.', 'Cerrá sesión y volvé a ingresar para que el bot siga validando su licencia.'],
+  sesion_expirada: ['Tu sesión venció.', 'Volvé a ingresar con tu contraseña para que el bot siga validando su licencia. Desde ahora la sesión se renueva sola mientras uses Akira.'],
 };
 
 export default function LicenciaAviso() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { on } = useSocket(user?._id || user?.id);
   const [e, setE] = useState(null);
   const [cambiando, setCambiando] = useState(false);
@@ -28,6 +30,8 @@ export default function LicenciaAviso() {
   const cargar = useCallback(() => api.get('/license/estado').then((r) => setE(r.data)).catch(() => {}), []);
   useEffect(() => { cargar(); const t = setInterval(cargar, 60_000); return () => clearInterval(t); }, [cargar]);
   useEffect(() => { const off = on('licencia:estado', setE); return () => off?.(); }, [on]);
+
+  const volverAIngresar = async () => { await logout(); navigate('/login'); };
 
   const usarEsteEquipo = async () => {
     setCambiando(true);
@@ -70,6 +74,7 @@ export default function LicenciaAviso() {
         {detalle && <p style={{ color: 'var(--text2)' }}>{detalle}</p>}
       </div>
       {renovar && <Link to="/planes" className="btn-primary text-sm px-3 py-1.5 rounded-lg">Renovar plan</Link>}
+      {!bloqueo && e.aviso === 'sesion_expirada' && <button onClick={volverAIngresar} className="btn-primary text-sm px-3 py-1.5 rounded-lg">Volver a ingresar</button>}
     </div>
   );
 }
