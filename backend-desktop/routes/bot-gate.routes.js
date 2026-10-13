@@ -10,7 +10,7 @@ const router = require('express').Router();
 const { requireAuth } = require('../middleware/auth');
 const { featuresDePlan } = require('../config/planes');
 const { slotsMaxDePlan, calcularVigencia, planEfectivo } = require('../services/license.service');
-const { registrarMensajeYVerificarCupo } = require('../services/quota.service');
+const { registrarMensajeYVerificarCupo, registrarDiaDeUsoTrial } = require('../services/quota.service');
 const logger = require('../config/logger');
 const MpEvento = require('../models/MpEvento');
 
@@ -66,6 +66,7 @@ router.post('/quota/check', requireAuth, async (req, res) => {
     if (!vigente) {
       return res.status(403).json({ permitido: false, error: 'Suscripción vencida' });
     }
+    if (req.user.plan === 'trial' && planEfectivo(req.user) === 'trial') await registrarDiaDeUsoTrial(req.user._id); // la prueba gasta un día solo si hubo uso
     const resultado = await registrarMensajeYVerificarCupo(req.user._id, planEfectivo(req.user));
     res.json(resultado);
   } catch (err) {

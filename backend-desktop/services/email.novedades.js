@@ -133,7 +133,7 @@ function htmlActualizacion(datos) {
   return armarActualizacion(datos, { novedades: NOVEDADES_GESTION, enCamino: EN_CAMINO, intro: 'Seguimos mejorando Akira. Sumamos herramientas para llevar la gestión de tu negocio desde el mismo programa donde atiende tu bot.' });
 }
 
-function armarActualizacion({ nombre, userId, urlDescarga, version }, { novedades, enCamino, intro, datos }) {
+function armarActualizacion({ nombre, userId, urlDescarga, version, reactivado }, { novedades, enCamino, intro, datos, avisoReactivado }) {
   const front = (process.env.FRONTEND_URL || 'https://akiracloud.lat').replace(/\/+$/, '');
   const descarga = urlDescarga || `${front}/api/desktop/download`;
   const guia = `${front}/descargar`;
@@ -172,6 +172,7 @@ function armarActualizacion({ nombre, userId, urlDescarga, version }, { novedade
         ${escapar(intro)}
         Esto es lo nuevo hasta la versión ${escapar(version || '')}:
       </p>
+      ${reactivado && avisoReactivado ? `<div style="margin:14px 0 4px;padding:14px 16px;background:#06210f;border:1px solid #0d4a24;border-radius:8px"><p style="margin:0;color:#b8f5d0;font-size:13.5px;line-height:1.6">${avisoReactivado}</p></div>` : ''}
 
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:16px 0 4px">
         ${novedades.map(fila).join('')}
@@ -235,12 +236,39 @@ function htmlActualizacion2(datos) {
   return armarActualizacion(datos, { novedades: NOVEDADES_2, enCamino: EN_CAMINO_2, intro: 'Desde el último aviso sumamos muchas herramientas nuevas para atender y manejar tu negocio desde el mismo programa.' });
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// Campaña "actualización 3": prueba gratis por uso, Marketing con IA, asistentes de IA (MCP) y lo demás de la 1.0.25 / 1.0.26.
+// Cada punto existe hoy en la app (o en el servidor); lo que todavía es de prueba se dice como de prueba.
+// A quien se le devolvió la prueba (user.trialReactivado) se le suma un aviso destacado arriba.
+// ─────────────────────────────────────────────────────────────
+const NOVEDADES_3 = [
+  ['Prueba gratis por uso, no por calendario', 'Los 7 días de prueba se gastan solo los días en que el bot atiende al menos un mensaje. Si te registraste y todavía no la probaste, no se te vence. Tiene un tope de 60 días desde el alta y 100 mensajes.'],
+  ['Marketing con IA', 'Un equipo de especialistas que te escribe borradores con los datos reales de tu negocio: publicaciones para redes, promociones, respuestas a reseñas, un plan semanal, mensajes para tus clientes y un consultor que mira tus números. Usa tu propia clave de Groq (gratis) y nada se publica ni se envía solo.'],
+  ['Si vendés por mayor', 'Contale a Akira cómo vendés y cargá tus condiciones (pedido mínimo, entrega, pagos): se suman la presentación para mayoristas, la prospección de clientes nuevos y el seguimiento comercial y de cobranzas, y el consultor mira tus ventas y lo que tenés por cobrar.'],
+  ['Asistentes de IA conectados (opcional)', 'Si usás un asistente como Claude, podés dejar que consulte tu negocio: es solo lectura, funciona únicamente en tu computadora y se apaga cuando quieras. Está desactivado hasta que lo actives en Integraciones.'],
+  ['Celular de avisos a la vista', 'El campo para cargar el celular donde el bot te avisa ahora aparece donde corresponde, en Config.'],
+  ['Mac y celular (versiones de prueba)', 'Hay una versión de prueba para Mac, una app de prueba para Android y la web instalable /celular para ver el estado del bot desde el teléfono.'],
+];
+const EN_CAMINO_3 = [
+  ['Escáner de códigos con la cámara', 'Cargar y vender productos escaneando con la cámara de la compu o del celular.'],
+  ['Instalador con firma digital', 'Para que Windows no muestre el aviso de “editor desconocido”.'],
+];
+function asuntoActualizacion3() {
+  return 'Novedades de Akira: marketing con IA, prueba gratis por uso y más';
+}
+function htmlActualizacion3(datos) {
+  return armarActualizacion(datos, { novedades: NOVEDADES_3, enCamino: EN_CAMINO_3, intro: 'Cambiamos cómo funciona la prueba gratis y sumamos herramientas nuevas para vender y atender mejor.',
+    avisoReactivado: '<strong>Te devolvimos tu prueba gratis.</strong> Vimos que se te había vencido sin que llegaras a usar Akira. Ahora son 7 días de uso: solo se gastan los días en que el bot atiende mensajes. Abrí la app, conectá tu WhatsApp y empezá cuando quieras.' });
+}
+
 // Campañas de email disponibles. La clave se guarda en cada usuario (novedadesEnviadas)
 // para no repetir el envío. Para una campaña nueva: agregar una entrada acá.
 const CAMPANAS = {
   'instalador-1.0.0': { asunto: asuntoNovedades, html: htmlNovedades },
   'actualizacion-2026-10': { asunto: asuntoActualizacion, html: htmlActualizacion },
   'actualizacion-2026-10b': { asunto: asuntoActualizacion2, html: htmlActualizacion2 },
+  'actualizacion-2026-10c': { asunto: asuntoActualizacion3, html: htmlActualizacion3 },
 };
 
 module.exports = { htmlNovedades, asuntoNovedades, htmlActualizacion, asuntoActualizacion, CAMPANAS, urlBaja, PROXIMAMENTE };

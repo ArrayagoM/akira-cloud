@@ -88,7 +88,7 @@ export default function CuentaPanel() {
             <div className="flex-1 min-w-[180px]">
               <p className="text-sm font-semibold text-white">{etiquetaPlan}</p>
               <p className="text-xs" style={{ color: sub.planVigente ? 'var(--text2)' : '#f43f5e' }}>
-                {sub.planVigente ? `Te quedan ${sub.diasRestantes} día${sub.diasRestantes === 1 ? '' : 's'}.` : 'Tu plan venció — elegí uno para reactivar el bot.'}
+                {sub.planVigente ? (sub.trial?.modelo === 'uso' ? `Te quedan ${sub.diasRestantes} de ${sub.trial.diasMax} días de uso (solo cuentan los días en que el bot atiende mensajes).` : `Te quedan ${sub.diasRestantes} día${sub.diasRestantes === 1 ? '' : 's'}.`) : 'Tu plan venció — elegí uno para reactivar el bot.'}
               </p>
             </div>
             <Link to="/planes" className="inline-flex items-center gap-1 text-sm font-semibold" style={{ color: '#00e87b' }}>

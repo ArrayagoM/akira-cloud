@@ -131,7 +131,7 @@ router.post('/email-novedades', async (req, res) => {
       const ok = await enviarEmail({
         to: u.email,
         subject: camp.asunto(),
-        html: camp.html({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0' }),
+        html: camp.html({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0', reactivado: !!u.trialReactivado }),
         meta: { tipo: 'campana', campana: CAMPAÑA, userId: u._id },
       });
       if (ok) { enviados++; await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: new Date() } }); }
@@ -320,6 +320,8 @@ router.post('/users/:id/activar-plan', [
     };
     if (plan === 'trial') {
       updates.trialExpira = expira;
+      // Prueba por uso (lib/prueba.js): un trial dado a mano vuelve con los 7 días de uso completos; `expira` queda como tope de calendario.
+      Object.assign(updates, { trialModeloUso: true, trialDiasUso: 0, trialUltimoDiaUso: '' });
     } else {
       updates.planExpira = expira;
     }
@@ -748,6 +750,24 @@ router.get('/bots/active', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  Prueba gratis por uso (ver lib/prueba.js y services/prueba-admin.service.js)
+//  GET  /api/admin/prueba/resumen            → cuántas pruebas hay de cada tipo (sin datos personales)
+//  POST /api/admin/prueba/migrar { confirmar } → sin confirmar solo cuenta; con confirmar pasa las pruebas al modelo por uso
+//                                                y le devuelve la prueba a quien se le venció sin haber usado el programa
+// ─────────────────────────────────────────────────────────────
+router.get('/prueba/resumen', async (_req, res) => {
+  try { res.json({ ok: true, ...(await require('../services/prueba-admin.service').resumen({ User, Device })) }); }
+  catch (e) { logger.error('[Admin] prueba/resumen: ' + e.message); res.status(500).json({ ok: false, error: 'No se pudo calcular' }); }
+});
+router.post('/prueba/migrar', async (req, res) => {
+  try {
+    const r = await require('../services/prueba-admin.service').migrar({ User, Device, confirmar: req.body?.confirmar === true });
+    if (r.aplicado) await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Prueba por uso: ${r.vigentesMigrados} migradas, ${r.reactivados} reactivadas` }).catch(() => {});
+    res.json({ ok: true, ...r });
+  } catch (e) { logger.error('[Admin] prueba/migrar: ' + e.message); res.status(500).json({ ok: false, error: 'No se pudo migrar' }); }
 });
 
 module.exports = router;

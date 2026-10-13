@@ -177,11 +177,11 @@ export default function PlanesPage() {
                 : !suscripcion.planVigente
                 ? <p className="font-semibold" style={{ color: '#f43f5e' }}>Plan vencido — El bot está desactivado</p>
                 : planActual === 'trial'
-                ? <p className="font-semibold" style={{ color: '#f59e0b' }}>Prueba gratuita — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>
+                ? <p className="font-semibold" style={{ color: '#f59e0b' }}>{suscripcion.trial?.modelo === 'uso' ? `Prueba gratuita — te quedan ${dias} de ${suscripcion.trial.diasMax} días de uso` : `Prueba gratuita — ${dias} día${dias !== 1 ? 's' : ''} restante${dias !== 1 ? 's' : ''}`}</p>
                 : <p className="font-semibold" style={{ color: 'var(--accent)' }}>Plan {planActual} activo — {dias} día{dias !== 1 ? 's' : ''} restante{dias !== 1 ? 's' : ''}</p>}
               {planActual !== 'admin' && (
                 <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>
-                  {suscripcion.planVigente ? 'La suscripción se renueva automáticamente.' : 'Elegí un plan para reactivar el bot.'}
+                  {suscripcion.planVigente ? (planActual === 'trial' && suscripcion.trial?.modelo === 'uso' ? 'Solo cuentan los días en que el bot atiende mensajes: si no lo usás, no se gasta ninguno.' : 'La suscripción se renueva automáticamente.') : 'Elegí un plan para reactivar el bot.'}
                 </p>
               )}
             </div>

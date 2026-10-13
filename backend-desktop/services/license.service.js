@@ -43,8 +43,9 @@ function calcularVigencia(user, ahora = new Date()) {
   if (user.esTester) return { vigente: true, expira: null };
   if (user.rol === 'admin' || user.plan === 'admin') return { vigente: true, expira: null };
   if (user.plan === 'trial') {
-    const exp = user.trialExpira ? new Date(user.trialExpira) : null;
-    return { vigente: !!exp && exp > ahora, expira: exp };
+    // La prueba cuenta días de USO (ver lib/prueba.js); las cuentas sin migrar siguen con el calendario viejo.
+    const v = require('../lib/prueba').vigenciaTrial(user, ahora);
+    return { vigente: v.vigente, expira: v.expira };
   }
   const exp = user.planExpira ? new Date(user.planExpira) : null;
   return { vigente: !!exp && exp > ahora, expira: exp };

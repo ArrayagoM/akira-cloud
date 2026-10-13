@@ -16,6 +16,7 @@ import ResumenDiarioCard from '../components/ResumenDiarioCard';
 import PrimerosPasos from '../components/PrimerosPasos';
 import { usePerfil } from '../services/perfil';
 import CelularCard from '../components/CelularCard';
+import { vigenciaTrial } from '../lib/pruebaGratis';
 
 // ── Componente: tarjeta de estadística ──────────────────────
 function StatCard({ icon, label, value, color = 'text-green-400', accentBg = 'rgba(0,232,123,0.08)' }) {
@@ -407,8 +408,9 @@ export default function Dashboard() {
   };
 
   const esAdmin     = user?.rol === 'admin' || user?.plan === 'admin';
-  const planVigente = esAdmin ? true : user?.plan === 'trial' ? new Date(user.trialExpira) > new Date() : true;
-  const diasTrial   = user?.plan === 'trial' && !esAdmin ? Math.max(0, Math.ceil((new Date(user.trialExpira) - new Date()) / 86400000)) : null;
+  const vTrial      = user?.plan === 'trial' && !esAdmin ? vigenciaTrial(user) : null; // la prueba cuenta días de USO
+  const planVigente = esAdmin ? true : vTrial ? vTrial.vigente : true;
+  const diasTrial   = vTrial ? vTrial.diasRestantes : null;
 
   return (
     <Layout>
@@ -451,13 +453,13 @@ export default function Dashboard() {
         {/* Alertas */}
         {user?.plan === 'trial' && user?.rol !== 'admin' && (
           <div className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm animate-fade-up delay-50"
-            style={diasTrial <= 2
+            style={(vTrial?.vigente === false || diasTrial <= 2)
               ? { background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }
               : { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#f59e0b' }}>
             <Clock size={15} className="flex-shrink-0" />
-            {diasTrial > 0
-              ? `Tu prueba gratuita vence en ${diasTrial} día${diasTrial !== 1 ? 's' : ''}. Elegí un plan para no perder el acceso.`
-              : 'Tu prueba gratuita venció. Elegí un plan para reactivar el bot.'}
+            {vTrial?.vigente
+              ? `${vTrial.texto} Elegí un plan cuando quieras para no perder el acceso.`
+              : 'Tu prueba gratuita terminó. Elegí un plan para reactivar el bot.'}
           </div>
         )}
         {user?.rol === 'admin' && (

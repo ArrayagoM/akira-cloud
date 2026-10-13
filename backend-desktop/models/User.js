@@ -57,7 +57,15 @@ const UserSchema = new mongoose.Schema(
       enum: ['mensual', 'anual', null],
       default: null,
     },
-    trialExpira: { type: Date, default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+    // Prueba gratis por USO (ver lib/prueba.js): 7 días de uso real; trialExpira es el TOPE por calendario (60 días desde el alta).
+    // Las cuentas viejas (sin trialModeloUso) siguen con la regla de calendario hasta que se las migra.
+    trialExpira: { type: Date, default: () => new Date(Date.now() + 60 * 24 * 60 * 60 * 1000) },
+    // Sin default a propósito: Mongoose rellena los defaults al leer, y las cuentas viejas NO deben pasar solas al modelo nuevo.
+    // Las cuentas nuevas lo reciben en el pre('validate') de más abajo; las viejas, al migrarlas (POST /api/admin/prueba/migrar).
+    trialModeloUso:    { type: Boolean },
+    trialDiasUso:      { type: Number, default: 0 },
+    trialUltimoDiaUso: { type: String, default: '' },
+    trialReactivado:   { type: Date, default: null },
     planExpira:  { type: Date },
 
     // Cupo de mensajes/mes (ver config/planes.js + services/bot/quota.service.js).
@@ -140,6 +148,8 @@ UserSchema.pre('save', async function (next) {
 });
 
 // ── Métodos ──────────────────────────────────────────────────
+UserSchema.pre('validate', function () { if (this.isNew && this.trialModeloUso === undefined) this.trialModeloUso = true; });
+
 UserSchema.methods.compararPassword = async function (candidato) {
   if (!this.password) return false;
   return bcrypt.compare(candidato, this.password);
@@ -148,7 +158,7 @@ UserSchema.methods.compararPassword = async function (candidato) {
 UserSchema.methods.planVigente = function () {
   if (this.esTester) return true; // testers: siempre activo sin pagar
   if (this.rol === 'admin' || this.plan === 'admin') return true; // admin: siempre activo
-  if (this.plan === 'trial') return this.trialExpira > new Date();
+  if (this.plan === 'trial') return require('../lib/prueba').vigenciaTrial(this).vigente;
   if (this.planExpira) return this.planExpira > new Date();
   return false;
 };

@@ -78,16 +78,18 @@ router.get('/mi-suscripcion', requireAuth, async(req,res)=>{
     const base    = (user.plan||'trial').replace(/_mensual|_anual/g,'');
     const limites = LIMITES[base]||LIMITES.trial;
     const esAdmin = user.rol==='admin'||user.plan==='admin';
+    const vt = base==='trial' && !esAdmin ? require('../lib/prueba').vigenciaTrial(user) : null; // la prueba cuenta días de USO
     const vigente = esAdmin ? true
-      : base==='trial' ? new Date(user.trialExpira)>new Date()
+      : vt ? vt.vigente
       : user.planExpira ? new Date(user.planExpira)>new Date() : false;
 
     res.json({
       plan:user.plan, planBase:base, status:user.status,
       trialExpira:user.trialExpira, planExpira:user.planExpira,
       planVigente:vigente, limites, esAdmin,
-      diasRestantes: esAdmin ? 99999 : (() => {
-        const exp = base==='trial' ? new Date(user.trialExpira) : new Date(user.planExpira||0);
+      trial: vt ? { modelo:vt.modelo, diasUso:vt.diasUso, diasMax:vt.diasMax, diasRestantes:vt.diasRestantes, hoyContado:vt.hoyContado, topeExpira:vt.expira } : null,
+      diasRestantes: esAdmin ? 99999 : vt ? vt.diasRestantes : (() => {
+        const exp = new Date(user.planExpira||0);
         return Math.max(0,Math.ceil((exp-new Date())/86400000));
       })(),
     });

@@ -42,4 +42,14 @@ async function registrarMensajeYVerificarCupo(userId, plan) {
   return { permitido: nuevoConteo <= limite, usados: nuevoConteo, limite };
 }
 
-module.exports = { registrarMensajeYVerificarCupo, calcularNuevoConteo, mesActual };
+// Prueba gratis por uso: el primer mensaje del día gasta un día de prueba (ver lib/prueba.js). Atómico: dos mensajes simultáneos no cuentan dos días.
+// Nunca bloquea el flujo del bot: si falla la escritura, el mensaje se atiende igual.
+async function registrarDiaDeUsoTrial(userId, ahora = new Date()) {
+  try {
+    const { filtroDiaDeUso, cambioDiaDeUso } = require('../lib/prueba');
+    const r = await User.updateOne(filtroDiaDeUso(userId, ahora), cambioDiaDeUso(ahora));
+    return (r.modifiedCount ?? r.nModified ?? 0) > 0;
+  } catch { return false; }
+}
+
+module.exports = { registrarMensajeYVerificarCupo, registrarDiaDeUsoTrial, calcularNuevoConteo, mesActual };
