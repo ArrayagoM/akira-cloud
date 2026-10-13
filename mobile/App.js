@@ -14,7 +14,7 @@ const PESTANAS = [
   { id: 'resumen', etiqueta: 'Resumen', icono: '📊' },
   { id: 'ajustes', etiqueta: 'Ajustes', icono: '⚙️' },
 ];
-const CADA_MS = 30 * 1000;
+const CADA_MS = 10 * 1000; // casi en vivo: la PC manda los cambios apenas ocurren
 
 export default function App() {
   const [sesion, setSesion] = useState(undefined); // undefined = cargando, null = sin sesión

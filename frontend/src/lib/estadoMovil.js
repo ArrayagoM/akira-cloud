@@ -44,11 +44,11 @@ export function accionesDisponibles(pc) {
 }
 
 
-// ¿Los números del resumen siguen valiendo? La PC los manda cada 15 minutos; si se apaga, pierde internet o se le vence la sesión, el
+// ¿Los números del resumen siguen valiendo? La PC los manda apenas algo cambia (y como mínimo cada 10 minutos); si se apaga, pierde internet o se le vence la sesión, el
 // último resumen queda guardado y se vería como si fuera de ahora (un "Mensajes hoy" de ayer, "Ingresos del mes" del mes pasado).
 // Argentina es UTC-3 fijo (sin cambio horario): se calcula sin Intl para que ande igual en el celular.
 const AR_MS = 3 * 60 * 60 * 1000;
-const LIMITE_OBSOLETO_MIN = 40; // el latido normal es cada 15 min (igual que PC_SIN_SENAL_MS del servidor)
+const LIMITE_OBSOLETO_MIN = 40; // la PC reenvía como mínimo cada 10 min; 40 min sin novedades = algo pasa (igual que PC_SIN_SENAL_MS del servidor)
 const CLAVES_HOY = ['mensajesHoy', 'turnosHoy'];
 const CLAVES_MES = ['turnosMes', 'ingresosMes', 'gastosMes'];
 const diaAR = (t) => new Date(new Date(t).getTime() - AR_MS).toISOString().slice(0, 10);

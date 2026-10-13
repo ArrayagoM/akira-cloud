@@ -97,6 +97,12 @@ async function heartbeat(extra = {}) {
   return guardarEstadoLicencia(resp);
 }
 
+// Resumen y estado del bot "en vivo" (sin esperar al latido de 15 min): ver resumen-vivo.js. Responde { mirando }.
+async function resumenVivo({ resumen, estadoBot }) {
+  if (!estado.deviceId) throw new Error('license-client: falta deviceId');
+  return request('/api/licenses/resumen', 'POST', { deviceId: estado.deviceId, resumen, estadoBot });
+}
+
 // Cambia la sesión (todavía vigente) por una nueva: ver license/renovacion.js
 async function renovarSesion() {
   return request('/api/auth/renovar', 'POST', {});
@@ -136,4 +142,4 @@ function licenciaCacheVigente() {
   return !!estado.licenseToken && Date.now() < estado.licenseTokenExp;
 }
 
-module.exports = { configurar, request, activar, heartbeat, renovarSesion, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };
+module.exports = { configurar, request, activar, heartbeat, resumenVivo, renovarSesion, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };

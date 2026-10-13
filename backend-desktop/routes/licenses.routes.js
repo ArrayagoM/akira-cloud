@@ -147,6 +147,44 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  POST /api/licenses/resumen   { deviceId, resumen, estadoBot }
+//  "Tiempo real": la PC manda el resumen y el estado del bot apenas algo cambia, sin esperar al latido de 15 minutos.
+//  Responde { mirando } para que la PC sepa si conviene el ritmo rápido (hay alguien mirando) o el tranquilo.
+// ─────────────────────────────────────────────────────────────
+router.post('/resumen', requireAuth, async (req, res) => {
+  try {
+    const { deviceId, resumen, estadoBot } = req.body || {};
+    if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
+    const device = await Device.findOne({ userId: req.user._id, deviceId });
+    if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
+    if (!calcularVigencia(req.user).vigente) return res.status(403).json({ error: 'Suscripción vencida', vigente: false });
+
+    const m = require('../lib/mirando'); const ahora = new Date();
+    if (!m.puedeActualizarResumen(device, ahora)) return res.json({ ok: true, omitido: true, mirando: m.estaMirando(device, ahora) });
+
+    const { sanearResumen } = require('../lib/resumen-negocio');
+    const r = sanearResumen(resumen);
+    if (!r) return res.status(400).json({ error: 'Resumen inválido' });
+    device.resumen = r; device.resumenEn = ahora; device.ultimoHeartbeat = ahora; // si manda esto, la PC está viva
+    if (estadoBot !== undefined) {
+      try {
+        const { procesarEstadoBot } = require('../services/alertas-estado.service');
+        await procesarEstadoBot({
+          user: req.user, device, estadoBot,
+          enviar: (msg) => require('../services/email.service').enviarEmail(msg),
+          notificarPush: (p) => require('../services/push.service').notificarUsuario(req.user._id, p),
+        });
+      } catch (e) { logger.warn('[Licenses] resumen/estado del bot: ' + e.message); }
+    }
+    await device.save();
+    res.json({ ok: true, mirando: m.estaMirando(device, ahora) });
+  } catch (err) {
+    logger.error('[Licenses] resumen error: ' + err.message);
+    res.status(500).json({ error: 'No se pudo guardar el resumen' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  POST /api/licenses/comandos
 //  { deviceId, celularActivo?, hechos? } — la PC retira los comandos que mandó el celular (pausar/reanudar,
 //  vacaciones) y confirma los que ya ejecutó. Solo responde comandos si el usuario activó el control desde
@@ -199,6 +237,7 @@ router.post('/deactivate', requireAuth, async (req, res) => {
 //  (para mostrarlos en un panel "mis instalaciones" si hace falta).
 // ─────────────────────────────────────────────────────────────
 router.get('/mine', requireAuth, async (req, res) => {
+  require('../lib/mirando').marcarMirando(Device, req.user._id);
   const devices = await Device.find({ userId: req.user._id, activo: true, revocado: false })
     .select('deviceId nombre activadoEn ultimoHeartbeat version resumen resumenEn estadoBot estadoBotEn')
     .lean();

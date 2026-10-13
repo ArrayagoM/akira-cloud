@@ -246,8 +246,11 @@ export default function CelularPage() {
   useEffect(() => {
     if (!user) return undefined;
     recargar();
-    const t = setInterval(recargar, 30000); // se actualiza sola mientras la app está abierta
-    return () => clearInterval(t);
+    // Casi en vivo: cada 10 s mientras la pantalla se ve (la PC manda los cambios apenas ocurren); pausada si la app está en segundo plano.
+    const t = setInterval(() => { if (document.visibilityState !== 'hidden') recargar(); }, 10000);
+    const alVolver = () => { if (document.visibilityState === 'visible') recargar(); };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
   }, [user, recargar]);
 
   if (loading) return <Marco><div className="flex justify-center pt-24"><Loader2 className="animate-spin" style={{ color: '#00e87b' }} /></div></Marco>;

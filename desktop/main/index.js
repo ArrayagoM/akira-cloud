@@ -318,6 +318,12 @@ if (!bloqueo) {
       } catch (e) { log('[updater] no disponible', e); }
     }
 
+    // Estado del bot que se informa al servidor (en el latido de 15 min y en el resumen en vivo)
+    const armarEstadoBot = async (userId) => ({
+      ...botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
+      vacaciones: !!(await require('./bot-engine/models/Config').findOne({ userId: String(userId) }))?.modoPausa,
+    });
+
     // Revalida la licencia y reactiva los bots activos aunque nadie abra la ventana.
     require('./license/guardian')
       .iniciar({
@@ -325,18 +331,26 @@ if (!bloqueo) {
         datosHeartbeat: async (userId) => ({
           ...(await require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() })),
           ...(require('./uso-estadisticas').paraEnviar(userDataDir) !== undefined ? { uso: require('./uso-estadisticas').paraEnviar(userDataDir) } : {}), // estadísticas anónimas, solo si el usuario las activó
-          estadoBot: {
-            ...botService.estadoDetallado({ pausado: require('./license/guardian').estado().bloqueada }),
-            vacaciones: !!(await require('./bot-engine/models/Config').findOne({ userId: String(userId) }))?.modoPausa,
-          },
+          estadoBot: await armarEstadoBot(userId),
         }),
       })
       .catch((e) => log('[guardian] FALLÓ', e));
+
+    // "Tiempo real" para el celular y la web: manda el resumen apenas cambia algo (solo si el usuario activó "Ver tu negocio desde el celular")
+    appHooks.resumenVivo = require('./resumen-vivo').crearServicio({
+      activo: () => require('./resumen-web').activo(userDataDir),
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      calcular: (uid) => require('./resumen-web').calcular(uid, { mensajesHoy: botService.mensajesHoy() }),
+      estadoBot: armarEstadoBot,
+      enviar: (datos) => require('./license/license-client').resumenVivo(datos),
+      log,
+    });
+    appHooks.resumenVivo.iniciar();
   }).catch((e) => log('[arranque] FALLÓ', e));
 
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('activate', () => { mostrarVentana(); }); // Mac: clic en el ícono del Dock
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); appHooks.servicioMcp?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.resumenVivo?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); appHooks.servicioMcp?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

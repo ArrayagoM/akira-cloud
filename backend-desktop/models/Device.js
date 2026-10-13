@@ -37,6 +37,8 @@ const DeviceSchema = new mongoose.Schema(
     // usuario activó "ver mi negocio desde la web" en la app; al desactivarlo se borra.
     resumen:     { type: mongoose.Schema.Types.Mixed, default: null },
     resumenEn:   { type: Date, default: null },
+    // Última vez que la web o el celular consultaron esta PC (ver lib/mirando.js): mientras alguien mira, la PC manda el resumen más seguido.
+    vistoEn:     { type: Date, default: null },
 
     // Estado del bot informado por la PC (ver lib/estado-bot.js) y el incidente de caída abierto, si lo hay.
     estadoBot:   { type: mongoose.Schema.Types.Mixed, default: null },

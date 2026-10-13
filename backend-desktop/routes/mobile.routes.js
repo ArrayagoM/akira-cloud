@@ -11,6 +11,7 @@ const { requireAuth } = require('../middleware/auth');
 const comandos = require('../lib/comandos');
 const push = require('../services/push.service');
 const logger = require('../config/logger');
+const mirando = require('../lib/mirando');
 
 const MAX_CELULARES = 5;
 const misPCs = (userId) => Device.find({ userId, activo: true, revocado: false });
@@ -60,6 +61,7 @@ router.post('/desregistrar', requireAuth, async (req, res) => {
 router.get('/estado', requireAuth, async (req, res) => {
   try {
     const ahora = new Date();
+    mirando.marcarMirando(Device, req.user._id, ahora); // avisa a la PC (en su próxima señal) que hay alguien mirando
     const pcs = (await misPCs(req.user._id)).map((d) => comandos.resumirEstado(d, ahora));
     res.json({ pcs, ahora: ahora.toISOString(), usuario: { nombre: req.user.nombre || '', email: req.user.email || '' } });
   } catch (e) { logger.error('[Mobile] estado: ' + e.message); res.status(500).json({ error: 'No se pudo leer el estado' }); }

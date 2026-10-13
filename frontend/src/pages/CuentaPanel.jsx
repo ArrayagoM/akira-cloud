@@ -54,7 +54,8 @@ export default function CuentaPanel() {
     api.get('/bot/uso').then((r) => setUso(r.data)).catch(() => {});
     api.get('/desktop/latest').then((r) => setUltima(r.data)).catch(() => {});
     cargarEquipos();
-    const t = setInterval(cargarEquipos, 60_000);
+    // Casi en vivo: la PC manda los cambios apenas ocurren, así que se consulta seguido mientras la pestaña se ve
+    const t = setInterval(() => { if (document.visibilityState !== 'hidden') cargarEquipos(); }, 10_000);
     return () => clearInterval(t);
   }, [cargarEquipos]);
 
