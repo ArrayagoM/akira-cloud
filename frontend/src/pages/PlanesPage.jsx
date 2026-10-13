@@ -354,7 +354,7 @@ export default function PlanesPage() {
                   ['Google Calendar',      '✗',      '✗',      '✓',         '✓'],
                   ['Cobros MercadoPago',   '✗',      '✗',      '✓',         '✓'],
                   ['Respuestas por audio', '✗',      '✗',      '✓',         '✓'],
-                  ['Duración',             '7 días', 'Mensual','Mensual/Anual','Mensual/Anual'],
+                  ['Duración',             '7 días de uso', 'Mensual','Mensual/Anual','Mensual/Anual'],
                 ].map(([func, trial, basico, pro, agencia], i) => (
                   <tr key={i} style={{ borderBottom: '1px solid rgba(30,45,61,0.5)', background: i%2===0 ? 'rgba(0,0,0,0.15)' : '' }}>
                     <td className="py-2 pr-4" style={{ color: 'var(--text)' }}>{func}</td>

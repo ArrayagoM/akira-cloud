@@ -1,110 +1,142 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://akiracloud.lat/</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-agenda.webp</image:loc>
+      <image:title>Pantalla Agenda de Akira Cloud con el calendario del mes y los turnos cobrados y por cobrar</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-caja.webp</image:loc>
+      <image:title>Pantalla Caja de Akira Cloud con ingresos, gastos y resultado del mes</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-reportes.webp</image:loc>
+      <image:title>Pantalla Reportes de Akira Cloud con servicios más pedidos y evolución mensual</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-catalogo.webp</image:loc>
+      <image:title>Pantalla Catálogo de Akira Cloud con productos, precios, stock y códigos de barras</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-pedidos.webp</image:loc>
+      <image:title>Pantalla Pedidos de Akira Cloud con los pedidos hechos por WhatsApp</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-marketing-borrador.webp</image:loc>
+      <image:title>Pantalla Marketing de Akira Cloud con un borrador de publicación generado por IA</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-marketing-equipo.webp</image:loc>
+      <image:title>Equipo de marketing con IA de Akira Cloud: especialistas para redes, promociones, reseñas y venta por mayor</image:title>
+    </image:image>
+    <image:image>
+      <image:loc>https://akiracloud.lat/capturas/akira-integraciones.webp</image:loc>
+      <image:title>Pantalla Integraciones de Akira Cloud con planillas, webhooks y conexión de asistentes de IA de solo lectura</image:title>
+    </image:image>
   </url>
   <url>
     <loc>https://akiracloud.lat/register</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/login</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/peluquerias</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/consultorios</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/gimnasios</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/alquileres</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/restaurantes</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/como-automatizar-turnos-whatsapp</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/cobrar-mercadopago-whatsapp</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/bot-whatsapp-vs-secretaria</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/cobrar-senas-whatsapp-turnos</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/datos-del-negocio-en-tu-pc</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/blog/llevar-la-caja-de-un-negocio-chico</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/privacidad</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/terminos</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://akiracloud.lat/llms.txt</loc>
-    <lastmod>2026-10-07</lastmod>
+    <lastmod>2026-10-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>

@@ -201,7 +201,7 @@ export default function Login() {
 
         {/* Footer */}
         <p className="text-center text-xs mt-5 animate-fade-up delay-500" style={{ color: 'var(--muted)' }}>
-          Datos encriptados · Acceso seguro · 7 días de prueba
+          Datos encriptados · Acceso seguro · 7 días de uso gratis
         </p>
       </div>
     </div>

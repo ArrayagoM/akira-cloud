@@ -35,7 +35,7 @@ Usa modelos de lenguaje de última generación servidos por Groq, con la propia 
 ## Planes y precios (pesos argentinos)
 | Plan | Precio | Incluye |
 |---|---|---|
-| Trial | gratis | 100 mensajes, sin tarjeta |
+| Trial | gratis | 7 días de uso (solo se gastan los días en que el bot atiende mensajes; tope de 60 días desde el alta), 100 mensajes, sin tarjeta |
 | Básico | $15.000 / mes ($144.000 / año) | 1 número de WhatsApp, 500 mensajes por mes |
 | Pro | $35.000 / mes ($336.000 / año) | Mensajes ilimitados, Google Calendar, MercadoPago, audios |
 | Agencia | $80.000 / mes ($768.000 / año) | Hasta 5 números de WhatsApp, 2 computadoras |
@@ -51,3 +51,13 @@ Usa modelos de lenguaje de última generación servidos por Groq, con la propia 
 
 ## Contacto
 soporte@akiracloud.lat (ayuda técnica) · info@akiracloud.lat (consultas) · pagos@akiracloud.lat (pagos)
+
+## Capturas de pantalla (datos de un negocio de ejemplo)
+- https://akiracloud.lat/capturas/akira-agenda.webp — Pantalla Agenda de Akira Cloud con el calendario del mes y los turnos cobrados y por cobrar
+- https://akiracloud.lat/capturas/akira-caja.webp — Pantalla Caja de Akira Cloud con ingresos, gastos y resultado del mes
+- https://akiracloud.lat/capturas/akira-reportes.webp — Pantalla Reportes de Akira Cloud con servicios más pedidos y evolución mensual
+- https://akiracloud.lat/capturas/akira-catalogo.webp — Pantalla Catálogo de Akira Cloud con productos, precios, stock y códigos de barras
+- https://akiracloud.lat/capturas/akira-pedidos.webp — Pantalla Pedidos de Akira Cloud con los pedidos hechos por WhatsApp
+- https://akiracloud.lat/capturas/akira-marketing-borrador.webp — Pantalla Marketing de Akira Cloud con un borrador de publicación generado por IA
+- https://akiracloud.lat/capturas/akira-marketing-equipo.webp — Equipo de marketing con IA de Akira Cloud: especialistas para redes, promociones, reseñas y venta por mayor
+- https://akiracloud.lat/capturas/akira-integraciones.webp — Pantalla Integraciones de Akira Cloud con planillas, webhooks y conexión de asistentes de IA de solo lectura

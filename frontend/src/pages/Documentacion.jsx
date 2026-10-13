@@ -330,7 +330,7 @@ export default function Documentacion() {
             <P>
               Te registrás con tu email y contraseña, o directamente con tu cuenta de Google. No hace falta tarjeta de crédito
               para empezar: apenas te registrás arrancás en el <strong style={{ color: 'var(--text)' }}>plan Trial</strong>,
-              gratis por 7 días, con 100 mensajes incluidos — suficiente para probar el bot con clientes reales antes de decidir
+              gratis por 7 días de uso (solo se gastan los días en que el bot atiende mensajes; tope de 60 días desde el alta), con 100 mensajes incluidos — suficiente para probar el bot con clientes reales antes de decidir
               si te sirve.
             </P>
             <Callout tipo="tip">
@@ -622,7 +622,7 @@ export default function Documentacion() {
                 </thead>
                 <tbody>
                   {[
-                    ['Precio', 'Gratis · 7 días', '$15.000/mes', '$35.000/mes', '$80.000/mes'],
+                    ['Precio', 'Gratis · 7 días de uso', '$15.000/mes', '$35.000/mes', '$80.000/mes'],
                     ['Mensajes/mes', '100', '500', 'Ilimitado', 'Ilimitado'],
                     ['Números de WhatsApp', '1', '1', '1', 'Hasta 5'],
                     ['IA con LLaMA 3.1', '✓', '✓', '✓', '✓'],

@@ -30,6 +30,7 @@ Disallow: /proveedores
 Disallow: /documentos
 Disallow: /conocimiento
 Disallow: /analisis
+Disallow: /marketing
 Disallow: /respaldo
 
 # AI crawlers (ChatGPT, Perplexity, Claude, Gemini, etc.) — permitir explícitamente.

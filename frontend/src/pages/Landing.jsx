@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { LAUNCH_DATE } from './PreLanzamiento';
+import { ProgramaPorDentro, NovedadesIA } from '../components/landing/SeccionesNuevas';
 import {
   Bot,
   Calendar,
@@ -706,7 +707,7 @@ function Hero() {
               <CheckCircle size={12} className="text-[var(--accent)]" /> Sin tarjeta
             </span>
             <span className="flex items-center gap-1.5">
-              <CheckCircle size={12} className="text-[var(--accent)]" /> 100 mensajes gratis
+              <CheckCircle size={12} className="text-[var(--accent)]" /> 7 días de uso gratis
             </span>
             <span className="flex items-center gap-1.5">
               <CheckCircle size={12} className="text-[var(--accent)]" /> Cancelás cuando quieras
@@ -1457,6 +1458,22 @@ const FAQS = [
   {
     q: '¿Qué pasa si un cliente me manda una factura o un comprobante?',
     a: 'El bot le avisa que lo recibió, lee el texto de la imagen o el PDF (OCR) y te lo deja ordenado en la pestaña Documentos para que lo revises y lo pases a tu Caja o a un proveedor.',
+  },
+  {
+    q: '¿Cómo funciona la prueba gratis?',
+    a: 'Son 7 días de uso, no de calendario: solo se gasta un día cuando el bot atiende al menos un mensaje de un cliente. Si te registrás y todavía no la probaste, no se vence. La prueba incluye 100 mensajes, no pide tarjeta y tiene un tope de 60 días desde el alta.'
+  },
+  {
+    q: '¿Qué es el equipo de marketing con IA?',
+    a: 'Es una pantalla de Akira con especialistas de inteligencia artificial que te escriben borradores: publicaciones para redes, promociones, respuestas a reseñas, un plan semanal, mensajes para tus clientes y un consultor que mira tus números. Usan los precios y datos reales de tu negocio con tu propia clave de Groq. Nada se publica ni se envía solo, y la IA no inventa precios ni descuentos.'
+  },
+  {
+    q: '¿Sirve si vendo por mayor, a comercios o empresas?',
+    a: 'Sí. En Marketing elegís que vendés por mayor y cargás tus condiciones (pedido mínimo, entrega, formas de pago). Se suman especialistas para presentar tu catálogo a comercios, buscar clientes nuevos y hacer el seguimiento de cotizaciones y cobranzas, y el consultor analiza tus ventas, la dependencia de pocos clientes y lo que tenés por cobrar.'
+  },
+  {
+    q: '¿Puedo conectar Akira con Claude u otro asistente de IA?',
+    a: 'Sí, de forma opcional. Akira incluye una conexión MCP de solo lectura que permite que un asistente consulte tu negocio (turnos, caja, catálogo, deudores). Funciona solo en tu computadora, con una llave que creás y revocás vos, y está desactivada hasta que la actives. No puede cargar ni cambiar nada, y los teléfonos salen enmascarados.'
   },
   {
     q: '¿Mis datos están seguros?',
@@ -2660,6 +2677,8 @@ export default function Landing() {
         </Section>
         <CrmSection />
         <GestionSection />
+        <ProgramaPorDentro />
+        <NovedadesIA />
         <Features />
         <DatosLocalesSection />
         <ComparativaSection />

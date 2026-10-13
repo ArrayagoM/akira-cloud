@@ -31,7 +31,7 @@ export default function Register() {
     setLoading(true);
     try {
       const user = await register(form);
-      toast.success(`¡Bienvenido, ${user.nombre}! Tu prueba gratuita de 7 días ya empezó.`);
+      toast.success(`¡Bienvenido, ${user.nombre}! Tu prueba gratuita ya empezó: son 7 días de uso, solo cuentan los días en que el bot atiende mensajes.`);
       navigate('/dashboard');
     } catch (err) {
       const data = err.response?.data;
@@ -69,7 +69,7 @@ export default function Register() {
           {/* Trial badge */}
           <div className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-full text-xs font-semibold"
             style={{ background: 'rgba(0,232,123,0.08)', border: '1px solid rgba(0,232,123,0.18)', color: 'var(--accent)' }}>
-            <span>✦</span> 7 días gratis · Sin tarjeta de crédito
+            <span>✦</span> 7 días de uso gratis · Sin tarjeta de crédito
           </div>
         </div>
 
