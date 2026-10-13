@@ -38,8 +38,35 @@ const CASOS = [
   ['Distribuidora · Consultor', DISTRIBUIDORA, 'estratega', { foco: 'Dependo de pocos clientes' }],
 ];
 
-const numerosDe = (t) => new Set((String(t).match(/\d[\d.,]*/g) || []).map((n) => n.replace(/[.,]/g, '')).filter(Boolean));
 const EMOJI = /\p{Extended_Pictographic}/gu;
+const soloDigitos = (s) => String(s).replace(/[^\d]/g, '');
+const DIAS_N = { lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4, viernes: 5, sabado: 6, sábado: 6, domingo: 0 };
+const MESES_N = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };
+const BENEFICIOS = /mitad de precio|gratis|gratuit[oa]|2x1|obsequio|descuento|cup[oó]n|código|codigo|bonificaci/gi; // "regalo" o "sin costo" de un producto del catálogo es válido: no se marca
+
+// Revisa lo que NO se puede dejar pasar: montos o porcentajes que no estaban en los datos, beneficios inventados (regalos, "gratis",
+// "mitad de precio"…), fechas que no coinciden con el día de la semana, tablas, y haberle hablado al cliente con el nombre del dueño.
+function revisar(texto, pedido, ctx, agente) {
+  const entrada = [pedido.usuario, JSON.stringify(ctx.catalogo || []), JSON.stringify(ctx.servicios || []), ctx.perfil?.condiciones || ''].join(' ');
+  const datos = `${pedido.sistema} ${pedido.usuario}`; // todo lo que la IA recibió (los precios del catálogo y las métricas están en el pedido)
+  const alarmas = [];
+  const numerosOk = new Set((datos.match(/\d[\d.,]*/g) || []).map(soloDigitos).filter((x) => x.length >= 2));
+  for (const m of texto.match(/\$\s?\d[\d.,]*(?:\s?mil\b)?/g) || []) { const d = soloDigitos(m); const mil = /mil\b/.test(m); if (!(numerosOk.has(d) || (mil && numerosOk.has(`${d}000`)))) alarmas.push(`monto que no estaba en los datos: ${m}`); }
+  const pctOk = new Set((datos.match(/\d+(?:[.,]\d+)?\s?%/g) || []).map(soloDigitos));
+  for (const m of texto.match(/\d+(?:[.,]\d+)?\s?%/g) || []) if (!pctOk.has(soloDigitos(m))) alarmas.push(`porcentaje inventado: ${m}`);
+  const permitidoBenef = (entrada.match(BENEFICIOS) || []).map((x) => x.toLowerCase());
+  const hayDescuentoDelDueno = /%|descuento/i.test(pedido.usuario);
+  for (const m of new Set((texto.match(BENEFICIOS) || []).map((x) => x.toLowerCase()))) if (!permitidoBenef.includes(m) && !(m === 'descuento' && (hayDescuentoDelDueno || /a definir/i.test(texto)))) alarmas.push(`beneficio que el dueño no dio: "${m}"`);
+  const anio = Number((ctx.hoy || '').slice(0, 4)) || new Date().getFullYear();
+  for (const m of texto.matchAll(/\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+(\d{1,2})(?:\s*\/\s*(\d{1,2})|\s+de\s+([a-záéíóú]+))/gi)) {
+    const mes = m[3] ? Number(m[3]) : MESES_N[m[4].toLowerCase()]; if (!mes) continue;
+    const f = new Date(anio, mes - 1, Number(m[2]), 12);
+    if (f.getDay() !== DIAS_N[m[1].toLowerCase()]) alarmas.push(`fecha incoherente: "${m[0]}"`);
+  }
+  if (/^\s*\|.*\|\s*$/m.test(texto) || /<br/i.test(texto)) alarmas.push('tabla o HTML en el texto');
+  if (agente === 'resenas' && ctx.miNombre && new RegExp(`\\b${ctx.miNombre}\\b`).test(texto)) alarmas.push(`le habla al cliente con el nombre del dueño (${ctx.miNombre})`);
+  return alarmas;
+}
 
 (async () => {
   const llamar = crearLlamadorGroq({ log: (...a) => console.log(...a) });
@@ -51,15 +78,15 @@ const EMOJI = /\p{Extended_Pictographic}/gu;
       const pedido = A.armarPedido(agente, datos, ctx);
       const bruto = await llamar({ apiKey: clave, mensajes: [{ role: 'system', content: pedido.sistema }, { role: 'user', content: pedido.usuario }], maxTokens: agente === 'planificador' || agente === 'estratega' ? 2500 : 1500 });
       const texto = A.limpiarSalida(bruto);
-      const permitidos = numerosDe(pedido.sistema + ' ' + pedido.usuario);
-      const montos = (texto.match(/\$\s?\d[\d.,]*|\d[\d.,]*\s?%/g) || []).filter((m) => !permitidos.has(m.replace(/[^\d]/g, '')));
+      const problemas = revisar(texto, pedido, ctx, agente);
       const emojis = (texto.match(EMOJI) || []).length;
-      if (montos.length) alarmas++;
-      console.log(montos.length ? `ALARMA (${montos.join(', ')})` : 'ok');
-      md.push(`## ${titulo}`, '', montos.length ? `**ALARMA: montos o porcentajes que no estaban en los datos: ${montos.join(', ')}**` : 'Sin montos ni porcentajes inventados.', `Emojis: ${emojis} · Largo: ${texto.length} letras`, '', texto, '', '---', '');
+      if (problemas.length) alarmas++;
+      console.log(problemas.length ? `ALARMA (${problemas.join('; ')})` : 'ok');
+      md.push(`## ${titulo}`, '', problemas.length ? `**ALARMA: ${problemas.join('; ')}**` : 'Sin problemas detectados (montos, porcentajes, beneficios, fechas, tablas).', `Emojis: ${emojis} · Largo: ${texto.length} letras`, '', texto, '', '---', '');
     } catch (e) { fallos++; console.log('FALLÓ: ' + (e.message || e)); md.push(`## ${titulo}`, '', `FALLÓ: ${e.message || e}`, '', '---', ''); }
+    await new Promise((r) => setTimeout(r, 2500)); // para no pasarse del límite por minuto de la cuenta gratuita
   }
   fs.writeFileSync(salida, md.join('\n'));
-  console.log(`\nListo: ${CASOS.length - fallos}/${CASOS.length} respondieron, ${alarmas} con alarma de montos. Textos en: ${salida}`);
+  console.log(`\nListo: ${CASOS.length - fallos}/${CASOS.length} respondieron, ${alarmas} con alarmas. Textos en: ${salida}`);
   process.exit(fallos ? 1 : 0);
 })();

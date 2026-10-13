@@ -167,6 +167,41 @@ const CTX = { negocio: 'Peluquería Lola', miNombre: 'Lola', tipoNegocio: 'turno
   await svcM.generar('mayo', { agente: 'estratega', datos: {} }); const sisAmbos = llamadas[llamadas.length - 1].mensajes[0].content;
   assert(sisAmbos.includes('NÚMEROS REALES DE VENTAS') && sisAmbos.includes('NÚMEROS REALES DEL NEGOCIO'), 'quien vende de las dos formas recibe ambos bloques de números');
 
+
+  // ── lo que mostró la prueba real con Groq: reglas contra invenciones, calendario real y salida limpia ──
+  const baseSis = A.armarPedido('posts', { tema: 'x', red: 'facebook' }, CTX).sistema;
+  assert(/servicios nuevos \(peinados, tratamientos, masajes, cafés\)/.test(baseSis) && /DISPONIBILIDAD/.test(baseSis) && /\[día y hora disponible\]/.test(baseSis) && /nunca escribas un porcentaje, "mitad de precio", "gratis" o "2x1" por tu cuenta/.test(baseSis), 'todos los pedidos prohíben inventar servicios, beneficios, porcentajes y disponibilidad');
+  assert(/NUNCA lo uses para dirigirte a un cliente/.test(baseSis) && baseSis.includes('Quien firma los mensajes (el dueño; NO es un cliente): Lola'), 'el nombre del dueño figura como quien firma, no como un cliente');
+  assert(/texto plano, sin tablas, sin HTML/.test(baseSis), 'se pide texto plano, sin tablas ni HTML');
+  assert(A.calendario('2026-10-12').join(',') === 'lunes 12/10,martes 13/10,miércoles 14/10,jueves 15/10,viernes 16/10,sábado 17/10,domingo 18/10' && A.calendario('basura').length === 0 && A.calendario('2026-12-30')[3] === 'sábado 02/01', 'el calendario de 7 días se calcula en el programa (con cambio de mes y de año)');
+  assert(baseSis.includes('CALENDARIO de los próximos 7 días') && baseSis.includes('lunes 12/10') && /no escribas fechas concretas que no estén en el CALENDARIO/i.test(baseSis), 'cada pedido incluye el calendario real y prohíbe otras fechas');
+  const plan = A.armarPedido('planificador', { redes: ['instagram'], desde: '2026-10-14' }, CTX).sistema;
+  assert(plan.includes('miércoles 14/10, jueves 15/10, viernes 16/10, sábado 17/10, domingo 18/10, lunes 19/10, martes 20/10') && /sin tablas/.test(plan) && /Idea:/.test(plan), 'el planificador usa exactamente los 7 días reales desde la fecha elegida, sin tablas');
+  assert(/NO inventes servicios ni tratamientos nuevos/.test(A.armarPedido('promociones', { objetivo: 'x' }, CTX).sistema) && /no agregues condiciones nuevas/.test(A.armarPedido('promociones', { objetivo: 'x', descuento: '15%' }, CTX).sistema), 'las promociones no inventan servicios ni condiciones nuevas');
+  const es3 = A.armarPedido('estratega', {}, { ...CTX, metricas: metr }).sistema;
+  assert(/No hagas cuentas nuevas/.test(es3) && /metas numéricas/.test(es3) && /no uses "hoy" o "mañana"|ni uses "hoy" o "mañana"/.test(es3) && /No asumas que el negocio tiene personal/.test(es3), 'el consultor no hace cuentas ni metas inventadas, no usa fechas ni asume recursos');
+  assert(/no afirmes que hay turnos libres/.test(A.armarPedido('mensajes', { situacion: 'reactivar' }, CTX).sistema), 'los mensajes a clientes no afirman disponibilidad');
+  assert(/no uses ninguno \(el nombre del dueño NO es el de esa persona\)/.test(A.armarPedido('resenas', { texto: 'mala atención' }, CTX).sistema), 'en las reseñas no se usa el nombre del dueño para dirigirse al cliente');
+  assert(/nunca pongas el signo \$ delante de un porcentaje/.test(A.armarPedido('seguimiento', { situacion: 'precios' }, CTXM).sistema), 'en un cambio de precios no se mezcla $ con porcentaje');
+  assert(A.limpiarSalida('| Día | Texto |\nUno<br>dos\n\n---\n> cita\n\n\n\nfin') === '| Día | Texto |\nUno\ndos\n\ncita\n\nfin', 'limpia <br>, líneas de guiones, comillas angulares y renglones de más');
+
+  // cambio de modelo cuando uno llega a su límite por minuto (cada modelo tiene su propio cupo)
+  const intentos = []; const llamarFalso = (plan2) => S.crearLlamadorGroq({ crearCliente: () => ({ chat: { completions: { create: async (op) => { intentos.push(op.model); const r = plan2(op.model); if (r instanceof Error) throw r; return { choices: [{ message: { content: r } }] }; } } } }), listarModelos: async () => ['modelo-nuevo-x', 'whisper-large'] });
+  const e429 = Object.assign(new Error('Rate limit reached (TPM)'), { status: 429 });
+  const f1 = llamarFalso((m) => (m === 'openai/gpt-oss-120b' ? e429 : 'respuesta del segundo'));
+  assert(await f1({ apiKey: 'k', mensajes: [] }) === 'respuesta del segundo' && intentos.join() === 'openai/gpt-oss-120b,openai/gpt-oss-20b', 'si el primer modelo llega a su límite, prueba con el siguiente');
+  intentos.length = 0; await f1({ apiKey: 'k', mensajes: [] });
+  assert(intentos[0] === 'openai/gpt-oss-20b', 'y se acuerda del que funcionó para la próxima');
+  intentos.length = 0;
+  const f2 = llamarFalso(() => e429); let todos = null; try { await f2({ apiKey: 'k', mensajes: [] }); } catch (e) { todos = e; }
+  assert(todos && todos.status === 429 && intentos.length === 5, 'si todos los modelos están en su límite, el error final es el 429 (y se probaron los 5)');
+  intentos.length = 0;
+  const f3 = llamarFalso((m) => (m === 'openai/gpt-oss-120b' ? Object.assign(new Error('model_not_found'), { status: 404 }) : m === 'modelo-nuevo-x' ? 'con el modelo que figura en su cuenta' : Object.assign(new Error('x'), { status: 404 })));
+  assert(await f3({ apiKey: 'k', mensajes: [] }) === 'con el modelo que figura en su cuenta' && !intentos.includes('whisper-large'), 'si los modelos conocidos ya no existen, usa uno de la lista de su cuenta (nunca uno de audio)');
+  intentos.length = 0;
+  const f4 = llamarFalso(() => Object.assign(new Error('clave inválida'), { status: 401 })); let e401 = null; try { await f4({ apiKey: 'k', mensajes: [] }); } catch (e) { e401 = e; }
+  assert(e401?.status === 401 && intentos.length === 1, 'un error de clave inválida se informa enseguida, sin probar otros modelos');
+
   // ── rutas ──
   const app = express(); app.use(express.json());
   app.use('/m', require('../main/local-api/routes/marketing.routes')({ requerirSesion: (q, _r, n) => { q.user = { _id: q.headers['x-user'] || 'u1' }; n(); }, servicioMarketing: svc }));

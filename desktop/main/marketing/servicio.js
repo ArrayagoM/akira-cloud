@@ -17,28 +17,35 @@ const PREFERIDOS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-
 class ErrorServicio extends Error { constructor(m, status, codigo) { super(m); this.name = 'ErrorServicio'; this.status = status; this.codigo = codigo; } }
 
 // Llamada real a Groq. Si el modelo preferido ya no existe, se elige otro de la lista que tenga la cuenta.
-function crearLlamadorGroq({ log = () => {} } = {}) {
+function crearLlamadorGroq({ log = () => {}, crearCliente = (apiKey) => { const Groq = require('groq-sdk'); return new Groq({ apiKey }); }, listarModelos } = {}) {
   let modelo = null;
   const noExiste = (e) => e && (e.status === 404 || /model_not_found|decommissioned|does not exist/i.test(String(e.message)));
+  const limite = (e) => e && (e.status === 429 || /rate.?limit/i.test(String(e.message)));
   return async function llamar({ apiKey, mensajes, maxTokens = 1800 }) {
-    const Groq = require('groq-sdk'); const groq = new Groq({ apiKey });
+    const groq = crearCliente(apiKey);
     const intentar = async (m) => {
       const opts = { model: m, messages: mensajes, max_tokens: /gpt-oss/.test(m) ? maxTokens + 1500 : maxTokens, temperature: 0.7 };
       if (/gpt-oss/.test(m)) opts.reasoning_effort = 'low';
       return groq.chat.completions.create(opts, { timeout: 45_000, maxRetries: 0 });
     };
-    try {
-      const r = await intentar(modelo || PREFERIDOS[0]); modelo = modelo || PREFERIDOS[0];
-      return r?.choices?.[0]?.message?.content || '';
-    } catch (e) {
-      if (!noExiste(e)) throw e;
-      const resp = await fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + apiKey } });
-      const ids = resp.ok ? ((await resp.json()).data || []).filter((x) => x.active !== false).map((x) => x.id) : [];
-      const elegido = PREFERIDOS.find((p) => ids.includes(p)) || ids.find((id) => !/whisper|guard|safeguard|orpheus|tts|allam|embed/i.test(id));
-      if (!elegido) throw e;
-      log('[marketing] modelo cambiado a', elegido); modelo = elegido;
-      return (await intentar(elegido))?.choices?.[0]?.message?.content || '';
+    // Se prueba el último modelo que funcionó y, si llegó a su límite por minuto (cada modelo tiene su propio cupo) o ya no existe, el siguiente.
+    const orden = modelo ? [modelo, ...PREFERIDOS.filter((x) => x !== modelo)] : [...PREFERIDOS];
+    let ultimo = null; let consultoLista = false;
+    for (let i = 0; i < orden.length; i++) {
+      try {
+        const r = await intentar(orden[i]); modelo = orden[i];
+        return r?.choices?.[0]?.message?.content || '';
+      } catch (e) {
+        ultimo = e;
+        if (limite(e)) { log('[marketing] límite de', orden[i], '→ pruebo otro modelo'); continue; }
+        if (noExiste(e)) {
+          if (!consultoLista) { consultoLista = true; try { const ids = await (listarModelos ? listarModelos(apiKey) : fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + apiKey } }).then(async (r) => (r.ok ? ((await r.json()).data || []).filter((x) => x.active !== false).map((x) => x.id) : []))); const extra = ids.find((id) => !orden.includes(id) && !/whisper|guard|safeguard|orpheus|tts|allam|embed/i.test(id)); if (extra) orden.push(extra); } catch { /* sin lista */ } }
+          continue;
+        }
+        throw e;
+      }
     }
+    throw ultimo || new Error('Sin modelo disponible');
   };
 }
 
