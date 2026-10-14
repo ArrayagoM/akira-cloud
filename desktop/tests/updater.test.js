@@ -52,5 +52,33 @@ u.buscar().then(async () => {
   au3.checkForUpdates = async () => { throw new Error('sin internet'); };
   assert((await crearUpdater({ autoUpdater: au3, log: () => {}, notificar: () => {} }).buscarManual(2000)).resultado === 'error', 'buscar manual sin internet: informa el error sin romper');
 
+  // ── la descarga falla (el archivo cambió mientras se subía) o el instalador ya no está: no se queda trabado ──
+  const au4 = new EventEmitter(); let chequeos = 0; const timersFalsos = [];
+  au4.checkForUpdates = async () => { chequeos++; return {}; };
+  let quitFalla = true; let instalo4 = 0;
+  au4.quitAndInstall = () => { if (quitFalla) throw new Error("No update filepath provided, can't quit and install"); instalo4++; };
+  const cambios4 = [];
+  const u4 = crearUpdater({ autoUpdater: au4, log: () => {}, notificar: () => {}, alCambiar: (e) => cambios4.push(e), versionActual: '1.0.26', setT: (fn, ms) => { timersFalsos.push({ fn, ms }); return {}; } });
+  au4.emit('update-available', { version: '1.0.28' });
+  au4.emit('error', new Error('sha512 checksum mismatch'));
+  assert(u4.estado().fallo === true && u4.estado().descargando === false && /checksum/.test(u4.estado().error), 'si la descarga falla (checksum), el estado dice "falló" y no "descargando" para siempre');
+  assert(timersFalsos.length === 1 && timersFalsos[0].ms === 10 * 60 * 1000, 'se programa un reintento en 10 minutos');
+  timersFalsos[0].fn(); assert(chequeos === 1, 'al cumplirse el plazo vuelve a buscar y descargar');
+  for (let i = 0; i < 10; i++) au4.emit('error', new Error('otra vez'));
+  assert(timersFalsos.length <= 6, 'los reintentos tienen tope (no insiste para siempre)');
+  au4.emit('update-available', { version: '1.0.28' });
+  assert(u4.estado().fallo === false && u4.estado().descargando === true, 'al volver a descargar, el aviso vuelve a "descargando"');
+
+  // había una versión lista (1.0.27) y salió otra (1.0.28): la lista ya no sirve
+  au4.emit('update-downloaded', { version: '1.0.27' });
+  assert(u4.estado().descargada === '1.0.27', 'versión 1.0.27 lista');
+  au4.emit('update-available', { version: '1.0.28' });
+  assert(!u4.hayDescargada() && u4.estado().descargando, 'si sale otra versión, la "lista" se descarta (antes el botón quedaba apuntando a un instalador que ya no estaba)');
+  au4.emit('update-downloaded', { version: '1.0.27' });
+  const antes4 = chequeos;
+  assert(u4.instalarAhora() === false && !u4.hayDescargada() && chequeos === antes4 + 1, 'si no se puede instalar (falta el instalador), lo dice (false), descarta lo "listo" y descarga de nuevo, en vez de quedar trabado en "Reiniciando…"');
+  quitFalla = false; au4.emit('update-downloaded', { version: '1.0.28' });
+  assert(u4.instalarAhora() === true && instalo4 === 1, 'con el instalador presente, instala normalmente');
+
   console.log('\n✅ Todos los tests de updater pasaron.\n');
 }).catch((e) => { console.error('❌', e.message); process.exit(1); });

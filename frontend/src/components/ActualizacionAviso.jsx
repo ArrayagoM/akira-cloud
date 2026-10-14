@@ -31,7 +31,9 @@ export default function ActualizacionAviso() {
   const reiniciar = async () => {
     if (!window.confirm('Akira se va a cerrar y volver a abrir en unos segundos. El bot se reconecta solo. ¿Reiniciar ahora?')) return;
     setReiniciando(true);
-    try { await api.post('/app/actualizar'); } catch (err) { setReiniciando(false); toast.error(err.response?.data?.error || 'No se pudo reiniciar'); }
+    // Si Akira no se cierra en 25 s algo salió mal: no dejar el botón trabado en "Reiniciando…"
+    const trabado = setTimeout(() => { setReiniciando(false); toast.error('No se pudo reiniciar. Probá de nuevo en unos minutos o cerrá Akira desde el ícono junto al reloj.'); }, 25_000);
+    try { await api.post('/app/actualizar'); } catch (err) { clearTimeout(trabado); setReiniciando(false); toast.error(err.response?.data?.error || 'No se pudo reiniciar'); }
   };
 
   if (e.descargada) {
@@ -48,6 +50,15 @@ export default function ActualizacionAviso() {
         </button>
         <button className="text-gray-500 hover:text-white" aria-label="Más tarde" title="Más tarde"
           onClick={() => { try { sessionStorage.setItem('akira_update_oculto', String(e.descargada)); } catch { /* sin storage */ } setOculto(String(e.descargada)); }}><X size={16} /></button>
+      </div>
+    );
+  }
+
+  if (e.fallo) {
+    return (
+      <div className="mb-4 rounded-xl border border-white/10 p-3 flex items-center gap-3 bg-white/[0.03]">
+        <Download size={16} className="text-gray-400 shrink-0" />
+        <p className="text-xs text-gray-400 flex-1">No se pudo descargar la versión {e.disponible}. Se vuelve a intentar sola en unos minutos; Akira sigue funcionando con normalidad.</p>
       </div>
     );
   }

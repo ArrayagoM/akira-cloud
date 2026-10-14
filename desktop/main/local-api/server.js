@@ -180,7 +180,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   });
   app.post('/api/app/actualizar', sesion.requerirSesion, (_req, res) => {
     const ok = !!appHooks.actualizador?.instalarAhora();
-    res.status(ok ? 200 : 409).json({ ok, error: ok ? undefined : 'No hay ninguna actualización lista para instalar.' });
+    res.status(ok ? 200 : 409).json({ ok, error: ok ? undefined : 'La actualización todavía no está lista: la estamos descargando de nuevo. Probá en unos minutos.' });
   });
   app.use('/api/sync', require('./routes/sync.routes')(deps));
   app.get('/api/license/estado', (_req, res) => res.json({ ...guardian.estado(), activacion: sesion.estado().errorActivacion }));
