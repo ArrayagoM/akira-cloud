@@ -7,7 +7,7 @@ import { useSocket } from '../hooks/useSocket';
 import toast from 'react-hot-toast';
 import {
   FileText, Image as ImageIcon, X, Loader2, CheckCircle2, Trash2, Download,
-  Receipt, Inbox, CalendarClock, DollarSign, Wallet,
+  Receipt, Inbox, CalendarClock, DollarSign, Wallet, ShieldCheck, ShieldAlert, ShieldQuestion,
 } from 'lucide-react';
 
 // Bandeja de documentos: PDF e imágenes que los clientes mandan por WhatsApp
@@ -34,6 +34,37 @@ function tiempoRelativo(fecha) {
 }
 
 const pesos = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
+
+// Resultado de la verificación de un comprobante de transferencia (lo calcula el programa al leer la captura o el PDF).
+const NIVELES = {
+  confirmado_mp: { texto: 'Confirmado por Mercado Pago', corto: 'Verificado en MP', color: '#00e87b', bg: 'rgba(0,232,123,0.10)', Icono: ShieldCheck },
+  coincide:      { texto: 'Los datos coinciden con tu cuenta', corto: 'Datos coinciden', color: '#34d399', bg: 'rgba(52,211,153,0.10)', Icono: ShieldCheck },
+  revisar:       { texto: 'Revisalo vos', corto: 'Revisar', color: '#fbbf24', bg: 'rgba(245,158,11,0.10)', Icono: ShieldQuestion },
+  sospechoso:    { texto: 'Algo no coincide', corto: 'No coincide', color: '#f87171', bg: 'rgba(248,113,113,0.10)', Icono: ShieldAlert },
+};
+function VerificacionComprobante({ doc }) {
+  const v = doc.verificacion; const c = doc.comprobante; if (!v || !NIVELES[v.nivel]) return null;
+  const n = NIVELES[v.nivel]; const I = n.Icono; const dato = (t, x) => (x ? <div className="rounded-lg border border-white/10 p-2 min-w-0"><p className="text-[11px] text-gray-500">{t}</p><p className="text-white text-sm font-semibold break-words">{x}</p></div> : null);
+  return (
+    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: n.color + '55', background: n.bg }}>
+      <p className="flex items-center gap-2 font-semibold" style={{ color: n.color }}><I size={16} /> {n.texto}</p>
+      {c && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+          {dato('Monto', c.monto ? pesos(c.monto) : '')}{dato('Fecha y hora', c.fecha ? `${c.fecha.split('-').reverse().join('/')}${c.hora ? ' ' + c.hora : ''}` : '')}{dato('N.º de operación', c.operacion)}
+          {dato('Pagó', c.origen && c.origen.nombre)}{dato('Destino', c.destino && c.destino.nombre)}{dato('CVU / CBU de destino', c.destino && (c.destino.cvu || c.destino.cbu))}
+        </div>
+      )}
+      <ul className="mt-2 space-y-1">
+        {v.chequeos.map((k) => (
+          <li key={k.id} className="text-xs flex gap-2 items-start" style={{ color: k.ok === true ? '#86efac' : k.ok === false ? '#fca5a5' : '#9ca3af' }}>
+            <span className="shrink-0 w-4 text-center">{k.ok === true ? '✓' : k.ok === false ? '✗' : '–'}</span><span><strong className="font-semibold">{k.titulo}.</strong> {k.detalle}</span>
+          </li>
+        ))}
+      </ul>
+      {v.nivel !== 'confirmado_mp' && <p className="text-[11px] text-gray-500 mt-2">Una captura o un PDF se pueden falsificar: que los datos coincidan baja mucho el riesgo, pero no prueba que la plata haya entrado. Confirmalo en tu app de Mercado Pago o de tu banco antes de dar el pago por bueno.</p>}
+    </div>
+  );
+}
 const kb = (b) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 function Detalle({ doc, onClose, onCambio }) {
@@ -100,6 +131,7 @@ function Detalle({ doc, onClose, onCambio }) {
               <p className="text-white font-semibold">{doc.turnoFecha ? new Date(doc.turnoFecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : 'asociado'}</p></div>
           ) : null}
         </div>
+        <VerificacionComprobante doc={doc} />
         {!esPdf && !doc.ocrHecho && <p className="text-[11px] text-gray-600 mt-2 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Leyendo el texto de la foto…</p>}
         {!esPdf && doc.ocrHecho && !doc.textoLeido && <p className="text-[11px] text-gray-600 mt-2">No se pudo leer texto en la foto (letra manuscrita o imagen borrosa). Cargá el monto a mano.</p>}
 
@@ -252,6 +284,7 @@ export default function DocumentosPage() {
                   </div>
                   <div className="shrink-0 text-right text-xs space-y-0.5">
                     {(d.montoManual ?? d.montoSugerido) ? <p className="text-white flex items-center gap-1 justify-end"><DollarSign size={11} />{pesos(d.montoManual ?? d.montoSugerido)}</p> : null}
+                    {d.verificacion && NIVELES[d.verificacion.nivel] ? (() => { const nv = NIVELES[d.verificacion.nivel]; const I = nv.Icono; return <p className="flex items-center gap-1 justify-end" style={{ color: nv.color }}><I size={11} /> {nv.corto}</p>; })() : null}
                     {d.turnoId && d.estado === 'nuevo' ? <p className="text-amber-400 flex items-center gap-1 justify-end"><CalendarClock size={11} /> turno pendiente</p> : null}
                   </div>
                 </button>

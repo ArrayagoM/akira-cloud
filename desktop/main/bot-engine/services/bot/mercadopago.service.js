@@ -93,7 +93,21 @@ function crearMPService({ accessToken, precioTurno, duracion, negocio, backendUr
     });
   }
 
-  return { crearPago, verificarPago };
+  let usuarioCache = null;
+  // Datos de la cuenta de Mercado Pago del dueño (id). Se pide una sola vez.
+  function miUsuario() {
+    if (usuarioCache) return Promise.resolve(usuarioCache);
+    return new Promise((res) => {
+      if (!accessToken) return res(null);
+      const req = https.request({ hostname: 'api.mercadopago.com', path: '/users/me', method: 'GET', headers: { Authorization: `Bearer ${accessToken}` } }, (r) => {
+        let d = ''; r.on('data', (c) => d += c);
+        r.on('end', () => { try { const u = JSON.parse(d); if (u && u.id) usuarioCache = u; res(u && u.id ? u : null); } catch { res(null); } });
+      });
+      req.on('error', () => res(null)); req.setTimeout(10000, () => { req.destroy(); res(null); }); req.end();
+    });
+  }
+
+  return { crearPago, verificarPago, miUsuario };
 }
 
 module.exports = crearMPService;

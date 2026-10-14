@@ -11,7 +11,10 @@ const path = require('path');
 const crypto = require('crypto');
 const Documento = require('../../models/Documento');
 const Turno = require('../../models/Turno');
+const Config = require('../../models/Config');
+const Pedido = require('../../models/Pedido');
 const ocr = require('./ocr.service');
+const comp = require('../../../gestion/comprobante-pago');
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const TIPOS = {
@@ -74,7 +77,52 @@ async function textoDePdf(buffer) {
   try { return (await require('../../../gestion/pdf-texto').textoDePdf(buffer, { maxPaginas: 3 })).slice(0, 20000); } catch { return ''; }
 }
 
-function crearDocumentosService({ userId, dirBase, log }) {
+function crearDocumentosService({ userId, dirBase, log, mp = null }) {
+  const digitos = (s) => String(s || '').replace(/\D/g, '');
+
+  // Qué se espera de este pago: la cuenta del dueño y el monto que el cliente tiene pendiente (turno o pedido).
+  async function contextoDelPago(doc, turnoAsociado) {
+    const cfg = (await Config.findOne({ userId: String(userId) }).lean().catch(() => null)) || {};
+    const cuenta = digitos(cfg.cbuTransferencia);
+    const esperado = { cbu: cuenta.length === 22 ? cuenta : '', alias: String(cfg.aliasTransferencia || '').trim(), titular: cfg.titularTransferencia || '', cuit: cfg.cuilTransferencia || '' };
+    const tel = digitos(doc.clienteNumero).slice(-9);
+    let turno = turnoAsociado || null; let pedido = null;
+    if (!turno && doc.turnoId) turno = await Turno.findOne({ _id: doc.turnoId, userId: String(userId) }).lean().catch(() => null);
+    if (turno && Number(turno.pago?.monto) > 0) { esperado.monto = Number(turno.pago.monto); esperado.desde = turno.createdAt || null; }
+    else {
+      const pend = await Pedido.find({ userId: String(userId), estado: 'pendiente-pago' }).lean().catch(() => []);
+      pedido = pend.find((p) => tel && (digitos(p.telefono).endsWith(tel) || digitos(p.jid).includes(tel))) || null;
+      if (pedido) { esperado.monto = Number(pedido.total) || 0; esperado.desde = pedido.confirmadoEn || pedido.createdAt || null; }
+    }
+    return { esperado, turno, pedido };
+  }
+
+  // Lee el comprobante (de una foto o de un PDF), lo compara con lo esperado y guarda el resultado en el documento.
+  // → { datos, ver, pedido } o null si el archivo no parece un comprobante de pago.
+  async function evaluarComprobante(doc, texto, turnoAsociado) {
+    const t = String(texto || ''); if (!t.trim()) return null;
+    const datos = comp.extraer(t);
+    const pareceComprobante = datos.esComprobante || sugerirTipo(t) === 'comprobante';
+    if (!pareceComprobante && !doc.turnoId) return null;
+    if (!datos.monto && !datos.operacion && !datos.destino) return null;
+    const { esperado, pedido } = await contextoDelPago(doc, turnoAsociado);
+    const otros = await Documento.find({ userId: String(userId) }).lean().catch(() => []);
+    const usadas = otros.filter((o) => String(o._id) !== String(doc._id) && o.comprobante?.operacion).map((o) => ({ operacion: o.comprobante.operacion, de: o.clienteNombre || o.clienteNumero || '' }));
+    let ver = comp.verificar({ datos, esperado, operacionesUsadas: usadas });
+    if (mp && datos.operacion && ver.nivel !== 'sospechoso') {
+      const u = await Promise.resolve(mp.miUsuario ? mp.miUsuario() : null).catch(() => null);
+      const r = await comp.verificarEnMercadoPago({ operacion: datos.operacion, monto: datos.monto, usuarioMp: u && u.id, obtenerPago: (id) => mp.verificarPago(id) });
+      ver = comp.combinar(ver, r);
+    }
+    const cambios = { comprobante: datos, verificacion: { nivel: ver.nivel, chequeos: ver.chequeos, mp: ver.mp || null, esperado: { monto: esperado.monto || null }, verificadoEn: new Date().toISOString() }, tipo: 'comprobante' };
+    if (pedido) cambios.pedidoId = String(pedido._id);
+    if (datos.monto && !doc.montoSugerido) cambios.montoSugerido = datos.monto;
+    if (datos.fecha && !doc.fechaSugerida) cambios.fechaSugerida = datos.fecha;
+    await Documento.findOneAndUpdate({ _id: doc._id }, { $set: cambios });
+    log?.(`🧾 [Comprobante] ${doc.clienteNombre || doc.clienteNumero}: ${ver.nivel}${datos.operacion ? ' · op. ' + datos.operacion : ''}`);
+    return { datos, ver, pedido };
+  }
+
   // Guarda el archivo y devuelve el registro. Rechaza tipos no permitidos o
   // demasiado grandes (el archivo nunca se abre ni se ejecuta).
   async function guardarRecibido({ jid, nombreCliente, numero, buffer, mimetype, nombreOriginal, caption }) {
@@ -124,7 +172,10 @@ function crearDocumentosService({ userId, dirBase, log }) {
       turnoFecha: turno ? turno.fechaInicio : null,
     });
     log?.(`📎 [Documentos] ${nombreCliente || numero}: ${doc.nombreOriginal} (${tipo})`);
-    return { ok: true, doc, turno };
+    // PDF: el texto ya está, así que el comprobante se verifica en el momento (en las fotos, después de leerlas con OCR)
+    let analisis = null;
+    if (texto) { try { analisis = await evaluarComprobante(doc, texto, turno); } catch (e) { log?.(`⚠️ [Comprobante] no se pudo verificar: ${e.message}`); } }
+    return { ok: true, doc, turno, analisis };
   }
 
   // Lee el texto de una foto (en segundo plano, después de avisarle al cliente) y
@@ -138,7 +189,9 @@ function crearDocumentosService({ userId, dirBase, log }) {
       if (doc.tipo === 'sin_clasificar') { const t = sugerirTipo(texto); if (t !== 'sin_clasificar') cambios.tipo = t; }
     }
     await Documento.findOneAndUpdate({ _id: doc._id }, { $set: cambios });
-    return { ...doc, ...cambios };
+    let analisis = null;
+    try { analisis = await evaluarComprobante({ ...doc, ...cambios }, texto); } catch (e) { log?.(`⚠️ [Comprobante] no se pudo verificar: ${e.message}`); }
+    return { ...doc, ...cambios, analisis };
   }
 
   return { guardarRecibido, analizarImagen };

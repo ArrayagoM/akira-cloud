@@ -303,7 +303,7 @@ export default function ConfigPage() {
   const [form,   setForm]     = useState({
     miNombre: '', negocio: '', servicios: '', precioTurno: '1000',
     horasCancelacion: '24', promptPersonalizado: '', dominioNgrok: '', mpWebhookUrl: '',
-    aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '',
+    aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '', titularTransferencia: '', cuilTransferencia: '',
     serviciosList: [],
     tipoNegocio: 'turnos', checkInHora: '14:00', checkOutHora: '10:00',
     minimaEstadia: '1',
@@ -428,6 +428,8 @@ export default function ConfigPage() {
         aliasTransferencia:  c.aliasTransferencia  || '',
         cbuTransferencia:    c.cbuTransferencia    || '',
         bancoTransferencia:  c.bancoTransferencia  || '',
+        titularTransferencia: c.titularTransferencia || '',
+        cuilTransferencia:   c.cuilTransferencia   || '',
         serviciosList:       Array.isArray(c.serviciosList) ? c.serviciosList : [],
         tipoNegocio:           c.tipoNegocio    || 'turnos',
         checkInHora:           c.checkInHora    || '14:00',
@@ -1087,6 +1089,23 @@ export default function ConfigPage() {
                   <div className="flex gap-2">
                     <input name="bancoTransferencia" value={form.bancoTransferencia} onChange={handleForm} className="input-base" placeholder="Ej: Banco Galicia, Mercado Pago, etc." />
                     <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 p-3 space-y-3">
+                  <p className="text-xs text-gray-400">Para <strong className="text-gray-200">verificar comprobantes</strong>: cuando un cliente manda la captura o el PDF de su transferencia, Akira lee el monto, la fecha y la operación y comprueba que el destino sea tu cuenta. Cargá cómo figurás vos en el comprobante.</p>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Titular de la cuenta</label>
+                    <div className="flex gap-2">
+                      <input name="titularTransferencia" value={form.titularTransferencia} onChange={handleForm} className="input-base" placeholder="Nombre completo o razón social, como aparece en el comprobante" />
+                      <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">CUIT / CUIL del titular (opcional)</label>
+                    <div className="flex gap-2">
+                      <input name="cuilTransferencia" value={form.cuilTransferencia} onChange={handleForm} className="input-base" placeholder="20-12345678-3" inputMode="numeric" />
+                      <button onClick={saveNegocio} className="btn-secondary px-3 py-2 text-xs"><Save size={13} /></button>
+                    </div>
                   </div>
                 </div>
               </div>

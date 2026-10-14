@@ -57,7 +57,7 @@ module.exports = function crearRouter({ botService, requerirSesion }) {
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
     try {
       await asegurarConfig(req.user._id);
-      const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia, bancoTransferencia, serviciosList, tipoNegocio, checkInHora, checkOutHora, minimaEstadia, unidadesAlojamiento, direccionPropiedad, linkUbicacion } = req.body;
+      const { miNombre, negocio, servicios, precioTurno, horasCancelacion, promptPersonalizado, dominioNgrok, mpWebhookUrl, aliasTransferencia, cbuTransferencia, bancoTransferencia, titularTransferencia, cuilTransferencia, serviciosList, tipoNegocio, checkInHora, checkOutHora, minimaEstadia, unidadesAlojamiento, direccionPropiedad, linkUbicacion } = req.body;
       const config = await Config.findOneAndUpdate(
         { userId: req.user._id },
         {
@@ -72,6 +72,8 @@ module.exports = function crearRouter({ botService, requerirSesion }) {
           aliasTransferencia: (aliasTransferencia || '').trim(),
           cbuTransferencia: (cbuTransferencia || '').trim(),
           bancoTransferencia: (bancoTransferencia || '').trim(),
+          titularTransferencia: String(titularTransferencia || '').trim().slice(0, 80),
+          cuilTransferencia: String(cuilTransferencia || '').replace(/\D/g, '').slice(0, 11),
           ...(serviciosList !== undefined ? { serviciosList } : {}),
           ...(tipoNegocio ? { tipoNegocio } : {}),
           ...(checkInHora ? { checkInHora } : {}),

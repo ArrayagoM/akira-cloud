@@ -38,8 +38,28 @@ async function obtenerWorker() {
   return workerPromesa;
 }
 
+// Las capturas de pantalla de un celular (comprobantes de transferencia, por ejemplo) suelen venir chicas, y Tesseract lee muy mal el
+// texto pequeño: en una captura real de 305 px de ancho se perdían el monto, el CVU/CBU, el CUIT y el número de operación.
+// Agrandando la imagen 2 o 3 veces antes de leerla se leyó todo (11 de 12 datos, contra 9 sin agrandar). Se usa el motor de imágenes de
+// Electron (sin dependencias nuevas); si no está disponible (pruebas en Node) se lee la imagen tal cual.
+const ANCHO_OBJETIVO = 1300; const MAX_LADO = 3600;
+function prepararImagen(buffer) {
+  try {
+    const { nativeImage } = require('electron');
+    if (!nativeImage || typeof nativeImage.createFromBuffer !== 'function') return buffer;
+    const img = nativeImage.createFromBuffer(buffer);
+    if (img.isEmpty()) return buffer;
+    const { width, height } = img.getSize();
+    if (!width || width >= ANCHO_OBJETIVO) return buffer;
+    const factor = Math.min(3, ANCHO_OBJETIVO / width, MAX_LADO / Math.max(width, height));
+    if (factor < 1.2) return buffer;
+    return img.resize({ width: Math.round(width * factor), quality: 'best' }).toPNG();
+  } catch { return buffer; }
+}
+
 // Devuelve el texto de la imagen ('' si no se pudo leer). Nunca tira.
-function leerTexto(buffer) {
+function leerTexto(bufferOriginal) {
+  const buffer = prepararImagen(bufferOriginal);
   const tarea = cola.then(async () => {
     try {
       const worker = await obtenerWorker();

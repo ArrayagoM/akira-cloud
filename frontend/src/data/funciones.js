@@ -177,8 +177,11 @@ export const GUIA = [
         hace: [
           'Cuando un cliente manda un PDF o una foto, aparece acá y te avisa. El bot le confirma la recepción.',
           'En las fotos intenta leer el texto y detectar el monto y la fecha; si no puede (letra manuscrita o imagen borrosa), cargás el monto a mano.',
+          'Comprobantes de transferencia (captura o PDF): lee el monto, la fecha y hora, el número de operación y quién pagó, y los compara con tu cuenta (cargá tu titular, alias o CBU/CVU en Configuración) y con el turno o pedido pendiente de ese cliente. Te dice si el destino es tu cuenta, si el monto alcanza, si la fecha es reciente, si los CUIT y CBU son válidos y si esa operación ya se usó con otro cliente.',
+          'Si tenés Mercado Pago conectado, además consulta la operación a Mercado Pago: si la confirma (aprobada, mismo monto, entró a tu cuenta) aparece como "Confirmado por Mercado Pago".',
           'Asociarlo a un turno pendiente, registrarlo en la Caja con un clic, clasificarlo, guardar una copia o cargar un documento nuevo a mano.',
         ],
+        nota: 'Una captura o un PDF se pueden falsificar. Que los datos coincidan reduce mucho el riesgo, pero solo la confirmación de Mercado Pago prueba que la plata entró; con los demás resultados, confirmalo en tu app antes de dar el pago por bueno. El bot nunca confirma un turno por una imagen.',
       },
     ],
   },

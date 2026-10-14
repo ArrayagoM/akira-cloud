@@ -26,6 +26,7 @@ const crearPersistencia = require('./bot/persistence.service');
 const crearMongoClientesService = require('./bot/mongo-clientes.service');
 const crearCalendarService = require('./bot/calendar.service');
 const crearMPService = require('./bot/mercadopago.service');
+const compPago = require('../../gestion/comprobante-pago');
 const Config = require('../models/Config');
 const WaitlistEntry = require('../models/WaitlistEntry');
 const crearAudioService = require('./bot/audio.service');
@@ -567,7 +568,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   }
 
   // ── Adjuntos del cliente (bandeja de documentos) ─────────────
-  const docsSvc = crearDocumentosService({ userId: USER_ID, dirBase: options.documentosDir || path.join(dataDir, 'documentos'), log });
+  const docsSvc = crearDocumentosService({ userId: USER_ID, dirBase: options.documentosDir || path.join(dataDir, 'documentos'), log, mp: MP_ACCESS_TOKEN ? mp : null });
   const ultimoAckDoc = new Map(); // jid → ts: no repetir el "recibí tu archivo" si manda varios seguidos
   const descargarAdjunto = options.descargarMedia || ((m) => downloadMediaMessage(m, 'buffer', {}));
 
@@ -610,9 +611,13 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
 💰 Monto detectado: $${r.doc.montoSugerido.toLocaleString('es-AR')}` : '';
       const turno = r.turno ? `
 📅 Turno pendiente: ${new Date(r.turno.fechaInicio).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}` : '';
-      notificarDueno(`${etiqueta} de *${nombre || numero}*${monto}${turno}
+      const veredictoPdf = r.analisis ? `\n\n${compPago.resumenParaDueno(r.analisis.datos, r.analisis.ver)}` : '';
+      notificarDueno(`${etiqueta} de *${nombre || numero}*${monto}${turno}${veredictoPdf}
 
 Revisalo en Akira → Documentos.`);
+      if (r.analisis && ['coincide', 'confirmado_mp'].includes(r.analisis.ver.nivel) && !uc?.silenciado) {
+        enviarMensaje(jid, `Leí tu comprobante${r.analisis.datos.monto ? ` por $${r.analisis.datos.monto.toLocaleString('es-AR')}` : ''} y los datos coinciden ✅. En cuanto ${MI_NOMBRE} confirme que la plata ingresó, te aviso.`).catch(() => {});
+      }
       if (CELULAR_NOTIFICACIONES && sock) {
         const cel = CELULAR_NOTIFICACIONES.replace(/\D/g, '');
         if (cel.length >= 10) {
@@ -627,7 +632,17 @@ Revisalo en Akira → Documentos.`);
       // 3) Lectura de texto de las fotos, en segundo plano (no demora nada de lo anterior)
       if (r.doc.mimetype !== 'application/pdf') {
         docsSvc.analizarImagen(r.doc, buffer)
-          .then((d) => { log(`🔎 [Documentos] Texto leído de la foto de ${jid}${d.montoSugerido ? ` — monto $${d.montoSugerido}` : ''}`); emitter.emit('documento', { id: String(r.doc._id), clienteNombre: nombre, tipo: d.tipo, actualizado: true }); })
+          .then((d) => {
+            log(`🔎 [Documentos] Texto leído de la foto de ${jid}${d.montoSugerido ? ` — monto $${d.montoSugerido}` : ''}`);
+            emitter.emit('documento', { id: String(r.doc._id), clienteNombre: nombre, tipo: d.tipo, actualizado: true });
+            // Comprobante de transferencia: se avisa el resultado de la verificación (el primer aviso salió antes de leer la foto)
+            if (d.analisis) {
+              notificarDueno(`🔎 *Verificación del comprobante de ${nombre || numero}*\n\n${compPago.resumenParaDueno(d.analisis.datos, d.analisis.ver)}\n\nRevisalo en Akira → Documentos.`);
+              if (['coincide', 'confirmado_mp'].includes(d.analisis.ver.nivel) && !uc?.silenciado) {
+                enviarMensaje(jid, `Leí tu comprobante${d.analisis.datos.monto ? ` por $${d.analisis.datos.monto.toLocaleString('es-AR')}` : ''} y los datos coinciden ✅. En cuanto ${MI_NOMBRE} confirme que la plata ingresó, te aviso.`).catch(() => {});
+              }
+            }
+          })
           .catch((e) => log(`⚠️ [Documentos] No se pudo leer el texto de la foto: ${e.message}`));
       }
       return !!caption;
