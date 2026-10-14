@@ -53,7 +53,7 @@ export default function Peluquerias() {
         },
         {
           q: '¿Cuánto cuesta para una peluquería?',
-          a: 'Hay un trial gratuito de 100 mensajes sin tarjeta. El plan Básico arranca en $15.000 ARS/mes (500 mensajes). El plan Pro tiene mensajes ilimitados, cobros con MercadoPago y respuesta por audio — ideal para peluquerías con flujo alto.',
+          a: 'Hay una prueba gratuita de 7 días de uso (con tope de 100 mensajes) y sin tarjeta. El plan Básico arranca en $21.000 ARS/mes (500 mensajes). El plan Pro tiene mensajes ilimitados, cobros con MercadoPago y respuesta por audio — ideal para peluquerías con flujo alto.',
         },
         {
           q: '¿Puedo bloquear días de vacaciones o feriados?',

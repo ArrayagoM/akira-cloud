@@ -11,14 +11,9 @@ const { requireAuth } = require('../middleware/auth');
 const logger  = require('../config/logger');
 
 // ── Planes ────────────────────────────────────────────────────
-const PLANES = {
-  basico_mensual:  { key:'basico', nombre:'Básico',  periodo:'mensual', precio:15000, meses:1  },
-  basico_anual:    { key:'basico', nombre:'Básico',  periodo:'anual',   precio:144000,meses:12 },
-  pro_mensual:     { key:'pro',    nombre:'Pro',     periodo:'mensual', precio:35000, meses:1  },
-  pro_anual:       { key:'pro',    nombre:'Pro',     periodo:'anual',   precio:336000,meses:12 },
-  agencia_mensual: { key:'agencia',nombre:'Agencia', periodo:'mensual', precio:80000, meses:1  },
-  agencia_anual:   { key:'agencia',nombre:'Agencia', periodo:'anual',   precio:768000,meses:12 },
-};
+// Precios en lib/cobro.js (una sola fuente). El anual es 12 meses con 20 % de descuento sobre el mensual.
+const cobro = require('../lib/cobro');
+const PLANES = cobro.armarPlanes();
 
 const LIMITES = {
   trial:   { mensajes:100,      bots:1,  calendar:false, mp:false, audio:false },
@@ -136,8 +131,28 @@ function parsearExternalReference(ref) {
 //  puntual antes que en el estado actual del usuario.
 // ─────────────────────────────────────────────────────────────
 async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago }) {
-  const expira = new Date();
-  expira.setMonth(expira.getMonth() + planInfo.meses);
+  // 1) ¿El pago alcanza para este plan? (antes se activaba con solo estar "approved", sin mirar cuánto se pagó)
+  const monto = cobro.verificarMonto({ pago, planInfo, descuentoAplicado });
+  if (!monto.ok) {
+    logger.warn(`[SUB] Pago ${pago && pago.id} NO activa el plan ${planKey} (${userId}): ${monto.detalle}`);
+    await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'warn', mensaje: `Pago ${pago && pago.id} aprobado pero no activó el plan ${planKey}: ${monto.detalle}` }).catch(() => {});
+    return { activado: false, motivo: 'monto', detalle: monto.detalle };
+  }
+
+  // 2) Un pago activa el plan UNA sola vez: antes, repetir el mismo payment_id (el /return, /verificar-pago o el webhook) renovaba
+  //    el plan gratis cada vez. Se "reclama" el pago de forma atómica; si ya estaba reclamado, no se hace nada.
+  const previo = await User.findOneAndUpdate(
+    { _id: userId, pagosMpProcesados: { $ne: String(pago.id) } },
+    { $push: { pagosMpProcesados: { $each: [String(pago.id)], $slice: -100 } } },
+    { new: false },
+  ).select('plan planExpira');
+  if (!previo) {
+    logger.info(`[SUB] Pago ${pago.id} ya estaba procesado (o el usuario ${userId} no existe): no se vuelve a activar`);
+    return { activado: false, motivo: 'ya_procesado' };
+  }
+
+  // 3) Renovar antes de que venza suma meses al tiempo que le quedaba (antes se perdían los días restantes)
+  const expira = cobro.nuevaExpiracion({ planExpiraActual: previo.planExpira, planActual: previo.plan, planKey, meses: planInfo.meses });
 
   await User.findByIdAndUpdate(userId, {
     plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
@@ -186,6 +201,7 @@ async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo
       logger.error(`[SUB] Error procesando crédito de referido para ${userId}: ${e.message}`);
     }
   }
+  return { activado: true, expira };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -277,6 +293,8 @@ router.post('/checkout', requireAuth, async(req,res)=>{
       // transacción puntual — se usa para acreditar al referente al
       // confirmar el pago, sin depender del estado actual del usuario.
       external_reference: `${req.user._id}|${plan.key}|${plan.periodo}|${descuentoReferido}`,
+      // El precio que corresponde cobrar viaja en la metadata (la armamos nosotros): al confirmar se comprueba que el pago lo alcance.
+      metadata:           { precio_esperado: precioFinal, plan_id: planId },
       back_urls:{
         success: successUrl,
         failure: failureUrl,
@@ -285,7 +303,7 @@ router.post('/checkout', requireAuth, async(req,res)=>{
       auto_return:        'approved',
       notification_url:   webhookUrl,
       expires:            true,
-      expiration_date_to: new Date(Date.now()+60*60*1000).toISOString(),
+      expiration_date_to: cobro.aFechaMercadoPago(new Date(Date.now()+60*60*1000)), // con -03:00: con "Z" el link puede quedar vencido de entrada (botón Pagar en gris)
       statement_descriptor: 'AKIRACLOUD',
     });
 
@@ -381,12 +399,14 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
     const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
     if (!planInfo) return res.status(400).json({ error: `Plan desconocido: ${planKey}` });
 
-    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
-
-    const expira = new Date();
-    expira.setMonth(expira.getMonth() + planInfo.meses);
+    const r = await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+    if (!r.activado && r.motivo === 'monto') return res.status(409).json({ ok: false, msg: 'El pago no alcanza para ese plan. Escribinos y lo revisamos.' });
+    if (!r.activado) { // ya estaba procesado: el plan ya quedó activo la primera vez
+      const u = await User.findById(userId).select('plan planExpira').lean();
+      return res.json({ ok: true, plan: u && u.plan, expira: u && u.planExpira, msg: `Plan ${planInfo.nombre} ya estaba activado` });
+    }
     logger.info(`[SUB Verificar] ✅ Plan ${planKey} activado para ${userId}`);
-    res.json({ ok: true, plan: planKey, expira, msg: `Plan ${planInfo.nombre} activado` });
+    res.json({ ok: true, plan: planKey, expira: r.expira, msg: `Plan ${planInfo.nombre} activado` });
   } catch(err) {
     logger.error('[SUB Verificar] Error:', err.message);
     res.status(500).json({ error: err.message });
@@ -469,5 +489,7 @@ router.post('/webhook', async(req,res)=>{
 // Funciones puras expuestas solo para tests (ver tests/referidos.test.js)
 router.calcularPrecioConDescuento = calcularPrecioConDescuento;
 router.parsearExternalReference   = parsearExternalReference;
+router.activarPlanYProcesarReferido = activarPlanYProcesarReferido;
+router.PLANES = PLANES;
 
 module.exports = router;

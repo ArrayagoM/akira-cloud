@@ -26,7 +26,7 @@ const POSTS = [
         'Una cuenta de Google con Google Calendar (opcional: Akira también trae su propia agenda).',
         'Una cuenta de MercadoPago si querés cobrar señas (gratis).',
         'Una computadora con Windows 10 u 11 que quede prendida en el horario de atención.',
-        'Akira Cloud — hay un trial gratis (100 mensajes, sin tarjeta) y planes desde $15.000 ARS por mes.',
+        'Akira Cloud — hay una prueba gratis (7 días de uso, sin tarjeta) y planes desde $21.000 ARS por mes.',
       ]},
       { type: 'h2', text: 'Paso 1 — Conectar WhatsApp' },
       { type: 'p', text: 'Creás tu cuenta en akiracloud.lat, instalás Akira en tu PC con Windows y escaneás un QR con el WhatsApp del negocio (queda vinculado como un dispositivo más, igual que WhatsApp Web). Tu número sigue funcionando normal en el celular.' },
@@ -98,7 +98,7 @@ const POSTS = [
       { type: 'list', items: [
         'Una secretaria en relación de dependencia cuesta el sueldo más cargas sociales, ART y aguinaldo: sumá todo con los valores vigentes de tu convenio.',
         'Una persona part-time cuesta menos, pero cubre menos horas.',
-        'Akira Cloud Pro cuesta $35.000 por mes (mensajes ilimitados, Google Calendar, MercadoPago y audios); Básico, $15.000.',
+        'Akira Cloud Pro cuesta $49.000 por mes (mensajes ilimitados, Google Calendar, MercadoPago y audios); Básico, $21.000.',
       ]},
       { type: 'h2', text: 'Ventajas de la secretaria humana' },
       { type: 'list', items: [

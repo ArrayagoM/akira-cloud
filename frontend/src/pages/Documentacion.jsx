@@ -622,7 +622,7 @@ export default function Documentacion() {
                 </thead>
                 <tbody>
                   {[
-                    ['Precio', 'Gratis · 7 días de uso', '$15.000/mes', '$35.000/mes', '$80.000/mes'],
+                    ['Precio', 'Gratis · 7 días de uso', '$21.000/mes', '$49.000/mes', '$112.000/mes'],
                     ['Mensajes/mes', '100', '500', 'Ilimitado', 'Ilimitado'],
                     ['Números de WhatsApp', '1', '1', '1', 'Hasta 5'],
                     ['IA con LLaMA 3.1', '✓', '✓', '✓', '✓'],

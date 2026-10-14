@@ -11,7 +11,7 @@ const PLANES_INFO = [
   {
     key: 'basico',
     nombre: 'Básico',
-    mensual: 15000,
+    mensual: 21000,
     color: 'border-gray-700',
     badge: null,
     icon: <Zap size={18} />,
@@ -29,7 +29,7 @@ const PLANES_INFO = [
   {
     key: 'pro',
     nombre: 'Pro',
-    mensual: 35000,
+    mensual: 49000,
     color: 'border-green-500/50',
     badge: 'Más popular',
     icon: <Star size={18} />,
@@ -47,7 +47,7 @@ const PLANES_INFO = [
   {
     key: 'agencia',
     nombre: 'Agencia',
-    mensual: 80000,
+    mensual: 112000,
     color: 'border-purple-500/40',
     badge: 'Multi-cliente',
     icon: <Users size={18} />,
@@ -74,8 +74,10 @@ export default function PlanesPage() {
   const [anual, setAnual]           = useState(false);
   const [suscripcion, setSuscripcion] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(null);
+  const [preciosServidor, setPreciosServidor] = useState(null); // lo que el servidor cobra de verdad (si no responde, se usan los de arriba)
 
   useEffect(() => {
+    api.get('/subscriptions/planes').then(r => setPreciosServidor(r.data?.planes || null)).catch(() => {});
     api.get('/subscriptions/mi-suscripcion')
       .then(r => setSuscripcion(r.data))
       .catch(() => {});
@@ -228,8 +230,9 @@ export default function PlanesPage() {
         {planActual !== 'admin' && (
           <div className="grid md:grid-cols-3 gap-4">
             {PLANES_INFO.map((p, idx) => {
-              const precioMensual = p.mensual;
-              const precioAnual   = Math.round(p.mensual * 12 * (1 - DESCUENTO));
+              const mensualReal   = preciosServidor?.[`${p.key}_mensual`]?.precio || p.mensual;
+              const precioMensual = mensualReal;
+              const precioAnual   = preciosServidor?.[`${p.key}_anual`]?.precio || Math.round(mensualReal * 12 * (1 - DESCUENTO));
               const precioMostrar = anual ? precioAnual : precioMensual;
               const esPlanActual  = planActual === p.key && suscripcion?.planVigente;
               const isPro = p.key === 'pro';
@@ -287,7 +290,7 @@ export default function PlanesPage() {
                     </div>
                     {anual && (
                       <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>
-                        = ${formatPrecio(Math.round(precioAnual/12))}/mes · Ahorrás ${formatPrecio(Math.round(p.mensual*12*DESCUENTO))}
+                        = ${formatPrecio(Math.round(precioAnual/12))}/mes · Ahorrás ${formatPrecio(Math.round(mensualReal*12) - precioAnual)}
                       </p>
                     )}
                     {descuentoReferido > 0 && (

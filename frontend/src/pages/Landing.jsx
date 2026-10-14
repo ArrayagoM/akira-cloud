@@ -1122,8 +1122,8 @@ function Features() {
 const PLANES = [
   {
     nombre: 'Básico',
-    mensual: 15000,
-    anual: 144000,
+    mensual: 21000,
+    anual: 201600,
     sub: 'Para negocios que empiezan',
     features: [
       '1 número de WhatsApp',
@@ -1137,8 +1137,8 @@ const PLANES = [
   },
   {
     nombre: 'Pro',
-    mensual: 35000,
-    anual: 336000,
+    mensual: 49000,
+    anual: 470400,
     sub: 'El más popular',
     features: [
       '1 número de WhatsApp',
@@ -1155,8 +1155,8 @@ const PLANES = [
   },
   {
     nombre: 'Agencia',
-    mensual: 80000,
-    anual: 768000,
+    mensual: 112000,
+    anual: 1075200,
     sub: 'Para agencias y revendedores',
     features: [
       'Hasta 5 WhatsApp',

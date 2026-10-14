@@ -36,9 +36,9 @@ Usa modelos de lenguaje de última generación servidos por Groq, con la propia 
 | Plan | Precio | Incluye |
 |---|---|---|
 | Trial | gratis | 7 días de uso (solo se gastan los días en que el bot atiende mensajes; tope de 60 días desde el alta), 100 mensajes, sin tarjeta |
-| Básico | $15.000 / mes ($144.000 / año) | 1 número de WhatsApp, 500 mensajes por mes |
-| Pro | $35.000 / mes ($336.000 / año) | Mensajes ilimitados, Google Calendar, MercadoPago, audios |
-| Agencia | $80.000 / mes ($768.000 / año) | Hasta 5 números de WhatsApp, 2 computadoras |
+| Básico | $21.000 / mes ($201.600 / año) | 1 número de WhatsApp, 500 mensajes por mes |
+| Pro | $49.000 / mes ($470.400 / año) | Mensajes ilimitados, Google Calendar, MercadoPago, audios |
+| Agencia | $112.000 / mes ($1.075.200 / año) | Hasta 5 números de WhatsApp, 2 computadoras |
 
 ## Preguntas frecuentes
 **¿Es la API oficial de WhatsApp Business?** No. Se vincula como dispositivo (escaneando un QR). Eso significa que no hay costo por conversación de Meta, pero el uso masivo o abusivo de WhatsApp puede llevar a que el número sea restringido: por eso Akira limita los mensajes a grupos y respeta las bajas.
