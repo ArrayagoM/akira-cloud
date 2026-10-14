@@ -7,6 +7,9 @@ const fs    = require('fs');
 const path  = require('path');
 const https = require('https');
 
+const VOCES_ES = ['lucia', 'sofia', 'mari', 'isa'];
+const MODELO_VOZ = 'mistv3';
+
 function crearAudioService({ groqApiKey, rimeApiKey, dataDir, log }) {
   // ── STT — Whisper via Groq ────────────────────────────────
   // Recibe el buffer de audio ya descargado por Baileys (downloadMediaMessage).
@@ -63,9 +66,11 @@ function crearAudioService({ groqApiKey, rimeApiKey, dataDir, log }) {
   async function enviarComoAudio(jid, texto, enviarAudioFn) {
     const tl = prepararTextoAudio(texto);
     if (!tl) return false;
-    for (const voz of ['valentina', 'isabella', 'camila', 'luna']) {
+    // Voces en español del modelo mistv3 (las anteriores —valentina, isabella, camila, luna con arcana-v2— no existen en español y todas las respuestas en audio fallaban sin avisar).
+    let ultimoError = null;
+    for (const voz of VOCES_ES) {
       try {
-        const body = JSON.stringify({ speaker: voz, text: tl, modelId: 'arcana-v2', lang: 'es', speedAlpha: 0.9 });
+        const body = JSON.stringify({ speaker: voz, text: tl, modelId: MODELO_VOZ, lang: 'es', speedAlpha: 0.95 });
         const buf = await new Promise((res, rej) => {
           const req = https.request(
             {
@@ -79,7 +84,7 @@ function crearAudioService({ groqApiKey, rimeApiKey, dataDir, log }) {
               r.on('data', d => c.push(d));
               r.on('end', () => {
                 const b = Buffer.concat(c);
-                if ((r.headers['content-type'] || '').includes('json') || r.statusCode >= 400) rej(new Error('TTS error'));
+                if ((r.headers['content-type'] || '').includes('json') || r.statusCode >= 400) rej(new Error(`TTS ${r.statusCode}: ${b.toString('utf8').slice(0, 160)}`));
                 else res(b);
               });
             }
@@ -90,8 +95,9 @@ function crearAudioService({ groqApiKey, rimeApiKey, dataDir, log }) {
         });
         await enviarAudioFn(jid, buf);
         return true;
-      } catch {}
+      } catch (e) { ultimoError = e; }
     }
+    if (ultimoError) log?.(`⚠️ [Voz] no se pudo generar el audio (se responde con texto): ${ultimoError.message}`);
     return false;
   }
 
@@ -99,3 +105,6 @@ function crearAudioService({ groqApiKey, rimeApiKey, dataDir, log }) {
 }
 
 module.exports = crearAudioService;
+
+module.exports.VOCES_ES = VOCES_ES;
+module.exports.MODELO_VOZ = MODELO_VOZ;
