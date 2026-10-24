@@ -1,0 +1,70 @@
+{
+  "id": "f-reportes",
+  "titulo": "Reportes",
+  "titular": [
+    "Decidí con datos,",
+    "no a ojo"
+  ],
+  "frases": [
+    "¿Cuál es el servicio que más se pide en tu negocio?",
+    "En Reportes elegís el período y ves los servicios más pedidos y los clientes que más vienen.",
+    "También las horas pico y las ausencias.",
+    "Y lo exportás a Excel.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/reportes.png",
+      "titulo": "Reportes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/reportes.png",
+      "titulo": "Reportes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/reportes.png",
+      "titulo": "Reportes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/reportes.png",
+      "titulo": "Reportes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Reportes en Akira Cloud: servicios más pedidos, clientes frecuentes, horas pico, ausencias y evolución mes a mes. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#datos",
+    "#negocios",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

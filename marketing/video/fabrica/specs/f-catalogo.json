@@ -1,0 +1,70 @@
+{
+  "id": "f-catalogo",
+  "titulo": "Catálogo",
+  "titular": [
+    "Tus precios cargados,",
+    "tu bot no inventa"
+  ],
+  "frases": [
+    "¿Tu bot inventa precios? Con Akira no.",
+    "En el Catálogo cargás tus servicios con precio, duración y seña.",
+    "Y tus productos con stock, foto y código de barras.",
+    "Importás tu lista de precios desde Excel, un archivo PDF o hasta una foto.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/catalogo.png",
+      "titulo": "Catálogo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/catalogo.png",
+      "titulo": "Catálogo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/catalogo.png",
+      "titulo": "Catálogo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/catalogo.png",
+      "titulo": "Catálogo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "El Catálogo de Akira Cloud: el bot responde y agenda siempre con los servicios y productos que cargaste, nunca inventa. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#catalogo",
+    "#whatsappbusiness",
+    "#pymes",
+    "#akiracloud"
+  ]
+}

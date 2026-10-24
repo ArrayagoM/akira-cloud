@@ -8,6 +8,7 @@ const LocalStrategy    = require('passport-local').Strategy;
 const bcrypt           = require('bcryptjs');
 const User             = require('../models/User');
 const logger           = require('./logger');
+const { decidirVinculoOAuth } = require('../lib/seguridad-cuentas');
 
 module.exports = (passport) => {
 
@@ -24,6 +25,8 @@ module.exports = (passport) => {
         if (user.status === 'bloqueado') {
           return done(null, false, { message: 'Cuenta bloqueada' });
         }
+        // Cuenta creada con email y contraseña que todavía no confirmó su email: no tiene sesión válida
+        if (user.emailVerificado === false) return done(null, false, { message: 'Confirmá tu email para continuar.' });
         // Verificar que el token no haya sido revocado
         if ((payload.tv ?? 0) !== (user.tokenVersion ?? 0)) {
           return done(null, false, { message: 'Sesión expirada. Iniciá sesión nuevamente.' });
@@ -69,7 +72,9 @@ module.exports = (passport) => {
           const email = profile.emails?.[0]?.value?.toLowerCase();
           if (!email) return done(null, false, { message: 'No se pudo obtener el email de Google' });
 
-          let user = await User.findOne({ email });
+          let user = await User.findOne({ email }).select('+password');
+          const decision = decidirVinculoOAuth(user && { tieneClave: !!user.password, emailVerificado: user.emailVerificado }, { proveedor: 'google', emailVerificadoPorProveedor: profile.emails?.[0]?.verified !== false && profile._json?.email_verified !== false });
+          if (decision.rechazar) return done(null, false, { message: decision.motivo });
 
           if (!user) {
             const nombreGoogle = profile.name?.givenName || 'Usuario';
@@ -80,14 +85,19 @@ module.exports = (passport) => {
               auth_provider: 'google',
               googleId:      profile.id,
               avatar:        profile.photos?.[0]?.value,
+              emailVerificado: true,
               status:        'activo',
               rol:           'user',
               codigoReferido: await User.generarCodigoUnico(nombreGoogle),
             });
             logger.info(`[Auth] Nuevo usuario Google: ${email}`);
-          } else if (!user.googleId) {
-            user.googleId = profile.id;
-            user.auth_provider = 'google';
+          } else {
+            // Entrar con Google prueba que la persona controla ese email. Si la cuenta tenía una contraseña que nunca se confirmó por código,
+            // se borra (podría haberla puesto otra persona antes) y se cierran todas las sesiones anteriores.
+            if (!user.googleId) { user.googleId = profile.id; user.auth_provider = 'google'; }
+            if (decision.borrarClave) { user.password = undefined; user.auth_provider = 'google'; logger.warn(`[Auth] ${email}: contraseña sin verificar borrada al vincular Google`); }
+            if (decision.cerrarSesiones) user.tokenVersion = (user.tokenVersion || 0) + 1;
+            user.emailVerificado = true; user.emailVerificadoEn = user.emailVerificadoEn || new Date();
             await user.save();
           }
 
@@ -114,7 +124,8 @@ module.exports = (passport) => {
           const email = profile.emails?.[0]?.value?.toLowerCase();
           if (!email) return done(null, false, { message: 'No se pudo obtener el email de Facebook' });
 
-          let user = await User.findOne({ email });
+          let user = await User.findOne({ email }).select('+password');
+          const decision = decidirVinculoOAuth(user && { tieneClave: !!user.password, emailVerificado: user.emailVerificado }, { proveedor: 'facebook' });
 
           if (!user) {
             const nombreFacebook = profile.name?.givenName || 'Usuario';
@@ -125,14 +136,17 @@ module.exports = (passport) => {
               auth_provider: 'facebook',
               facebookId:    profile.id,
               avatar:        profile.photos?.[0]?.value,
+              emailVerificado: true,
               status:        'activo',
               rol:           'user',
               codigoReferido: await User.generarCodigoUnico(nombreFacebook),
             });
             logger.info(`[Auth] Nuevo usuario Facebook: ${email}`);
-          } else if (!user.facebookId) {
-            user.facebookId = profile.id;
-            user.auth_provider = 'facebook';
+          } else {
+            if (!user.facebookId) { user.facebookId = profile.id; user.auth_provider = 'facebook'; }
+            if (decision.borrarClave) { user.password = undefined; user.auth_provider = 'facebook'; logger.warn(`[Auth] ${email}: contraseña sin verificar borrada al vincular Facebook`); }
+            if (decision.cerrarSesiones) user.tokenVersion = (user.tokenVersion || 0) + 1;
+            user.emailVerificado = true; user.emailVerificadoEn = user.emailVerificadoEn || new Date();
             await user.save();
           }
 

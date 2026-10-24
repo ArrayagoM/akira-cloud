@@ -1,0 +1,70 @@
+{
+  "id": "f-preguntan",
+  "titulo": "Qué preguntan",
+  "titular": [
+    "¿Qué te preguntan",
+    "tus clientes?"
+  ],
+  "frases": [
+    "¿Qué es lo que más te preguntan tus clientes?",
+    "En Qué preguntan ves los temas más consultados en los últimos siete, treinta o noventa días.",
+    "Y las preguntas que el bot no supo responder.",
+    "Sumás esas respuestas a Conocimiento o al Catálogo, y la próxima vez las contesta solo.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/preguntan.png",
+      "titulo": "Qué preguntan",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/preguntan.png",
+      "titulo": "Qué preguntan",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/preguntan.png",
+      "titulo": "Qué preguntan",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/preguntan.png",
+      "titulo": "Qué preguntan",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Qué preguntan en Akira Cloud: los temas más consultados y lo que el bot no supo responder. Se guardan solo las preguntas, sin teléfonos ni mails, y solo en tu PC. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#clientes",
+    "#datos",
+    "#whatsappbusiness",
+    "#akiracloud"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "id": "f-bot",
+  "titulo": "Tu bot, solo",
+  "titular": [
+    "¿Qué hace tu bot",
+    "cuando vos no estás?"
+  ],
+  "frases": [
+    "¿Qué hace tu bot cuando vos no estás?",
+    "Conversa en lenguaje natural, entiende audios y manda fotos de tus productos.",
+    "Ofrece solo horarios libres, agenda y cobra la seña con Mercado Pago o por transferencia.",
+    "Manda recordatorios antes del turno, y le pide seña a quien falta seguido.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Tu bot, solo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Tu bot, solo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Tu bot, solo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Tu bot, solo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Lo que el bot de Akira Cloud hace por su cuenta una vez conectado tu WhatsApp: atiende las veinticuatro horas, agenda, cobra y recuerda. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#chatbot",
+    "#whatsappbusiness",
+    "#automatizacion",
+    "#akiracloud"
+  ]
+}

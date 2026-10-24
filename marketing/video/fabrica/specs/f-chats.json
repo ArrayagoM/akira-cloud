@@ -1,0 +1,70 @@
+{
+  "id": "f-chats",
+  "titulo": "Chats",
+  "titular": [
+    "Mirá lo que le responde",
+    "tu bot a la gente"
+  ],
+  "frases": [
+    "¿Te da curiosidad qué le contesta tu bot a la gente?",
+    "En Chats leés cada conversación de WhatsApp completa.",
+    "Si querés atender vos, silenciás ese chat y el bot deja de responder ahí.",
+    "Y podés bloquear un número para que lo ignore por completo.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Chats",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Chats",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Chats",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/chats.png",
+      "titulo": "Chats",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Chats en Akira Cloud: el historial de conversaciones del bot, con opción de silenciar un chat o bloquear un número. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#whatsappbusiness",
+    "#chatbot",
+    "#negocios",
+    "#akiracloud"
+  ]
+}

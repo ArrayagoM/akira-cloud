@@ -24,12 +24,23 @@ export function AuthProvider({ children }) {
     return r.data.user;
   }, []);
 
+  // El alta crea la cuenta y manda un código al email: NO hay sesión hasta confirmarlo (verificarEmail).
   const register = useCallback(async (datos) => {
     const r = await api.post('/auth/register', datos);
+    if (r.data.token) { localStorage.setItem('akira_token', r.data.token); setUser(r.data.user); return { user: r.data.user }; }
+    return { requiereVerificacion: true, email: r.data.email };
+  }, []);
+
+  const obtenerTokenFormulario = useCallback(async () => (await api.get('/auth/form-token')).data, []);
+
+  const verificarEmail = useCallback(async (email, codigo) => {
+    const r = await api.post('/auth/verificar-email', { email, codigo });
     localStorage.setItem('akira_token', r.data.token);
     setUser(r.data.user);
     return r.data.user;
   }, []);
+
+  const reenviarCodigo = useCallback(async (email) => (await api.post('/auth/reenviar-codigo', { email })).data, []);
 
   const logout = useCallback(async () => {
     try { await api.post('/auth/logout'); } catch {}
@@ -63,7 +74,7 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, loginConToken, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, loginConToken, refreshUser, obtenerTokenFormulario, verificarEmail, reenviarCodigo }}>
       {children}
     </AuthContext.Provider>
   );

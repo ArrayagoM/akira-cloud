@@ -7,6 +7,7 @@ const crypto  = require('crypto');
 const User     = require('../models/User');
 const Referido = require('../models/Referido');
 const Log     = require('../models/Log');
+const Pago    = require('../models/Pago');
 const { requireAuth } = require('../middleware/auth');
 const logger  = require('../config/logger');
 
@@ -145,7 +146,7 @@ async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo
     { _id: userId, pagosMpProcesados: { $ne: String(pago.id) } },
     { $push: { pagosMpProcesados: { $each: [String(pago.id)], $slice: -100 } } },
     { new: false },
-  ).select('plan planExpira');
+  ).select('plan planExpira email');
   if (!previo) {
     logger.info(`[SUB] Pago ${pago.id} ya estaba procesado (o el usuario ${userId} no existe): no se vuelve a activar`);
     return { activado: false, motivo: 'ya_procesado' };
@@ -157,6 +158,10 @@ async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo
   await User.findByIdAndUpdate(userId, {
     plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
   });
+
+  // Queda asentado para el panel de ingresos del administrador (si falla, el plan ya está activo: no se corta nada)
+  await Pago.create({ userId, email: previo.email || '', mpPagoId: String(pago.id), plan: planKey, periodo, monto: Number(pago.transaction_amount) || 0, descuentoReferido: descuentoAplicado || 0 })
+    .catch((e) => logger.warn(`[SUB] No se pudo registrar el pago ${pago.id} en ingresos: ${e.message}`));
 
   await Log.registrar({ userId, tipo: 'bot_payment', nivel: 'info',
     mensaje: `Plan ${planKey} activado | MP ID:${pago.id} | $${pago.transaction_amount} ARS${descuentoAplicado ? ` (con $${descuentoAplicado} de descuento por referido)` : ''}` });

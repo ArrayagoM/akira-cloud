@@ -1,0 +1,476 @@
+{
+  "reglas": "Cada tema es UN solo mensaje, de 20 a 35 segundos, que empieza con una pregunta y termina con 'Probalo gratis en akiracloud punto lat'. Solo se dice lo que el programa hace HOY (versión 1.0.30). Los chats, el celular y el comprobante son maquetas de ejemplo.",
+  "temas": [
+    {
+      "id": "horas",
+      "titulo": "La cuenta de las 35 horas",
+      "titular": [
+        "Si contestás 40 consultas por día,",
+        "perdés 35 horas al mes"
+      ],
+      "caption": "¿Contestás cuarenta consultas por día? A dos minutos cada una, son casi 35 horas al mes (cuenta de ejemplo). Akira Cloud atiende tu WhatsApp solo, las 24 horas: responde con tus precios, muestra fotos y ofrece horarios libres. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#whatsappbusiness",
+        "#argentina",
+        "#negocios",
+        "#pymes"
+      ],
+      "frases": [
+        "¿Contestás cuarenta consultas por día?",
+        "A dos minutos cada una, son treinta y cinco horas al mes.",
+        "Akira Cloud atiende tu WhatsApp solo, las veinticuatro horas.",
+        "Responde con tus precios, muestra fotos y ofrece horarios libres.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "calculo",
+          "desde_el_inicio": true
+        },
+        {
+          "tipo": "calculo",
+          "offset": 2.4
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.3,
+              "audio",
+              "cliente",
+              "0:07"
+            ],
+            [
+              1.8,
+              "texto",
+              "bot",
+              "El corte con barba sale $ 9.500. ¿Te anoto?"
+            ]
+          ]
+        },
+        {
+          "tipo": "chat",
+          "offset": 3.6,
+          "items": [
+            [
+              0.3,
+              "audio",
+              "cliente",
+              "0:07"
+            ],
+            [
+              1.8,
+              "texto",
+              "bot",
+              "El corte con barba sale $ 9.500. ¿Te anoto?"
+            ],
+            [
+              4.0,
+              "foto",
+              "bot",
+              [
+                "Shampoo reparador",
+                "$ 6.800"
+              ]
+            ],
+            [
+              5.6,
+              "texto",
+              "bot",
+              "Mañana: 16:00 o 17:30."
+            ]
+          ]
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "comprobantes",
+      "titulo": "Comprobantes de transferencia",
+      "titular": [
+        "¿Ese comprobante",
+        "es verdadero?"
+      ],
+      "caption": "¿Cómo sabés si un comprobante de transferencia es verdadero? Akira lee la captura o el PDF (monto, fecha y número de operación), comprueba que el destino sea tu cuenta, que el monto alcance y que no se haya usado antes. Y si algo no cierra, te avisa. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#mercadopago",
+        "#argentina",
+        "#transferencias",
+        "#negocios"
+      ],
+      "frases": [
+        "¿Cómo sabés si un comprobante de transferencia es verdadero?",
+        "Akira lee la captura o el PDF: el monto, la fecha y el número de operación.",
+        "Comprueba que el destino sea tu cuenta, que el monto alcance, y que no se haya usado antes.",
+        "Y si algo no cierra... te avisa.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "comprobante",
+          "espera": 30
+        },
+        {
+          "tipo": "comprobante",
+          "espera": 30
+        },
+        {
+          "tipo": "comprobante",
+          "espera": 0.4
+        },
+        {
+          "tipo": "comprobante",
+          "malo": true
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "celular",
+      "titulo": "Tu negocio en el celular",
+      "titular": [
+        "Tu negocio",
+        "en el bolsillo"
+      ],
+      "caption": "¿Estás lejos del local y no sabés cómo viene el día? Desde el celular o la web ves los mensajes, los turnos, los ingresos del mes y lo que te deben (si lo activás). Si el bot se cae, te llega un aviso. Y solo viajan números, nunca tus chats. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#negocios",
+        "#argentina",
+        "#pymes",
+        "#tecnologia"
+      ],
+      "frases": [
+        "¿Estás lejos del local y no sabés cómo viene el día?",
+        "Desde el celular ves los mensajes, los turnos, los ingresos y lo que te deben.",
+        "Si el bot se cae, te llega un aviso.",
+        "Y solo viajan números: nunca tus chats.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "telefono",
+          "dur": 14,
+          "falla": 0.99
+        },
+        {
+          "tipo": "telefono",
+          "dur": 14,
+          "falla": 0.99,
+          "offset": 3.0
+        },
+        {
+          "tipo": "telefono",
+          "dur": 14,
+          "falla": 0.7,
+          "offset": 7.0
+        },
+        {
+          "tipo": "telefono",
+          "dur": 14,
+          "falla": 0.7,
+          "offset": 10.0
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "marketing",
+      "titulo": "9 especialistas de marketing con IA",
+      "titular": [
+        "¿No sabés qué",
+        "publicar hoy?"
+      ],
+      "caption": "¿No sabés qué publicar en tu negocio? Akira trae nueve especialistas de marketing con inteligencia artificial: escriben tus posteos, arman el calendario de la semana y preparan ofertas para mayoristas, con los datos reales de tu negocio. Vos revisás y aprobás. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#marketingdigital",
+        "#emprendedores",
+        "#inteligenciaartificial",
+        "#argentina",
+        "#negocios"
+      ],
+      "frases": [
+        "¿No sabés qué publicar en tu negocio?",
+        "Akira trae nueve especialistas de marketing con inteligencia artificial.",
+        "Escriben tus posteos, arman el calendario y preparan ofertas para mayoristas.",
+        "Con los datos reales de tu negocio. Vos revisás... y aprobás.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "texto",
+          "lineas": [
+            "¿Qué",
+            "publico",
+            "hoy?"
+          ],
+          "tam": 150
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-marketing-equipo.webp",
+          "titulo": "Equipo de marketing con IA"
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-marketing-borrador.webp",
+          "titulo": "Borradores listos para revisar"
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-marketing-borrador.webp",
+          "titulo": "Borradores listos para revisar",
+          "sello": 1.6
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "ausencias",
+      "titulo": "Menos turnos perdidos",
+      "titular": [
+        "¿Cuántos turnos",
+        "perdés por ausencias?"
+      ],
+      "caption": "¿Cuántos turnos perdés por gente que no aparece? Akira les recuerda el turno 24 horas, 4 horas y 30 minutos antes, y le pide seña a quien falta seguido. Menos ausencias, menos huecos en tu agenda. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#peluqueria",
+        "#turnos",
+        "#argentina",
+        "#negocios"
+      ],
+      "frases": [
+        "¿Cuántos turnos perdés por gente que no aparece?",
+        "Akira les recuerda el turno veinticuatro horas, cuatro horas y media hora antes.",
+        "Y le pide seña a quien falta seguido.",
+        "Menos ausencias, menos huecos en tu agenda.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "texto",
+          "lineas": [
+            "¿Cuántos",
+            "turnos",
+            "perdés?"
+          ],
+          "tam": 150
+        },
+        {
+          "tipo": "recordatorios"
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.3,
+              "texto",
+              "bot",
+              "Para reservar tu turno, pagá la seña con este link:"
+            ],
+            [
+              1.6,
+              "pago",
+              "bot",
+              ""
+            ]
+          ]
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-agenda.webp",
+          "titulo": "Agenda · Akira Cloud"
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "deudores",
+      "titulo": "Cobrar lo que te deben",
+      "titular": [
+        "¿Quién te debe plata",
+        "y no te acordás?"
+      ],
+      "caption": "¿Quién te debe plata y no te acordás? Akira lleva la cuenta de cada cliente, te muestra los deudores y les manda el recordatorio por WhatsApp con tus datos de pago. Sin planillas. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#cobranzas",
+        "#argentina",
+        "#pymes",
+        "#negocios"
+      ],
+      "frases": [
+        "¿Quién te debe plata y no te acordás?",
+        "Akira lleva la cuenta de cada cliente y te muestra los deudores.",
+        "Y les manda el recordatorio por WhatsApp, con tus datos de pago.",
+        "Sin planillas.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "texto",
+          "lineas": [
+            "¿Quién",
+            "te debe?"
+          ],
+          "tam": 160
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-deudores.webp",
+          "titulo": "Deudores · Akira Cloud",
+          "alto": 560
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.3,
+              "texto",
+              "bot",
+              "Hola Marcela, te recordamos un saldo pendiente de $ 25.000. Podés transferir al alias aurora.estudio"
+            ]
+          ]
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Sin",
+            "planillas"
+          ],
+          "tam": 170
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "datos",
+      "titulo": "Tus datos, en tu computadora",
+      "titular": [
+        "Tus datos viven",
+        "en tu computadora"
+      ],
+      "caption": "¿Dónde están los datos de tu negocio? Con Akira, en tu computadora, no en la nube de nadie, y con copias de seguridad cifradas. Pensado para Argentina: pesos y Mercado Pago. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#privacidad",
+        "#argentina",
+        "#negocios",
+        "#tecnologia"
+      ],
+      "frases": [
+        "¿Dónde están los datos de tu negocio?",
+        "Con Akira, en tu computadora. No en la nube de nadie.",
+        "Con copias de seguridad cifradas.",
+        "Y pensado para Argentina: pesos y Mercado Pago.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "texto",
+          "lineas": [
+            "¿Dónde",
+            "están tus",
+            "datos?"
+          ],
+          "tam": 150
+        },
+        {
+          "tipo": "escudo"
+        },
+        {
+          "tipo": "escudo",
+          "offset": 3.0
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Pesos y",
+            "Mercado Pago"
+          ],
+          "tam": 130
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "gratis",
+      "titulo": "Probalo gratis",
+      "titular": [
+        "Probalo gratis:",
+        "7 días de uso"
+      ],
+      "caption": "Probar un sistema no debería costarte nada. Con Akira Cloud son 7 días de uso: solo se gastan los días en que el bot atiende mensajes. Sin tarjeta. Entrá a akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#gratis",
+        "#argentina",
+        "#negocios",
+        "#pymes"
+      ],
+      "frases": [
+        "Probar un sistema no debería costarte nada.",
+        "Con Akira Cloud son siete días de uso.",
+        "Solo se gastan los días en que el bot atiende mensajes.",
+        "Sin tarjeta.",
+        "Entrá a akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Probar",
+            "no debería",
+            "costarte"
+          ],
+          "tam": 140
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "7 días",
+            "de uso"
+          ],
+          "tam": 190
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Solo se gastan",
+            "los días que",
+            "el bot atiende"
+          ],
+          "tam": 100
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Sin",
+            "tarjeta"
+          ],
+          "tam": 190
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    }
+  ]
+}

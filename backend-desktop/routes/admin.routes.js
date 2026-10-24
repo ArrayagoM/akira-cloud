@@ -24,6 +24,34 @@ router.get('/uso', async (req, res) => {
   } catch (e) { logger.error('[Admin] uso: ' + e.message); res.status(500).json({ error: 'No se pudo calcular el uso' }); }
 });
 
+// Ingresos por suscripciones: lo cobrado (pagos aprobados que activaron un plan), por mes y por plan, y las suscripciones vigentes
+router.get('/ingresos', async (req, res) => {
+  try {
+    const Pago = require('../models/Pago');
+    const { armarPlanes } = require('../lib/cobro');
+    const [pagos, usuarios] = await Promise.all([
+      Pago.find({}).sort({ fecha: -1 }).limit(5000).lean(),
+      User.find({ plan: { $in: ['basico', 'pro', 'agencia'] }, planExpira: { $gt: new Date() } }).select('email plan planPeriodo planExpira').lean(),
+    ]);
+    res.json(require('../lib/ingresos').resumir({ pagos, usuarios, planes: armarPlanes() }));
+  } catch (e) { logger.error('[Admin] ingresos: ' + e.message); res.status(500).json({ error: 'No se pudieron calcular los ingresos' }); }
+});
+
+// Descargas del instalador (Windows, Mac, Android) y el embudo: registrados → descargaron → instalaron
+router.get('/descargas', async (req, res) => {
+  try {
+    const dias = Math.min(365, Math.max(1, parseInt(req.query.dias, 10) || 30));
+    const Descarga = require('../models/Descarga');
+    const [lista, usuarios, equipos, conEquipo] = await Promise.all([
+      Descarga.find({}).select('plataforma origen visitante fecha').lean(),
+      User.countDocuments({}),
+      Device.countDocuments({}),
+      Device.distinct('userId'),
+    ]);
+    res.json(require('../lib/descargas').resumir({ descargas: lista, dias, embudo: { usuarios, equipos, usuariosConEquipo: conEquipo.length } }));
+  } catch (e) { logger.error('[Admin] descargas: ' + e.message); res.status(500).json({ error: 'No se pudieron calcular las descargas' }); }
+});
+
 router.get('/dashboard', async (req, res) => {
   try {
     const hace24h = new Date(Date.now() - 24*60*60*1000);
@@ -88,15 +116,16 @@ router.get('/dashboard', async (req, res) => {
 router.post('/email-prueba', async (req, res) => {
   try {
     const { enviarEmail, ultimoErrorEmail } = require('../services/email.service');
-    const { CAMPANAS } = require('../services/email.novedades');
+    const { CAMPANAS, cabecerasBaja } = require('../services/email.novedades');
     if (!process.env.SMTP_HOST) return res.status(503).json({ ok: false, error: 'SMTP no configurado' });
-    const camp = CAMPANAS[req.body?.campana || 'actualizacion-2026-10'];
+    const camp = CAMPANAS[req.body?.campana || 'actualizacion-2026-10d'];
     if (!camp) return res.status(400).json({ ok: false, error: 'Campaña desconocida' });
     const ok = await enviarEmail({
       to: req.user.email,
       subject: camp.asunto(),
       html: camp.html({ nombre: (req.user.nombre || 'Admin').split(' ')[0], userId: String(req.user._id), version: process.env.DESKTOP_VERSION || '1.0.0' }),
-      meta: { tipo: 'prueba', campana: String(req.body?.campana || 'actualizacion-2026-10'), userId: req.user._id },
+      headers: cabecerasBaja(String(req.user._id)),
+      meta: { tipo: 'prueba', campana: String(req.body?.campana || 'actualizacion-2026-10d'), userId: req.user._id },
     });
     res.status(ok ? 200 : 502).json({ ok, para: req.user.email, error: ok ? undefined : ultimoErrorEmail() });
   } catch (err) {
@@ -114,7 +143,7 @@ router.post('/email-prueba', async (req, res) => {
 router.post('/email-novedades', async (req, res) => {
   try {
     const { enviarEmail, ultimoErrorEmail } = require('../services/email.service');
-    const { CAMPANAS } = require('../services/email.novedades');
+    const { CAMPANAS, cabecerasBaja } = require('../services/email.novedades');
     // La campaña hay que pedirla por nombre: nunca se envía una por defecto a todos los usuarios.
     const CAMPAÑA = String(req.body?.campana || '');
     const camp = CAMPANAS[CAMPAÑA];
@@ -132,6 +161,7 @@ router.post('/email-novedades', async (req, res) => {
         to: u.email,
         subject: camp.asunto(),
         html: camp.html({ nombre: (u.nombre || '').split(' ')[0], userId: u._id, version: process.env.DESKTOP_VERSION || '1.0.0', reactivado: !!u.trialReactivado }),
+        headers: cabecerasBaja(u._id),
         meta: { tipo: 'campana', campana: CAMPAÑA, userId: u._id },
       });
       if (ok) { enviados++; await User.updateOne({ _id: u._id }, { $set: { [`novedadesEnviadas.${CAMPAÑA}`]: new Date() } }); }
@@ -215,13 +245,14 @@ router.get('/users', async (req, res) => {
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.min(50, parseInt(req.query.limit) || 20);
     const skip  = (page - 1) * limit;
-    const search = req.query.search || '';
-    const status = req.query.status;
-    const plan   = req.query.plan;
+    const search = String(req.query.search || '').slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const status = ['activo', 'bloqueado', 'pendiente'].includes(req.query.status) ? req.query.status : undefined;
+    const plan   = ['trial', 'basico', 'pro', 'agencia', 'admin'].includes(req.query.plan) ? req.query.plan : undefined;
 
     const query = { rol: 'user' };
     if (status) query.status = status;
     if (plan)   query.plan   = plan;
+    if (req.query.verificacion === 'sin') query.emailVerificado = false;   // cuentas que todavía no confirmaron su email
     if (search) {
       query.$or = [
         { nombre:   { $regex: search, $options: 'i' } },
@@ -244,6 +275,43 @@ router.get('/users', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 //  GET /api/admin/users/:id — detalle de un usuario
 // ─────────────────────────────────────────────────────────────
+// Cuentas que se registraron con email y contraseña, que nunca instalaron la app y que todavía no confirmaron su email: las sospechosas.
+// Sin `confirmar: true` solo las lista. Con `confirmar: true` les exige verificar el email (cierra sus sesiones; quien sea dueño del email
+// escribe el código al volver a entrar, y una cuenta falsa no puede). NO borra ni bloquea nada.
+router.post('/cuentas-sospechosas', async (req, res) => {
+  try {
+    const dias = Math.min(365, Math.max(1, parseInt(req.body?.dias, 10) || 30));
+    const desde = new Date(Date.now() - dias * 86400000);
+    const conEquipo = await Device.distinct('userId');
+    const filtro = { rol: 'user', auth_provider: 'local', plan: 'trial', status: 'activo', esTester: { $ne: true }, emailVerificado: { $ne: false }, createdAt: { $gte: desde }, _id: { $nin: conEquipo } };
+    const lista = await User.find(filtro).select('nombre email createdAt loginCount').sort({ createdAt: -1 }).limit(500).lean();
+    if (req.body?.confirmar !== true) return res.json({ ok: true, dias, cantidad: lista.length, cuentas: lista.map((u) => ({ _id: u._id, nombre: u.nombre, email: u.email, creada: u.createdAt, ingresos: u.loginCount || 0 })) });
+    const ids = lista.map((u) => u._id);
+    const r = await User.updateMany({ _id: { $in: ids } }, { emailVerificado: false, $inc: { tokenVersion: 1 } });
+    await Log.registrar({ userId: req.user._id, tipo: 'admin_action', nivel: 'warn', mensaje: `Admin exigió verificar el email a ${ids.length} cuenta(s) sospechosas (últimos ${dias} días)` });
+    res.json({ ok: true, dias, cantidad: ids.length, modificadas: r.modifiedCount ?? ids.length });
+  } catch (err) { logger.error('[Admin] cuentas-sospechosas: ' + err.message); res.status(500).json({ error: 'No se pudo revisar las cuentas' }); }
+});
+
+router.post('/users/:id/exigir-verificacion', async (req, res) => {
+  try {
+    const u = await User.findOne({ _id: req.params.id, rol: 'user', auth_provider: 'local' });
+    if (!u) return res.status(404).json({ error: 'Usuario no encontrado o no usa email y contraseña' });
+    await User.findByIdAndUpdate(u._id, { emailVerificado: false, $inc: { tokenVersion: 1 } });
+    await Log.registrar({ userId: req.user._id, tipo: 'admin_action', nivel: 'warn', mensaje: `Admin exigió verificar el email de ${u.email}` });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'No se pudo cambiar' }); }
+});
+
+router.post('/users/:id/verificar-email', async (req, res) => {
+  try {
+    const u = await User.findByIdAndUpdate(req.params.id, { emailVerificado: true, emailVerificadoEn: new Date(), $unset: { verifCodigoHash: 1, verifExpira: 1, verifEnviadoEn: 1 } }, { new: true });
+    if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
+    await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Admin marcó como verificado el email de ${u.email}` });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'No se pudo cambiar' }); }
+});
+
 router.get('/users/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).lean();

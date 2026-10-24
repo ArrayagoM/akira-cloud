@@ -48,6 +48,9 @@ function Paso({ n, icono: Icono, titulo, texto, hecho, children }) {
 
 // compacto: versión para el Dashboard (sin preguntas frecuentes) — se
 // oculta sola cuando la app ya quedó instalada y activada.
+// Marca de dónde viene la descarga (para el contador del panel de administración)
+const conOrigen = (url) => (url ? `${url}${url.includes('?') ? '&' : '?'}r=web` : url);
+
 export default function InstalarApp({ compacto = false }) {
   const [info, setInfo] = useState(null);
   const [instalada, setInstalada] = useState(null); // null = todavía no sé
@@ -71,7 +74,7 @@ export default function InstalarApp({ compacto = false }) {
   if (compacto && instalada) return null;
 
   const botonDescarga = info?.disponible ? (
-    <a href={info.url} className="btn-primary inline-flex items-center gap-2 px-5 py-3 rounded-xl text-base font-semibold">
+    <a href={conOrigen(info.url)} className="btn-primary inline-flex items-center gap-2 px-5 py-3 rounded-xl text-base font-semibold">
       <Download size={18} /> Descargar Akira para Windows
       {info.sizeMB ? <span className="text-xs font-normal opacity-80">({info.sizeMB} MB)</span> : null}
     </a>
@@ -120,8 +123,8 @@ export default function InstalarApp({ compacto = false }) {
               <>
                 <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>El mismo programa, con las mismas funciones. Elegí según el chip de tu Mac (menú  → “Acerca de esta Mac”).</p>
                 <div className="flex flex-col gap-2 mt-3">
-                  {info.mac.arm64 && <a href={info.mac.arm64} className="btn-primary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con chip M1, M2, M3 o M4</a>}
-                  {info.mac.x64 && <a href={info.mac.x64} className="btn-secondary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con procesador Intel</a>}
+                  {info.mac.arm64 && <a href={conOrigen(info.mac.arm64)} className="btn-primary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con chip M1, M2, M3 o M4</a>}
+                  {info.mac.x64 && <a href={conOrigen(info.mac.x64)} className="btn-secondary text-sm inline-flex items-center justify-center gap-2"><Download size={15} /> Mac con procesador Intel</a>}
                 </div>
                 <ol className="text-xs mt-3 space-y-1 list-decimal pl-4" style={{ color: 'var(--text2)' }}>
                   <li>Abrí el archivo y arrastrá Akira a Aplicaciones.</li>
@@ -140,7 +143,7 @@ export default function InstalarApp({ compacto = false }) {
             <p className="font-semibold text-white flex items-center gap-2"><Smartphone size={16} style={{ color: '#00e87b' }} />App del celular</p>
             <p className="text-sm mt-1.5" style={{ color: 'var(--text2)' }}>Mirá si tu bot está atendiendo, el resumen del día, pausalo y recibí un aviso si se cae. Funciona en <b>iPhone y Android</b> y se instala desde acá, sin tiendas de apps.</p>
             {info?.android?.disponible && (
-              <a href={info.android.url} className="btn-primary text-sm inline-flex items-center justify-center gap-2 mt-3 w-full">
+              <a href={conOrigen(info.android.url)} className="btn-primary text-sm inline-flex items-center justify-center gap-2 mt-3 w-full">
                 <Download size={15} /> Descargar app para Android (.apk){info.android.sizeMB ? <span className="text-xs font-normal opacity-80">({info.android.sizeMB} MB)</span> : null}
               </a>
             )}

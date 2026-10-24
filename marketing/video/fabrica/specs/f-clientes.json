@@ -1,0 +1,70 @@
+{
+  "id": "f-clientes",
+  "titulo": "Clientes",
+  "titular": [
+    "Todos tus clientes,",
+    "con su historia"
+  ],
+  "frases": [
+    "¿Te acordás qué se hizo cada cliente la última vez?",
+    "En Clientes abrís la ficha con sus turnos, lo que debe y los documentos que mandó.",
+    "Guardás notas que solo ves vos y armás grupos, como los clientes VIP.",
+    "Y podés escribirle a un grupo: lo revisás antes, y se respeta a quien pide la baja.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/clientes.png",
+      "titulo": "Clientes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/clientes.png",
+      "titulo": "Clientes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/clientes.png",
+      "titulo": "Clientes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/clientes.png",
+      "titulo": "Clientes",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Clientes en Akira Cloud: ficha completa, notas privadas, etiquetas y mensajes a grupos con tope diario y baja voluntaria. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#clientes",
+    "#crm",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

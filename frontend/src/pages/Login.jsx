@@ -3,12 +3,14 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Bot, Eye, EyeOff, AlertCircle, ArrowRight, Lock, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
+import VerificarEmail from '../components/VerificarEmail';
 
 export default function Login() {
   const [form, setForm]       = useState({ email: '', password: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [verificando, setVerificando] = useState(null);   // email pendiente de confirmar (la cuenta existe pero no confirmó el código)
   const { login }             = useAuth();
   const navigate              = useNavigate();
   const [params]              = useSearchParams();
@@ -24,6 +26,7 @@ export default function Login() {
       toast.success(`¡Bienvenido, ${user.nombre}!`);
       navigate(user.rol === 'admin' ? '/admin' : '/dashboard');
     } catch (err) {
+      if (err.response?.status === 403 && err.response?.data?.codigo === 'EMAIL_NO_VERIFICADO') { setVerificando(err.response.data.email || form.email); return; }
       setError(err.response?.data?.error || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
@@ -31,6 +34,16 @@ export default function Login() {
   };
 
   const oauthError = params.get('error');
+
+  if (verificando) return (
+    <div className="auth-bg">
+      <div className="auth-orb auth-orb-1" />
+      <div className="auth-orb auth-orb-2" />
+      <div className="w-full max-w-md relative z-10">
+        <VerificarEmail email={verificando} onVolver={() => setVerificando(null)} onListo={(u) => { toast.success(`¡Bienvenido, ${u.nombre}!`); navigate(u.rol === 'admin' ? '/admin' : '/dashboard'); }} />
+      </div>
+    </div>
+  );
 
   return (
     <div className="auth-bg">
@@ -135,7 +148,7 @@ export default function Login() {
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
                 <input
                   name="email" type="email" value={form.email} onChange={handle}
-                  required autoComplete="email"
+                  required autoComplete="email" maxLength={254} inputMode="email" autoCapitalize="none" spellCheck={false}
                   className="input-base pl-9"
                   placeholder="tu@email.com"
                 />
@@ -150,7 +163,7 @@ export default function Login() {
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
                 <input
                   name="password" type={showPwd ? 'text' : 'password'} value={form.password} onChange={handle}
-                  required autoComplete="current-password"
+                  required autoComplete="current-password" maxLength={200}
                   className="input-base pl-9 pr-10"
                   placeholder="••••••••"
                 />

@@ -1,0 +1,70 @@
+{
+  "id": "f-vender",
+  "titulo": "Vender",
+  "titular": [
+    "Ventas de mostrador",
+    "en dos toques"
+  ],
+  "frases": [
+    "¿Cobrás en el local con una libreta y una calculadora?",
+    "Armás la venta tocando productos o escaneando el código de barras.",
+    "Elegís cómo pagó: efectivo, tarjeta, transferencia o Mercado Pago.",
+    "Se descuenta el stock y el ingreso entra solo a la Caja.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/vender.png",
+      "titulo": "Vender",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/vender.png",
+      "titulo": "Vender",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/vender.png",
+      "titulo": "Vender",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/vender.png",
+      "titulo": "Vender",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Vender en Akira Cloud: ventas de mostrador con lector de código de barras, stock que se descuenta y cobro que entra a la Caja. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#kiosco",
+    "#comercio",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

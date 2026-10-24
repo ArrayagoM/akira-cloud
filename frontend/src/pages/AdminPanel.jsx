@@ -7,11 +7,14 @@ import {
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
   Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck,
   Lightbulb, TrendingUp, RotateCcw, Zap, WifiOff, Wifi,
-  Info, Filter, Mail
+  Info, Filter, Mail, Wallet, Download
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminEmails from '../components/AdminEmails';
 import AdminUso from '../components/AdminUso';
+import AdminIngresos from '../components/AdminIngresos';
+import AdminDescargas from '../components/AdminDescargas';
+import AdminCuentasSospechosas from '../components/AdminCuentasSospechosas';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
 function AdminStat({ icon, label, value, color = 'text-white' }) {
@@ -115,6 +118,19 @@ function UserModal({ user, onClose, onAction }) {
                 </button>
               </div>
             </div>
+
+            {/* Email: verificación */}
+            {user.auth_provider === 'local' && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-400 uppercase">Email</label>
+                <p className="text-xs" style={{ color: user.emailVerificado === false ? '#fbbf24' : '#9ca3af' }}>
+                  {user.emailVerificado === false ? 'Sin verificar: no puede entrar hasta escribir el código que le llega al email.' : (user.emailVerificado === true ? 'Verificado con código.' : 'Cuenta anterior a la verificación de email.')}
+                </p>
+                {user.emailVerificado === false
+                  ? <button onClick={() => action('verificarEmail', {})} disabled={loading.verificarEmail} className="btn-secondary w-full text-xs">Marcar como verificado a mano</button>
+                  : <button onClick={() => action('exigirVerif', {})} disabled={loading.exigirVerif} className="btn-secondary w-full text-xs">Exigir que confirme su email</button>}
+              </div>
+            )}
 
             {/* Bloquear / Desbloquear */}
             {user.status === 'activo' ? (
@@ -349,7 +365,9 @@ export default function AdminPanel() {
   const cargarUsuarios  = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get(`/admin/users?page=${page}&search=${search}&status=${filtro}&limit=15`);
+      const q = new URLSearchParams({ page, search, limit: 15 });
+      if (filtro === 'sin-verificar') q.set('verificacion', 'sin'); else if (filtro) q.set('status', filtro);
+      const r = await api.get(`/admin/users?${q.toString()}`);
       setUsers(r.data.users); setPages(r.data.pages); setTotal(r.data.total);
     } finally { setLoading(false); }
   }, [page, search, filtro]);
@@ -407,6 +425,8 @@ export default function AdminPanel() {
         const r = await api.post(`/admin/users/${userId}/activar-plan`, payload);
         toast.success(`✅ Plan ${payload.plan} activado — expira ${new Date(r.data.expira).toLocaleDateString('es-AR')}`);
       }
+      if (tipo === 'exigirVerif')   await api.post(`/admin/users/${userId}/exigir-verificacion`).then(() => toast.success('Ahora tiene que confirmar su email para entrar'));
+      if (tipo === 'verificarEmail') await api.post(`/admin/users/${userId}/verificar-email`).then(() => toast.success('Email marcado como verificado'));
       if (tipo === 'tester') {
         const r = await api.post(`/admin/users/${userId}/tester`);
         toast.success(r.data.esTester ? '🧪 Modo tester activado' : 'Modo tester desactivado');
@@ -444,6 +464,8 @@ export default function AdminPanel() {
     { id: 'logs',      label: 'Logs',         icon: <AlertTriangle size={15} /> },
     { id: 'referidos', label: 'Referidos',    icon: <GitBranch size={15} /> },
     { id: 'emails',    label: 'Emails',       icon: <Mail size={15} /> },
+    { id: 'ingresos',  label: 'Ingresos', icon: <Wallet size={15} /> },
+    { id: 'descargas', label: 'Descargas', icon: <Download size={15} /> },
     { id: 'uso',       label: 'Uso de la app', icon: <TrendingUp size={15} /> },
     { id: 'ideas',     label: 'Ideas 💡',     icon: <Lightbulb size={15} /> },
   ];
@@ -517,6 +539,7 @@ export default function AdminPanel() {
         {/* ── TAB: Usuarios ── */}
         {tab === 'usuarios' && (
           <div className="space-y-4">
+            <AdminCuentasSospechosas onCambio={() => { cargarUsuarios(); cargarStats(); }} />
             {/* Filtros */}
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
@@ -531,6 +554,7 @@ export default function AdminPanel() {
                 <option value="activo">Activos</option>
                 <option value="bloqueado">Bloqueados</option>
                 <option value="pendiente">Pendientes</option>
+                <option value="sin-verificar">Sin verificar el email</option>
               </select>
             </div>
 
@@ -565,7 +589,7 @@ export default function AdminPanel() {
                           {u.esTester && <span className="text-xs text-indigo-400 flex items-center gap-0.5"><FlaskConical size={10}/>tester</span>}
                         </div>
                       </td>
-                      <td className="px-3 py-3"><StatusBadge status={u.status} /></td>
+                      <td className="px-3 py-3"><div className="flex items-center gap-1 flex-wrap"><StatusBadge status={u.status} />{u.emailVerificado === false && <span className="badge-yellow">sin verificar</span>}</div></td>
                       <td className="px-3 py-3 hidden md:table-cell">
                         {u.botConectado
                           ? <span className="flex items-center gap-1 text-xs text-green-400"><span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>Activo</span>
@@ -894,6 +918,8 @@ export default function AdminPanel() {
         {/* ── TAB: Ideas ── */}
         {tab === 'emails' && <AdminEmails />}
 
+        {tab === 'ingresos' && <AdminIngresos />}
+        {tab === 'descargas' && <AdminDescargas />}
         {tab === 'uso' && <AdminUso />}
 
         {tab === 'ideas' && (

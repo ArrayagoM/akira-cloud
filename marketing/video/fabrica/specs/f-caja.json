@@ -1,0 +1,70 @@
+{
+  "id": "f-caja",
+  "titulo": "Caja",
+  "titular": [
+    "La plata de tu negocio,",
+    "mes a mes"
+  ],
+  "frases": [
+    "¿Sabés cuánto ganaste este mes?",
+    "La Caja suma sola los turnos cobrados, y vos cargás ingresos y gastos.",
+    "Ves el resultado, los cobros por método de pago y lo que te deben.",
+    "Cerrás la caja del día y exportás el mes para tu contador.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/caja.png",
+      "titulo": "Caja",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/caja.png",
+      "titulo": "Caja",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/caja.png",
+      "titulo": "Caja",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/caja.png",
+      "titulo": "Caja",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "La Caja de Akira Cloud: ingresos, gastos y resultado del mes, cierre de caja diario y exportación a Excel o PDF. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#finanzas",
+    "#pymes",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

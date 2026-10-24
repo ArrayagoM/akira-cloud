@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Bot, Eye, EyeOff, Lock } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { errorPassword } from '../utils/validaciones';
 
 export default function ResetPassword() {
   const [params]           = useSearchParams();
@@ -18,6 +19,8 @@ export default function ResetPassword() {
   const submit = async (e) => {
     e.preventDefault();
     if (password !== password2) { toast.error('Las contraseñas no coinciden'); return; }
+    const problema = errorPassword(password, { email });
+    if (problema) { toast.error(problema); return; }
     setLoading(true);
     try {
       await api.post('/auth/reset-password', { email, token, password });
@@ -58,7 +61,7 @@ export default function ResetPassword() {
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
                 <input type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                  required className="input-base pl-9 pr-10" placeholder="Mínimo 8 caracteres" />
+                  required maxLength={72} autoComplete="new-password" className="input-base pl-9 pr-10" placeholder="Mínimo 8 caracteres" />
                 <button type="button" onClick={() => setShowPwd(!showPwd)}
                   className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }}>
                   {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -71,7 +74,7 @@ export default function ResetPassword() {
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
                 <input type={showPwd ? 'text' : 'password'} value={password2} onChange={e => setPassword2(e.target.value)}
-                  required className="input-base pl-9" placeholder="••••••••" />
+                  required maxLength={72} autoComplete="new-password" className="input-base pl-9" placeholder="••••••••" />
               </div>
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full h-11">

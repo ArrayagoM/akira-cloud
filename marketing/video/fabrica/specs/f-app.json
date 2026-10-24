@@ -1,0 +1,70 @@
+{
+  "id": "f-app",
+  "titulo": "App",
+  "titular": [
+    "Instalalo en",
+    "otra computadora"
+  ],
+  "frases": [
+    "¿Querés usar Akira en otra computadora?",
+    "Descargás el programa para Windows, o la versión de prueba para Mac.",
+    "En Windows se actualiza sola, desde el botón de buscar actualización.",
+    "Y en el celular tenés un control remoto del bot: app para Android y versión web para iPhone.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/app.png",
+      "titulo": "App",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/app.png",
+      "titulo": "App",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/app.png",
+      "titulo": "App",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/app.png",
+      "titulo": "App",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "App en Akira Cloud: descarga para Windows, versión de prueba para Mac y control remoto desde el celular (Android y iPhone). Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#software",
+    "#windows",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

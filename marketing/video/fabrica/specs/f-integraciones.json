@@ -1,0 +1,70 @@
+{
+  "id": "f-integraciones",
+  "titulo": "Integraciones",
+  "titular": [
+    "Conectá Akira",
+    "con tus herramientas"
+  ],
+  "frases": [
+    "¿Usás Zapier, Make o n8n?",
+    "Akira avisa por webhook una venta, un pedido pagado o un turno confirmado.",
+    "Y mantiene planillas actualizadas en una carpeta de Drive, OneDrive o Dropbox.",
+    "Es opcional, viene apagado, y nadie puede mandarle órdenes desde internet.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/integraciones.png",
+      "titulo": "Integraciones",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/integraciones.png",
+      "titulo": "Integraciones",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/integraciones.png",
+      "titulo": "Integraciones",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/integraciones.png",
+      "titulo": "Integraciones",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Integraciones en Akira Cloud: webhooks firmados hacia Zapier, Make o n8n y planillas siempre actualizadas. Opcional y apagado por defecto. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#zapier",
+    "#automatizacion",
+    "#pymes",
+    "#akiracloud"
+  ]
+}

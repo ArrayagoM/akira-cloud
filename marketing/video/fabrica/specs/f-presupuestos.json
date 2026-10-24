@@ -1,0 +1,70 @@
+{
+  "id": "f-presupuestos",
+  "titulo": "Presupuestos y recibos",
+  "titular": [
+    "Presupuestos con tu logo,",
+    "listos en un minuto"
+  ],
+  "frases": [
+    "¿Armás los presupuestos a mano y los mandás en una foto?",
+    "Elegís el cliente, sumás productos o servicios, y sale un PDF con tu logo.",
+    "Se lo mandás por WhatsApp con un toque.",
+    "Cuando paga, se genera el recibo y el cobro entra a la Caja. Ojo: no son facturas fiscales.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/presupuestos.png",
+      "titulo": "Presupuestos y recibos",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/presupuestos.png",
+      "titulo": "Presupuestos y recibos",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/presupuestos.png",
+      "titulo": "Presupuestos y recibos",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/presupuestos.png",
+      "titulo": "Presupuestos y recibos",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Presupuestos y recibos en Akira Cloud: PDF con tu logo, envío por WhatsApp y cobro a la Caja. Son comprobantes comunes, no facturas fiscales. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#presupuesto",
+    "#pymes",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

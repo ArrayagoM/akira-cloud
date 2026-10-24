@@ -1,0 +1,70 @@
+{
+  "id": "f-dashboard",
+  "titulo": "Dashboard",
+  "titular": [
+    "¿Tu bot está atendiendo",
+    "ahora mismo?"
+  ],
+  "frases": [
+    "¿Sabés si tu bot está atendiendo ahora mismo?",
+    "En el Dashboard ves los mensajes, las reservas y los cobros del día.",
+    "Una lista en vivo te muestra todo lo que el bot va haciendo.",
+    "Y si querés atender vos un rato, activás el modo pausa.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Dashboard",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Dashboard",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Dashboard",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/dashboard.png",
+      "titulo": "Dashboard",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "El Dashboard de Akira Cloud: prendés el bot, ves los números del día y lo que hace en vivo, y lo pausás cuando querés atender vos. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#whatsappbusiness",
+    "#emprendedores",
+    "#argentina",
+    "#akiracloud"
+  ]
+}

@@ -40,6 +40,16 @@ const UserSchema = new mongoose.Schema(
       default: 'user',
     },
 
+    // Verificación del email (ver lib/seguridad-cuentas.js). Sin default a propósito: las cuentas anteriores (campo ausente) se consideran
+    // verificadas; las nuevas por email y contraseña nacen con false y se confirman con un código de 6 dígitos que llega al mail.
+    emailVerificado:   { type: Boolean },
+    emailVerificadoEn: { type: Date },
+    verifCodigoHash:   { type: String, select: false },   // hash del código (nunca el código)
+    verifExpira:       { type: Date, select: false },
+    verifIntentos:     { type: Number, default: 0, select: false },
+    verifEnviadoEn:    { type: Date, select: false },
+    verifPedidoEn:     { type: Date, select: false },      // cuándo se envió el formulario de registro (para no pisar un alta reciente)
+
     status: {
       type: String,
       enum: ['activo', 'bloqueado', 'pendiente'],

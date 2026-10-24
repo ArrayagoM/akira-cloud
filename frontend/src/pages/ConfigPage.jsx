@@ -308,6 +308,7 @@ export default function ConfigPage() {
     tipoNegocio: 'turnos', checkInHora: '14:00', checkOutHora: '10:00',
     minimaEstadia: '1',
     unidadesAlojamiento: [], direccionPropiedad: '', linkUbicacion: '',
+    telefonoNegocio: '', instagramNegocio: '', webNegocio: '', comoLlegar: '',
   });
   const [nuevoServicio, setNuevoServicio] = useState({ nombre: '', precio: '', duracion: '60', intervaloRecordatorioDias: '0', mensajeRecordatorio: '' });
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
@@ -438,6 +439,10 @@ export default function ConfigPage() {
         unidadesAlojamiento:   Array.isArray(c.unidadesAlojamiento) ? c.unidadesAlojamiento : [],
         direccionPropiedad:    c.direccionPropiedad || '',
         linkUbicacion:         c.linkUbicacion  || '',
+        telefonoNegocio:       c.telefonoNegocio || '',
+        instagramNegocio:      c.instagramNegocio || '',
+        webNegocio:            c.webNegocio || '',
+        comoLlegar:            c.comoLlegar || '',
       });
       if (c.horariosAtencion && Object.keys(c.horariosAtencion).length > 0) {
         // Normalizar: migrar formato legado { inicio, fin } → { franjas: [...] }
@@ -835,43 +840,6 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                {/* Dirección y ubicación */}
-                <div className="space-y-2 border-t border-indigo-800/30 pt-3">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">📍 Dirección y ubicación</p>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Dirección de la propiedad</label>
-                    <input name="direccionPropiedad" value={form.direccionPropiedad} onChange={handleForm}
-                      className="input-base" placeholder="Ej: Av. Siempreviva 742, Villa Carlos Paz, Córdoba" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Link de Google Maps (opcional)</label>
-                    <input name="linkUbicacion" value={form.linkUbicacion} onChange={handleForm}
-                      className="input-base" placeholder="https://maps.app.goo.gl/..." />
-                    <p className="text-xs text-gray-600 mt-1">El bot comparte este link cuando confirma una reserva.</p>
-                    {/* Link válido: botón de apertura */}
-                    {form.linkUbicacion && form.linkUbicacion.startsWith('http') && (
-                      <a href={form.linkUbicacion} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-1.5 transition-colors">
-                        <MapPin size={11} /> Abrir en Google Maps
-                      </a>
-                    )}
-                  </div>
-                  {/* Vista previa del mapa desde la dirección ingresada */}
-                  {form.direccionPropiedad.trim() && (
-                    <div className="rounded-xl overflow-hidden border border-gray-700 mt-1" style={{ height: 180 }}>
-                      <iframe
-                        title="Vista previa ubicación"
-                        width="100%" height="180"
-                        frameBorder="0"
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        src={`https://maps.google.com/maps?q=${encodeURIComponent(form.direccionPropiedad.trim())}&output=embed&z=15`}
-                        className="w-full h-full"
-                      />
-                    </div>
-                  )}
-                </div>
-
                 {/* Unidades de alojamiento */}
                 <div className="space-y-3 border-t border-indigo-800/30 pt-3">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">🏠 Unidades (cabañas / departamentos / habitaciones)</p>
@@ -1007,6 +975,66 @@ export default function ConfigPage() {
                 <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Horas mín. para cancelar</label>
                 <input name="horasCancelacion" type="number" value={form.horasCancelacion} onChange={handleForm} min="0" className="input-base" />
               </div>
+            </div>
+            <div className="space-y-3 border-t border-gray-800 pt-4">
+              <div>
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">📍 Dónde estás y cómo contactarte</p>
+                <p className="text-xs text-gray-500 mt-1">Es lo que el bot les dice a tus clientes cuando preguntan "¿dónde están?" o "¿cómo los contacto?". Si algo no está cargado, el bot no lo inventa: te avisa a vos.</p>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Dirección</label>
+                <input name="direccionPropiedad" value={form.direccionPropiedad} onChange={handleForm} maxLength={160}
+                  className="input-base" placeholder="Ej: Av. San Martín 1234, Ranchos, Buenos Aires" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Link de Google Maps (opcional)</label>
+                <input name="linkUbicacion" value={form.linkUbicacion} onChange={handleForm}
+                  className="input-base" placeholder="https://maps.app.goo.gl/..." />
+                {form.linkUbicacion && !/^https?:\/\//i.test(form.linkUbicacion) && (
+                  <p className="text-xs text-amber-400 mt-1">El link tiene que empezar con http:// o https:// para que el bot lo use.</p>
+                )}
+                {form.linkUbicacion && /^https?:\/\//i.test(form.linkUbicacion) && (
+                  <a href={form.linkUbicacion} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mt-1.5 transition-colors">
+                    <MapPin size={11} /> Abrir en Google Maps
+                  </a>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Cómo llegar / estacionamiento (opcional)</label>
+                <input name="comoLlegar" value={form.comoLlegar} onChange={handleForm} maxLength={300}
+                  className="input-base" placeholder="Ej: A una cuadra de la plaza. Hay estacionamiento sobre la calle." />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Teléfono de contacto</label>
+                  <input name="telefonoNegocio" value={form.telefonoNegocio} onChange={handleForm} maxLength={40}
+                    className="input-base" placeholder="+54 9 11 5555-1234" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Instagram</label>
+                  <input name="instagramNegocio" value={form.instagramNegocio} onChange={handleForm} maxLength={60}
+                    className="input-base" placeholder="@minegocio" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Sitio web</label>
+                  <input name="webNegocio" value={form.webNegocio} onChange={handleForm}
+                    className="input-base" placeholder="https://minegocio.com.ar" />
+                </div>
+              </div>
+              {form.direccionPropiedad.trim() && (
+                <div className="rounded-xl overflow-hidden border border-gray-700" style={{ height: 160 }}>
+                  <iframe
+                    title="Vista previa ubicación"
+                    width="100%" height="160"
+                    frameBorder="0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(form.direccionPropiedad.trim())}&output=embed&z=15`}
+                    className="w-full h-full"
+                  />
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Instrucciones extra para la IA</label>

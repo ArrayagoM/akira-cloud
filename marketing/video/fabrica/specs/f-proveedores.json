@@ -1,0 +1,70 @@
+{
+  "id": "f-proveedores",
+  "titulo": "Proveedores",
+  "titular": [
+    "¿Cuánto le debés",
+    "a cada proveedor?"
+  ],
+  "frases": [
+    "¿Sabés cuánto le debés a cada proveedor?",
+    "Cargás cada proveedor con su CUIT, su rubro y tus notas.",
+    "Llevás lo que debés y los pagos que hacés, y también aparece en la Caja.",
+    "Y ves cuánto le comprás a cada uno por mes.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/proveedores.png",
+      "titulo": "Proveedores",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/proveedores.png",
+      "titulo": "Proveedores",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/proveedores.png",
+      "titulo": "Proveedores",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/proveedores.png",
+      "titulo": "Proveedores",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Proveedores en Akira Cloud: la cuenta de tus compras a crédito y cuánto le comprás a cada proveedor por mes. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#proveedores",
+    "#pymes",
+    "#negocios",
+    "#akiracloud"
+  ]
+}

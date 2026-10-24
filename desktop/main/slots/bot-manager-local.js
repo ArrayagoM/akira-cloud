@@ -65,6 +65,10 @@ async function construirCredenciales(userId, slot) {
     UNIDADES_ALOJAMIENTO: JSON.stringify(config.unidadesAlojamiento || []),
     DIRECCION_PROPIEDAD: config.direccionPropiedad || '',
     LINK_UBICACION: config.linkUbicacion || '',
+    TELEFONO_NEGOCIO: config.telefonoNegocio || '',
+    INSTAGRAM_NEGOCIO: config.instagramNegocio || '',
+    WEB_NEGOCIO: config.webNegocio || '',
+    COMO_LLEGAR: config.comoLlegar || '',
     CATALOGO: JSON.stringify(config.catalogo || []),
   };
 

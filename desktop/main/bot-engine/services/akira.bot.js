@@ -41,6 +41,8 @@ const { notaFueraDeHorario } = require('./bot/horario-atencion');
 const ausenciasSvc = require('./bot/ausencias.service');
 const resenasSvc = require('./bot/resenas.service');
 const conocimientoSvc = require('./bot/conocimiento.service');
+const catalogoBusq = require('./bot/catalogo-busqueda');
+const infoNegocioSvc = require('./bot/info-negocio');
 const pedidosSvc = require('./bot/pedidos.service');
 const analiticaSvc = require('./bot/analitica.service');
 const copilotoSvc = require('./bot/copiloto.service');
@@ -208,8 +210,14 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
       return [];
     }
   })();
-  const DIRECCION_PROPIEDAD = config.DIRECCION_PROPIEDAD || '';
-  const LINK_UBICACION = config.LINK_UBICACION || '';
+  // Datos de contacto y ubicación del negocio (valen para todos los rubros y se recargan en caliente al guardar la configuración).
+  let DIRECCION_PROPIEDAD = config.DIRECCION_PROPIEDAD || '';
+  let LINK_UBICACION = config.LINK_UBICACION || '';
+  let TELEFONO_NEGOCIO = config.TELEFONO_NEGOCIO || '';
+  let INSTAGRAM_NEGOCIO = config.INSTAGRAM_NEGOCIO || '';
+  let WEB_NEGOCIO = config.WEB_NEGOCIO || '';
+  let COMO_LLEGAR = config.COMO_LLEGAR || '';
+  let HAY_CONOCIMIENTO = false; // el dueño cargó documentos en Conocimiento: se le ofrece la herramienta consultar_informacion
   let CATALOGO = (() => {
     try {
       return JSON.parse(config.CATALOGO || '[]');
@@ -295,6 +303,7 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
     tipoNegocio: TIPO_NEGOCIO,
     catalogo: CATALOGO,
     pedidosActivos: () => !!options.obtenerProgramas?.()?.pedidos?.activa,
+    conocimientoActivo: () => HAY_CONOCIMIENTO,
   });
   const waitlistSvc = crearWaitlistService({ userId: USER_ID, calendarId: CALENDAR_ID, log });
 
@@ -883,13 +892,11 @@ Revisalo en Akira → Documentos.`);
     const esAlojamiento = TIPO_NEGOCIO === 'alojamiento';
     const esServicios = TIPO_NEGOCIO === 'servicios';
 
-    // Armar listado del catálogo de productos (si existe)
-    const catalogoStr = CATALOGO.filter((p) => p.disponible)
-      .map(
-        (p) =>
-          `• *${p.nombre}*: $${p.precio} ${p.moneda || 'ARS'}${p.categoria ? ` [${p.categoria}]` : ''}${p.descripcion ? ` — ${p.descripcion}` : ''}${p.stock >= 0 ? ` (stock: ${p.stock})` : ''}`,
-      )
-      .join('\n');
+    // Listado del catálogo para el prompt (con tope: un catálogo grande no se manda entero; el bot busca el resto con consultar_catalogo)
+    const catalogoStr = catalogoBusq.resumenParaPrompt(CATALOGO);
+
+    // Datos del negocio (dirección, mapa, teléfono, Instagram, web, cómo llegar): para todos los rubros
+    const infoNegocioStr = infoNegocioSvc.bloquePrompt({ direccionPropiedad: DIRECCION_PROPIEDAD, linkUbicacion: LINK_UBICACION, telefonoNegocio: TELEFONO_NEGOCIO, instagramNegocio: INSTAGRAM_NEGOCIO, webNegocio: WEB_NEGOCIO, comoLlegar: COMO_LLEGAR }, { dueno: MI_NOMBRE });
 
     // Armar descripción de unidades de alojamiento
     const unidadesStr =
@@ -933,6 +940,7 @@ Revisalo en Akira → Documentos.`);
         (catalogoStr
           ? `📦 PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan.\n`
           : '') +
+        infoNegocioStr +
         (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
       : esAlojamiento
         ? `Sos Akira, asistente de ${MI_NOMBRE} (${NEGOCIO}). Hablás con ${usuario.nombre}. Tono cálido, humano, WhatsApp.\n` +
@@ -947,8 +955,6 @@ Revisalo en Akira → Documentos.`);
           (unidadesStr
             ? `🛏️ UNIDADES DISPONIBLES:\n${unidadesStr}\nCada unidad es INDEPENDIENTE: podés consultar disponibilidad por unidad pasando nombre_unidad.\n`
             : '') +
-          (DIRECCION_PROPIEDAD ? `📍 Dirección: ${DIRECCION_PROPIEDAD}\n` : '') +
-          (LINK_UBICACION ? `🗺️ Ubicación Google Maps: ${LINK_UBICACION}\n` : '') +
           `💳 Método de pago: ${metodoPago}\n` +
           (ALIAS_TRANSFERENCIA || CBU_TRANSFERENCIA
             ? `Transferencia: Alias=${ALIAS_TRANSFERENCIA}${CBU_TRANSFERENCIA ? ` / CBU=${CBU_TRANSFERENCIA}` : ''}${BANCO_TRANSFERENCIA ? ` / ${BANCO_TRANSFERENCIA}` : ''}\n`
@@ -967,6 +973,7 @@ Revisalo en Akira → Documentos.`);
           (catalogoStr
             ? `📦 CATÁLOGO DE PRODUCTOS:\n${catalogoStr}\nUsá consultar_catalogo si preguntan por productos.\n`
             : '') +
+          infoNegocioStr +
           (PROMPT_EXTRA ? `INSTRUCCIONES EXTRA: ${PROMPT_EXTRA}\n` : '')
         : `Sos Akira, la asistente virtual de ${MI_NOMBRE} (${NEGOCIO}). Estás hablando con ${usuario.nombre}.\n` +
           `🎯 PERSONALIDAD: Sos cálida, profesional y entusiasta. Usás un tono cercano y natural para WhatsApp, como si fueras una persona real del equipo. Usás emojis con moderación, frases amigables y transmitís confianza. Nunca sos robótica ni fría.\n` +
@@ -1011,11 +1018,13 @@ Revisalo en Akira → Documentos.`);
           `  - Si el cliente dice "también quiero el de las X" → es un NUEVO turno, no un reagendamiento\n` +
           `  - Si el cliente dice "el de las X" y X es la hora de FIN de un slot (ej: slot 12:00-13:00, cliente dice "el de las 13") → interpretarlo como ese slot (12:00)\n` +
           `  - Si el cliente pide una hora que no fue mostrada como disponible, explicale cuáles SÍ están disponibles y ofrecele esas opciones\n` +
+          `  - Si NO hay ningún horario libre para el día que pide, ofrecele anotarlo en la lista de espera (anotarse_en_waitlist) y avisale que lo contactamos si se libera un lugar. Solo lo anotás si acepta.\n` +
           `💬 ESTILO DE RESPUESTA: Natural, cálido y profesional. Máximo 6 líneas. Sin listas largas ni tecnicismos. Hablá con voseo rioplatense ("tenés", "querés", "decime"), nunca con tuteo ("tienes", "quieres").\n` +
           `👋 SI EL MENSAJE ES SOLO UN SALUDO ("hola", "buenas") NO llames a ninguna herramienta: saludá con calidez y preguntá en qué lo podés ayudar. Los horarios o precios se dan solo cuando los pide.\n` +
           (catalogoStr
             ? `📦 PRODUCTOS DISPONIBLES:\n${catalogoStr}\nUsá consultar_catalogo si el cliente pregunta por algún producto.\n`
             : '') +
+          infoNegocioStr +
           (PROMPT_EXTRA ? `\n🔔 INSTRUCCIONES ESPECIALES DEL NEGOCIO:\n${PROMPT_EXTRA}\n` : '');
 
     // Clientes que faltan seguido a sus turnos: se les pide el pago por adelantado (solo si hay cómo cobrarlo)
@@ -1060,6 +1069,7 @@ Revisalo en Akira → Documentos.`);
       const consulta = conocimientoSvc.consultaDesdeHistorial(usuario.historial);
       if (consulta) {
         const docsConocimiento = await require('../models/Conocimiento').find({ userId: USER_ID }).lean();
+        HAY_CONOCIMIENTO = docsConocimiento.length > 0;
         if (docsConocimiento.length) notaConocimiento = conocimientoSvc.notaParaPrompt(conocimientoSvc.buscar(docsConocimiento, consulta, { k: 3 }));
       }
     } catch { /* sin base de conocimiento: el bot sigue normal */ }
@@ -1072,6 +1082,7 @@ Revisalo en Akira → Documentos.`);
         notaFidelidad +
         notaPedidos +
         notaConocimiento +
+        `🧭 LO QUE NO SABÉS: nunca inventes datos del negocio (dirección, precios, políticas, productos, horarios especiales). Si el cliente pregunta algo que no está en lo que te di${HAY_CONOCIMIENTO ? ' ni en lo que devuelve consultar_informacion' : ''}, usá avisar_al_dueno y decile que ya le avisaste a ${MI_NOMBRE} y que le va a responder.\n` +
         notaFueraDeHorario(HORARIOS_ATENCION, DIAS_BLOQUEADOS, new Date(), { modoPausa: MODO_PAUSA, dueno: MI_NOMBRE }) +
         '\n🚨 CRÍTICO: si corresponde usar una herramienta, INVOCALA directamente en esta misma respuesta — nunca escribas el nombre de la función ni digas "voy a llamar a..." o "llamemos a la función" en el texto. El cliente real no tiene que ver nada de eso.\n',
     };
@@ -2308,24 +2319,9 @@ Revisalo en Akira → Documentos.`);
     }
 
     if (tool.function.name === 'consultar_catalogo') {
-      const { query = '', categoria = '' } = args;
-      const q = query.toLowerCase();
-      const cat = categoria.toLowerCase();
-      const resultados = CATALOGO.filter((p) => {
-        if (!p.disponible) return false;
-        if (cat && !(p.categoria || '').toLowerCase().includes(cat)) return false;
-        if (
-          q &&
-          !p.nombre.toLowerCase().includes(q) &&
-          !(p.descripcion || '').toLowerCase().includes(q)
-        )
-          return false;
-        return true;
-      });
+      const resultados = catalogoBusq.buscar(CATALOGO, { query: String(args.query || ''), categoria: String(args.categoria || '') });
       if (resultados.length === 0) {
-        push(
-          'No encontré productos que coincidan con la búsqueda. Chequeá con el negocio directamente.',
-        );
+        push('No encontré productos que coincidan con la búsqueda. No inventes: decile al cliente que no lo tenés cargado y, si quiere, avisale al dueño con avisar_al_dueno.');
         return;
       }
       // Si el producto tiene foto cargada, se la mandamos al cliente (hasta 3, y sin repetirle la misma en 10 minutos)
@@ -2340,17 +2336,31 @@ Revisalo en Akira → Documentos.`);
           if (await enviarImagen(jid, foto, `*${p.nombre}* — $${Number(p.precio).toLocaleString('es-AR')}${p.descripcion ? `\n${p.descripcion}` : ''}`)) { yaMandadas[p.imagen] = Date.now(); enviadas++; }
         }
       } catch (e) { log(`⚠️ [Catálogo] fotos: ${e.message}`); }
-      push(
-        resultados
-          .map(
-            (p) =>
-              `*${p.nombre}* — $${p.precio.toLocaleString('es-AR')} ${p.moneda || 'ARS'}` +
-              (p.descripcion ? `\n${p.descripcion}` : '') +
-              (p.categoria ? ` [${p.categoria}]` : '') +
-              (p.stock >= 0 ? `\nStock disponible: ${p.stock}` : ''),
-          )
-          .join('\n\n'),
-      );
+      push(catalogoBusq.textoResultados(resultados));
+      return;
+    }
+
+    // ── Tool: avisarle al dueño (el bot no sabe la respuesta). Antes el bot decía "le aviso" y no se avisaba a nadie. ──
+    if (tool.function.name === 'avisar_al_dueno') {
+      const cache = (cacheTemporal[jid] ||= {});
+      const celular = String(CELULAR_NOTIFICACIONES || '').replace(/\D/g, '');
+      if (celular.length < 10) { push('El negocio no tiene un celular de avisos cargado, así que no se pudo avisar. Decile al cliente que el negocio le va a responder apenas pueda.'); return; }
+      if (!infoNegocioSvc.puedeAvisar(cache.ultimoAvisoDueno)) { push('Ya le avisaste al dueño hace un rato por este cliente. Decile que está avisado y que le va a responder.'); return; }
+      cache.ultimoAvisoDueno = Date.now();
+      notificarDueno(infoNegocioSvc.mensajeAlDueno({ nombre: usuario.nombre, numero: usuario.numeroReal || extraerNumero(jid), pregunta: args.pregunta }));
+      push(`Listo: le avisé a ${MI_NOMBRE}. Decile al cliente que ya está avisado y que le va a responder por acá apenas pueda. No des el dato vos.`);
+      return;
+    }
+
+    // ── Tool: buscar en la información propia del negocio (Conocimiento) ──
+    if (tool.function.name === 'consultar_informacion') {
+      try {
+        const docs = await require('../models/Conocimiento').find({ userId: USER_ID }).lean();
+        const frag = docs.length ? conocimientoSvc.buscar(docs, String(args.pregunta || ''), { k: 3 }) : [];
+        push(frag.length
+          ? `Información del negocio (usala tal cual, sin inventar nada más):\n${frag.map((f, i) => `[${i + 1}] ${f.texto.replace(/\s+/g, ' ')}`).join('\n')}`
+          : 'No hay nada sobre eso en la información del negocio. No inventes: usá avisar_al_dueno.');
+      } catch { push('No se pudo consultar la información del negocio. Usá avisar_al_dueno.'); }
       return;
     }
   }
@@ -4265,6 +4275,8 @@ Revisalo en Akira → Documentos.`);
           }
         })();
         CHATS_IGNORADOS = cfg.chatsIgnorados || [];
+        DIRECCION_PROPIEDAD = cfg.direccionPropiedad || ''; LINK_UBICACION = cfg.linkUbicacion || '';
+        TELEFONO_NEGOCIO = cfg.telefonoNegocio || ''; INSTAGRAM_NEGOCIO = cfg.instagramNegocio || ''; WEB_NEGOCIO = cfg.webNegocio || ''; COMO_LLEGAR = cfg.comoLlegar || '';
         // Actualizar catálogo en RAM + groq service
         CATALOGO = Array.isArray(cfg.catalogo) ? cfg.catalogo : [];
         groqSvc.setCatalogo(CATALOGO);

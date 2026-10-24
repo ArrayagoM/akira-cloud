@@ -2,6 +2,7 @@
 
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
+const P = require('./email.plantilla');
 
 function crearTransporter() {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
@@ -29,7 +30,8 @@ async function registrar(meta, { to, subject, ok, error }) {
 }
 
 // meta (opcional): { tipo: 'campana'|'prueba'|'sistema', campana, userId } para el registro del panel.
-async function enviarEmail({ to, subject, html, meta = {} }) {
+// text (opcional): versión en texto plano; si no se pasa, se arma a partir del HTML. headers (opcional): por ejemplo List-Unsubscribe.
+async function enviarEmail({ to, subject, html, text, headers, meta = {} }) {
   const transporter = crearTransporter();
   if (!transporter) {
     logger.warn(`[Email] SMTP no configurado. Email a ${to} no enviado. Asunto: ${subject}`);
@@ -41,6 +43,8 @@ async function enviarEmail({ to, subject, html, meta = {} }) {
       to,
       subject,
       html,
+      text: text || P.aTexto(html),
+      ...(headers ? { headers } : {}),
     });
     logger.info(`[Email] ✅ Email enviado a ${to}`);
     await registrar(meta, { to, subject, ok: true });
@@ -54,36 +58,43 @@ async function enviarEmail({ to, subject, html, meta = {} }) {
 }
 
 async function enviarRecuperoPassword(email, nombre, resetUrl) {
-  return enviarEmail({
-    to: email,
-    subject: 'Recuperá tu contraseña — Akira Cloud',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0a0a0a;color:#e5e5e5;border-radius:12px;overflow:hidden;border:1px solid #1a1a1a">
-        <div style="background:#00e87b;padding:24px;text-align:center">
-          <h1 style="margin:0;color:#000;font-size:22px">🤖 Akira Cloud</h1>
-        </div>
-        <div style="padding:32px">
-          <h2 style="margin:0 0 8px;color:#fff;font-size:18px">Hola, ${nombre}</h2>
-          <p style="color:#aaa;margin:0 0 24px">Recibimos una solicitud para recuperar tu contraseña. Hacé clic en el botón para crear una nueva:</p>
-          <a href="${resetUrl}" style="display:inline-block;background:#00e87b;color:#000;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px">
-            Recuperar contraseña
-          </a>
-          <p style="color:#666;font-size:12px;margin:24px 0 0">Este link expira en <strong style="color:#aaa">1 hora</strong>. Si no solicitaste esto, ignorá este email.</p>
-          <p style="color:#444;font-size:11px;margin:8px 0 0">O copiá este link: <span style="color:#00e87b">${resetUrl}</span></p>
-        </div>
-      </div>
-    `,
+  const html = P.marco({
+    titulo: 'Recuperá tu contraseña',
+    pie: 'Recibís este email porque alguien pidió recuperar la contraseña de esta cuenta de Akira Cloud.',
+    cuerpo: `
+      ${P.saludo((nombre || '').split(' ')[0])}
+      ${P.parrafo('Recibimos una solicitud para recuperar tu contraseña. Tocá el botón para crear una nueva.')}
+      ${P.boton(resetUrl, 'Crear una contraseña nueva')}
+      ${P.parrafo(`El enlace vence en ${P.fuerte('1 hora')}. Si no lo pediste vos, ignorá este email: tu contraseña actual no cambia.`, { color: '#8a8a8a', tam: 13 })}
+      ${P.parrafo(`Si el botón no funciona, copiá este enlace en tu navegador:<br><span style="color:#00e87b;word-break:break-all">${P.escapar(resetUrl)}</span>`, { color: '#6b6b6b', tam: 12, margen: '0 0 18px' })}`,
   });
+  return enviarEmail({ to: email, subject: 'Recuperá tu contraseña de Akira Cloud', html, meta: { tipo: 'sistema' } });
+}
+
+async function enviarCodigoVerificacion(email, nombre, codigo) {
+  const html = P.marco({
+    titulo: 'Confirmá tu email',
+    pie: 'Recibís este email porque alguien usó esta dirección para crear una cuenta en Akira Cloud. Si no fuiste vos, ignoralo: no se activa nada.',
+    cuerpo: `
+      ${P.saludo((nombre || '').split(' ')[0])}
+      ${P.parrafo('Para activar tu cuenta, escribí este código en la pantalla de Akira Cloud:')}
+      <div style="margin:18px 0;text-align:center"><span style="display:inline-block;background:#111;border:1px solid #00e87b66;border-radius:12px;padding:16px 28px;font-size:34px;letter-spacing:10px;font-weight:700;color:#00e87b;font-family:Consolas,Menlo,monospace">${P.escapar(codigo)}</span></div>
+      ${P.parrafo(`El código vence en ${P.fuerte('15 minutos')}. No se lo compartas a nadie: Akira nunca te lo va a pedir por WhatsApp ni por teléfono.`, { color: '#8a8a8a', tam: 13 })}`,
+  });
+  return enviarEmail({ to: email, subject: 'Confirmá tu email en Akira Cloud', html, meta: { tipo: 'sistema' } });
 }
 
 async function enviarAlertaError(mensaje) {
   const adminEmail = process.env.ADMIN_EMAIL;
   if (!adminEmail) return;
-  return enviarEmail({
-    to: adminEmail,
-    subject: '🚨 Akira Cloud — Error crítico',
-    html: `<div style="font-family:sans-serif;padding:20px;background:#0a0a0a;color:#e5e5e5;border:1px solid #f43f5e;border-radius:8px"><h2 style="color:#f43f5e">Error crítico detectado</h2><pre style="background:#111;padding:12px;border-radius:4px;color:#fca5a5;font-size:12px;overflow:auto">${mensaje}</pre><p style="color:#666;font-size:11px">${new Date().toISOString()}</p></div>`,
+  const html = P.marco({
+    titulo: 'Error crítico', ancho: 620, pie: 'Aviso automático para el administrador de Akira Cloud.',
+    cuerpo: `${P.etiqueta('ERROR CRÍTICO', '#f43f5e')}
+      ${P.parrafo('Se detectó un error crítico en el servidor:', { color: '#ddd' })}
+      <pre style="margin:0 0 14px;padding:12px;background:#111;border:1px solid #232323;border-radius:6px;color:#fca5a5;font-size:12px;white-space:pre-wrap;word-break:break-word">${P.escapar(mensaje)}</pre>
+      ${P.parrafo(P.escapar(new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })), { color: '#6b6b6b', tam: 12 })}`,
   });
+  return enviarEmail({ to: adminEmail, subject: 'Akira Cloud: error crítico', html, meta: { tipo: 'sistema' } });
 }
 
-module.exports = { ultimoErrorEmail: () => ultimoError, enviarEmail, enviarRecuperoPassword, enviarAlertaError };
+module.exports = { ultimoErrorEmail: () => ultimoError, enviarEmail, enviarRecuperoPassword, enviarCodigoVerificacion, enviarAlertaError };

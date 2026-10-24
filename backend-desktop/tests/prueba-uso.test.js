@@ -42,6 +42,9 @@ const gate = require('../routes/bot-gate.routes');
 const admin = require('../services/prueba-admin.service');
 
 const AHORA = new Date('2026-10-13T15:00:00.000Z'); // martes 12:00 en Argentina
+// Reloj fijo: el servidor usa la hora real (new Date()), y el test supone que "ahora" es AHORA. Sin esto, el test pasaba solo hasta que
+// pasaban los días del plan de ejemplo (venció el 23/10 y empezó a fallar sin que nadie tocara nada).
+{ const RealDate = Date; global.Date = class extends RealDate { constructor(...args) { if (args.length === 0) super(AHORA.getTime()); else super(...args); } static now() { return AHORA.getTime(); } }; }
 const MAS = (dias) => new Date(AHORA.getTime() + dias * 86400000);
 const nuevoUso = (extra = {}) => ({ plan: 'trial', trialModeloUso: true, trialDiasUso: 0, trialUltimoDiaUso: '', trialExpira: MAS(55), ...extra });
 

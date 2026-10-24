@@ -4,7 +4,7 @@
 
 const Groq = require('groq-sdk');
 
-function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [], pedidosActivos = () => false }) {
+function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalogo = [], pedidosActivos = () => false, conocimientoActivo = () => false }) {
   if (!apiKey) {
     log?.('[Groq] ⚠️ GROQ_API_KEY no está configurada — el bot no podrá responder mensajes. Configurala desde el dashboard.');
   }
@@ -41,6 +41,27 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
     }, required: [] },
   }};
 
+  // ── Tool: avisarle al dueño cuando el bot no sabe algo (antes el bot decía "le aviso" y no le avisaba a nadie) ──
+  const toolAvisarDueno = { type: 'function', function: {
+    name: 'avisar_al_dueno',
+    description: 'Le manda un aviso al dueño del negocio por WhatsApp. Úsala SOLO cuando el cliente pregunta algo que no sabés (un dato que no está en lo que te di ni en la información del negocio) o pide algo que tiene que resolver una persona. Después decile al cliente que ya le avisaste al dueño y que le va a responder.',
+    parameters: { type: 'object', properties: { pregunta: { type: 'string', description: 'Lo que el cliente quiere saber o pedir, en una frase clara.' } }, required: ['pregunta'] },
+  }};
+
+  // ── Tool: buscar en la información propia del negocio (documentos que cargó el dueño en Conocimiento) ──
+  const toolConocimiento = { type: 'function', function: {
+    name: 'consultar_informacion',
+    description: 'Busca en la información que cargó el dueño (preguntas frecuentes, políticas, formas de pago, cuidados, cómo llegar, etc.). Úsala ante cualquier pregunta sobre el negocio que no puedas responder con lo que ya tenés. Buscá con las palabras clave del tema, no con la frase entera.',
+    parameters: { type: 'object', properties: { pregunta: { type: 'string', description: 'Palabras clave de lo que se quiere saber (ej: "política de cancelación", "estacionamiento", "cuotas").' } }, required: ['pregunta'] },
+  }};
+
+  // ── Tool: lista de espera (el resto del sistema ya existía: avisa al siguiente cuando se libera un turno; faltaba poder anotar al cliente) ──
+  const toolListaEspera = { type: 'function', function: {
+    name: 'anotarse_en_waitlist',
+    description: 'Anota al cliente en la lista de espera cuando NO hay horarios libres para el día que pidió. Úsala solo si el cliente acepta que lo anotes. Si se libera un lugar, el sistema le avisa solo.',
+    parameters: { type: 'object', properties: { fecha: { type: 'string', description: 'YYYY-MM-DD' }, hora: { type: 'string', description: 'HH:MM — horario preferido (opcional)' } }, required: ['fecha'] },
+  }};
+
   // ── Herramientas del carrito de pedidos (opcional: el dueño las activa en "Programas con tus clientes") ──
   const toolsCarrito = [
     { type: 'function', function: { name: 'agregar_al_carrito', description: 'Agrega un producto del catálogo al pedido del cliente. Úsala cuando el cliente diga que quiere comprar/pedir algo. El precio lo pone el sistema.', parameters: { type: 'object', properties: { producto: { type: 'string', description: 'Nombre del producto tal como lo dice el cliente.' }, cantidad: { type: 'integer', description: 'Cantidad (por defecto 1).' } }, required: ['producto'] } } },
@@ -51,7 +72,7 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
   ];
 
   function herramientas() {
-    const base = herramientasBase();
+    const base = [...herramientasBase(), toolAvisarDueno, ...(conocimientoActivo() ? [toolConocimiento] : [])];
     const vendible = Array.isArray(catalogo) && catalogo.some((p) => p && p.disponible !== false && Number(p.precio) > 0);
     return vendible && pedidosActivos() ? [...base, ...toolsCarrito] : base;
   }
@@ -92,6 +113,7 @@ function crearGroqService({ apiKey, modelo, log, tipoNegocio = 'turnos', catalog
       { type: 'function', function: { name: 'agendar_turno',            description: 'SOLO llamar si: (1) se consultó disponibilidad, (2) cliente eligió día Y hora, (3) cliente confirmó con sí/dale/reservame.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' }, hora_fin: { type: 'string' } }, required: ['fecha', 'hora'] } } },
       { type: 'function', function: { name: 'cancelar_turno',           description: 'Cancela turno YA PAGADO.', parameters: { type: 'object', properties: { fecha: { type: 'string' }, hora: { type: 'string' } }, required: ['fecha', 'hora'] } } },
       { type: 'function', function: { name: 'reagendar_turno',          description: 'Mueve turno pagado sin cobrar de nuevo.', parameters: { type: 'object', properties: { fecha_actual: { type: 'string' }, hora_actual: { type: 'string' }, hora_fin_actual: { type: 'string' }, fecha_nueva: { type: 'string' }, hora_nueva: { type: 'string' } }, required: ['fecha_actual', 'hora_actual', 'fecha_nueva', 'hora_nueva'] } } },
+      toolListaEspera,
     ];
     if (tieneCat) tools.push(toolCatalogo);
     return tools;

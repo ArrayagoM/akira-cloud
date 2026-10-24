@@ -28,6 +28,15 @@ export default function CatalogoPage() {
   const [buscar, setBuscar] = useState('');
   const [importando, setImportando] = useState(false);
   const [menuExp, setMenuExp] = useState(false);
+  const [pedidos, setPedidos] = useState(null);      // { activa, entrega, costoEnvio, nota } del programa "Pedidos por WhatsApp"
+  const [activandoPedidos, setActivandoPedidos] = useState(false);
+  useEffect(() => { api.get('/app/programas').then((r) => setPedidos(r.data?.pedidos || null)).catch(() => {}); }, []);
+  const activarPedidos = async () => {
+    setActivandoPedidos(true);
+    try { const r = await api.put('/app/programas', { pedidos: { ...(pedidos || {}), activa: true } }); setPedidos(r.data?.pedidos || { ...(pedidos || {}), activa: true }); toast.success('Listo: el bot ya toma pedidos por WhatsApp'); }
+    catch (e) { toast.error(e.response?.data?.error || 'No se pudo activar'); }
+    finally { setActivandoPedidos(false); }
+  };
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -88,6 +97,17 @@ export default function CatalogoPage() {
           <h1 className="text-2xl font-bold text-white">Catálogo</h1>
           <p className="text-sm text-gray-500">Los {T.label.toLowerCase()} que tu bot ofrece y cotiza. Cargalos a mano o importalos desde Excel, PDF o una foto.</p>
         </div>
+
+        {tipo === 'productos' && pedidos && !pedidos.activa && lista.some((x) => Number(x.precio) > 0) && (
+          <div className="rounded-xl border px-4 py-3 flex flex-wrap items-center gap-3" style={{ borderColor: 'rgba(0,232,123,0.25)', background: 'rgba(0,232,123,0.05)' }}>
+            <p className="text-sm text-gray-300 flex-1 min-w-[220px]">
+              Tu bot ya informa estos productos, sus precios y el stock. <span className="text-white font-medium">Todavía no toma pedidos por WhatsApp</span>: el cliente tiene que ir a coordinarlo con vos.
+            </p>
+            <button onClick={activarPedidos} disabled={activandoPedidos} className="btn-primary text-sm px-4 py-2 flex items-center gap-2">
+              {activandoPedidos ? <Loader2 size={14} className="animate-spin" /> : null} Activar pedidos por WhatsApp
+            </button>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           {Object.entries(TIPOS).map(([k, t]) => { const I = t.icon; return (

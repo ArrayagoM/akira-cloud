@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bot, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { errorEmail, limpiar } from '../utils/validaciones';
 
 export default function ForgotPassword() {
   const [email,   setEmail]   = useState('');
@@ -11,12 +12,14 @@ export default function ForgotPassword() {
 
   const submit = async (e) => {
     e.preventDefault();
+    const problema = errorEmail(email);
+    if (problema) { toast.error(problema); return; }
     setLoading(true);
     try {
-      await api.post('/auth/forgot-password', { email });
+      await api.post('/auth/forgot-password', { email: limpiar(email, 254).toLowerCase() });
       setEnviado(true);
-    } catch {
-      toast.error('Error al enviar. Intentá de nuevo.');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error al enviar. Intentá de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -57,7 +60,7 @@ export default function ForgotPassword() {
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text2)' }}>Email</label>
                   <div className="relative">
                     <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} maxLength={254} autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false}
                       required className="input-base pl-9" placeholder="tu@email.com" />
                   </div>
                 </div>

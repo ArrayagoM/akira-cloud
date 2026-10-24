@@ -1,0 +1,70 @@
+{
+  "id": "f-agenda",
+  "titulo": "Agenda",
+  "titular": [
+    "Tus turnos del día,",
+    "sin dobles reservas"
+  ],
+  "frases": [
+    "¿Seguís anotando los turnos en un cuaderno?",
+    "La Agenda muestra cada día, separando los confirmados de los que esperan el pago.",
+    "Asignás quién atiende cada turno y filtrás por profesional.",
+    "Y el bot nunca ofrece dos turnos superpuestos.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/agenda.png",
+      "titulo": "Agenda",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/agenda.png",
+      "titulo": "Agenda",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/agenda.png",
+      "titulo": "Agenda",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/agenda.png",
+      "titulo": "Agenda",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "La Agenda de Akira Cloud: turnos confirmados y pendientes de pago por día, con profesional asignado. El bot chequea la disponibilidad real antes de ofrecer un horario. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#turnos",
+    "#peluqueria",
+    "#emprendedores",
+    "#akiracloud"
+  ]
+}

@@ -1,45 +1,70 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Bot, Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Mail, User, Lock, Gift } from 'lucide-react';
 import toast from 'react-hot-toast';
+import VerificarEmail from '../components/VerificarEmail';
+import { errorNombre, errorEmail, errorPassword, requisitosPassword, limpiar } from '../utils/validaciones';
 
 export default function Register() {
-  const [form, setForm]       = useState({ nombre: '', apellido: '', email: '', password: '', pais: 'Argentina', codigoReferidoUsado: '' });
+  const [form, setForm]       = useState({ nombre: '', apellido: '', email: '', password: '', pais: 'Argentina', codigoReferidoUsado: '', sitio_web: '' });   // sitio_web: campo trampa para robots (las personas no lo ven)
+  const [formToken, setFormToken] = useState('');
+  const [verificando, setVerificando] = useState(null);
+  const [tocado, setTocado]   = useState({});
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
-  const { register }          = useAuth();
+  const { register, obtenerTokenFormulario } = useAuth();
   const navigate              = useNavigate();
 
   const handle = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+  const tocar = (e) => setTocado(t => ({ ...t, [e.target.name]: true }));
 
-  const reqPwd = [
-    { ok: form.password.length >= 8,   txt: 'Al menos 8 caracteres' },
-    { ok: /[A-Z]/.test(form.password), txt: 'Una mayúscula' },
-    { ok: /[a-z]/.test(form.password), txt: 'Una minúscula' },
-    { ok: /\d/.test(form.password),    txt: 'Un número' },
-  ];
+  // El servidor entrega un token firmado al abrir el formulario; sin él (o enviado en menos de 3 segundos) el alta se rechaza.
+  const pedirToken = () => obtenerTokenFormulario().then(d => setFormToken(d.token)).catch(() => {});
+  useEffect(() => { pedirToken(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reqPwd = requisitosPassword(form.password);
+  const errores = {
+    nombre:   errorNombre(form.nombre),
+    apellido: errorNombre(form.apellido, { obligatorio: false }),
+    email:    errorEmail(form.email),
+    password: errorPassword(form.password, { email: form.email, nombre: form.nombre }),
+  };
+  const Aviso = ({ campo }) => (tocado[campo] && errores[campo] ? <p className="text-xs mt-1" style={{ color: '#f43f5e' }}>{errores[campo]}</p> : null);
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!reqPwd.every(r => r.ok)) {
-      setError('La contraseña no cumple los requisitos');
-      return;
-    }
+    setTocado({ nombre: true, apellido: true, email: true, password: true });
+    const primero = Object.values(errores).find(Boolean);
+    if (primero) { setError(primero); return; }
     setLoading(true);
     try {
-      const user = await register(form);
-      toast.success(`¡Bienvenido, ${user.nombre}! Tu prueba gratuita ya empezó: son 7 días de uso, solo cuentan los días en que el bot atiende mensajes.`);
+      const r = await register({ ...form, nombre: limpiar(form.nombre, 80), apellido: limpiar(form.apellido, 80), email: limpiar(form.email, 254).toLowerCase(), formToken });
+      if (r.requiereVerificacion) { setVerificando(r.email); return; }
+      toast.success(`¡Bienvenido, ${r.user.nombre}! Tu prueba gratuita ya empezó: son 7 días de uso, solo cuentan los días en que el bot atiende mensajes.`);
       navigate('/dashboard');
     } catch (err) {
       const data = err.response?.data;
+      if (data?.codigo === 'ALTA_RECIENTE' && data.requiereVerificacion) { setVerificando(data.email); return; }
+      if (data?.codigo === 'FORMULARIO_INVALIDO') pedirToken();   // se pide un token nuevo para poder reintentar
       setError(data?.error || data?.errors?.[0]?.msg || 'Error al registrarse');
     } finally {
       setLoading(false);
     }
   };
+
+  // Paso 2: escribir el código que llegó al email (la cuenta todavía no tiene sesión)
+  if (verificando) return (
+    <div className="auth-bg">
+      <div className="auth-orb auth-orb-1" />
+      <div className="auth-orb auth-orb-2" />
+      <div className="w-full max-w-md relative z-10">
+        <VerificarEmail email={verificando} onVolver={() => setVerificando(null)} onListo={(u) => { toast.success(`¡Bienvenido, ${u.nombre}! Tu prueba gratuita ya empezó: son 7 días de uso, solo cuentan los días en que el bot atiende mensajes.`); navigate('/dashboard'); }} />
+      </div>
+    </div>
+  );
 
   return (
     <div className="auth-bg">
@@ -123,13 +148,20 @@ export default function Register() {
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text2)' }}>Nombre *</label>
                 <div className="relative">
                   <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
-                  <input name="nombre" value={form.nombre} onChange={handle} required className="input-base pl-8" placeholder="Juan" />
+                  <input name="nombre" value={form.nombre} onChange={handle} onBlur={tocar} required maxLength={60} autoComplete="given-name" className="input-base pl-8" placeholder="Juan" aria-invalid={!!(tocado.nombre && errores.nombre)} />
                 </div>
+                <Aviso campo="nombre" />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text2)' }}>Apellido</label>
-                <input name="apellido" value={form.apellido} onChange={handle} className="input-base" placeholder="Pérez" />
+                <input name="apellido" value={form.apellido} onChange={handle} onBlur={tocar} maxLength={60} autoComplete="family-name" className="input-base" placeholder="Pérez" aria-invalid={!!(tocado.apellido && errores.apellido)} />
+                <Aviso campo="apellido" />
               </div>
+            </div>
+
+            {/* Campo trampa: invisible para las personas; los robots lo completan y el alta se descarta */}
+            <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }}>
+              <label>No completar este campo<input name="sitio_web" tabIndex={-1} autoComplete="off" value={form.sitio_web} onChange={handle} /></label>
             </div>
 
             {/* Email */}
@@ -137,8 +169,9 @@ export default function Register() {
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text2)' }}>Email *</label>
               <div className="relative">
                 <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
-                <input name="email" type="email" value={form.email} onChange={handle} required className="input-base pl-8" placeholder="tu@email.com" />
+                <input name="email" type="email" value={form.email} onChange={handle} onBlur={tocar} required maxLength={254} autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} className="input-base pl-8" placeholder="tu@email.com" aria-invalid={!!(tocado.email && errores.email)} />
               </div>
+              <Aviso campo="email" />
             </div>
 
             {/* Password */}
@@ -148,7 +181,7 @@ export default function Register() {
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
                 <input
                   name="password" type={showPwd ? 'text' : 'password'} value={form.password}
-                  onChange={handle} required className="input-base pl-8 pr-10" placeholder="••••••••"
+                  onChange={handle} onBlur={tocar} required maxLength={72} autoComplete="new-password" className="input-base pl-8 pr-10" placeholder="••••••••" aria-invalid={!!(tocado.password && errores.password)}
                 />
                 <button type="button" onClick={() => setShowPwd(p => !p)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
@@ -169,6 +202,7 @@ export default function Register() {
                   ))}
                 </div>
               )}
+              <Aviso campo="password" />
             </div>
 
             {/* País */}

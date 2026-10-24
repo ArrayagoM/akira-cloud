@@ -16,17 +16,21 @@ const Referido = require('../models/Referido');
 const { requireAuth, generarJWT } = require('../middleware/auth');
 const logger = require('../config/logger');
 const { expiracionSegunCliente, payloadDe, evaluarRenovacion } = require('../lib/sesion');
+const S = require('../lib/seguridad-cuentas');
+const { consumir, consumirTodos, mensajeEspera } = require('../lib/limite');
+const { crearCuentas } = require('../services/cuentas.service');
 
-const registerValidations = [
-  body('nombre').trim().notEmpty().withMessage('El nombre es obligatorio').isLength({ max: 100 }),
-  body('apellido').trim().optional().isLength({ max: 100 }),
-  body('email').isEmail().normalizeEmail().withMessage('Email inválido'),
-  body('password')
-    .isLength({ min: 8 })
-    .withMessage('La contraseña debe tener al menos 8 caracteres')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('La contraseña debe contener mayúsculas, minúsculas y números'),
-];
+// Alta con verificación de email (lógica en services/cuentas.service.js).
+// Interruptores de emergencia por variable de entorno: VERIFICACION_EMAIL=off (si el correo no funciona), REGISTRO_TOKEN=off.
+const cuentas = crearCuentas({
+  User, Referido, Log, logger,
+  enviarCodigo: (email, nombre, codigo) => require('../services/email.service').enviarCodigoVerificacion(email, nombre, codigo),
+  limitar: (lista) => consumirTodos(lista),
+  secreto: process.env.JWT_SECRET,
+  // El captcha de Cloudflare Turnstile está listo en el servidor (services/cuentas.service.js) pero NO conectado a la pantalla de registro:
+  // por eso no se lee TURNSTILE_SECRET acá (activarlo sin el widget impediría todos los registros).
+  config: { exigirVerificacion: process.env.VERIFICACION_EMAIL !== 'off', exigirToken: process.env.REGISTRO_TOKEN !== 'off' },
+});
 
 function handleValidation(req, res) {
   const errors = validationResult(req);
@@ -37,84 +41,56 @@ function handleValidation(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  POST /api/auth/register
+//  GET /api/auth/form-token — lo pide el formulario de registro al abrirse (contra robots que mandan el pedido directo)
 // ─────────────────────────────────────────────────────────────
-router.post('/register', registerValidations, async (req, res) => {
-  const validErr = handleValidation(req, res);
-  if (validErr !== null) return;
+router.get('/form-token', async (req, res) => {
+  const t = await consumir(`ftk:ip:${req.ip}`, { max: 60, ventanaMs: 3600e3 });
+  if (!t.ok) return res.status(429).json({ error: mensajeEspera(t.reintentarEnSeg) });
+  res.set('Cache-Control', 'no-store');
+  res.json({ token: S.crearTokenFormulario(process.env.JWT_SECRET) });
+});
 
+// ─────────────────────────────────────────────────────────────
+//  POST /api/auth/register — crea la cuenta SIN verificar y manda un código al email (no entrega sesión hasta confirmarlo)
+// ─────────────────────────────────────────────────────────────
+router.post('/register', async (req, res) => {
   try {
-    const { nombre, apellido, email, password, celular, pais } = req.body;
-
-    const existe = await User.findOne({ email: email.toLowerCase() });
-    if (existe) {
-      return res.status(409).json({ error: 'Ya existe una cuenta con ese email' });
+    const r = await cuentas.registrar(req.body, { ip: req.ip });
+    if (r.usuario) { // solo con VERIFICACION_EMAIL=off: se comporta como antes
+      const token = generarJWT(r.usuario._id, 0, { expiresIn: expiracionSegunCliente(req) });
+      return res.status(201).json({ token, user: r.usuario.toJSON() });
     }
-
-    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.startsWith('cambia_esto')) {
-      logger.error('[Auth] JWT_SECRET tiene el valor de ejemplo. Editá backend-desktop/.env');
-      return res.status(500).json({ error: 'El servidor no está configurado correctamente.' });
-    }
-
-    const codigoUsado = (req.body.codigoReferidoUsado || '').trim().toUpperCase();
-    let referente = null;
-    if (codigoUsado) {
-      referente = await User.findOne({ codigoReferido: codigoUsado }).lean();
-    }
-
-    const codigoPropio = await User.generarCodigoUnico(nombre);
-
-    const user = await User.create({
-      nombre: nombre.trim(),
-      apellido: (apellido || '').trim(),
-      email: email.toLowerCase(),
-      password,
-      celular: celular || '',
-      pais: pais || 'Argentina',
-      auth_provider: 'local',
-      codigoReferido: codigoPropio,
-      codigoReferidoUsado: referente ? codigoUsado : '',
-      descuentoReferido: referente ? 5000 : 0,
-    });
-
-    if (referente) {
-      await Referido.create({
-        referente: referente._id,
-        referido: user._id,
-        codigo: codigoUsado,
-      }).catch((err) => logger.warn('[Auth] No se pudo crear Referido:', err.message));
-    }
-
-    let token;
-    try {
-      token = generarJWT(user._id, 0, { expiresIn: expiracionSegunCliente(req) });
-    } catch (jwtErr) {
-      logger.error('[Auth] Error generando JWT — borrando usuario recién creado:', jwtErr.message);
-      await User.findByIdAndDelete(user._id).catch(() => {});
-      return res.status(500).json({ error: 'Error interno al crear la sesión.' });
-    }
-
-    await Log.registrar({ userId: user._id, tipo: 'auth_register', mensaje: `Nuevo registro (desktop): ${email}`, ip: req.ip });
-    logger.info(`[Auth] ✅ Registro exitoso: ${email}`);
-
-    res.status(201).json({ token, user: user.toJSON() });
+    res.status(r.status).json(r.body);
   } catch (err) {
     logger.error('[Auth] Error register: ' + (err?.message || String(err)));
-
-    if (err.name === 'ValidationError') {
-      const msgs = Object.values(err.errors).map((e) => e.message).join(', ');
-      return res.status(400).json({ error: 'Datos inválidos: ' + msgs });
-    }
-    if (err.code === 11000) {
-      const campoRaw = Object.keys(err.keyValue || {})[0] || 'campo';
-      const campos = { email: 'email', celular: 'teléfono', googleId: 'cuenta de Google', facebookId: 'cuenta de Facebook' };
-      return res.status(409).json({ error: `Ya existe una cuenta con ese ${campos[campoRaw] || campoRaw}` });
-    }
-
-    res.status(500).json({
-      error: process.env.NODE_ENV === 'production' ? 'Error al registrar. Intentá de nuevo.' : err.message,
-    });
+    if (err.code === 11000) return res.status(409).json({ error: 'Ya existe una cuenta con ese email' });
+    res.status(500).json({ error: 'Error al registrar. Intentá de nuevo.' });
   }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/auth/verificar-email { email, codigo } — confirma el email y entrega la sesión
+// ─────────────────────────────────────────────────────────────
+router.post('/verificar-email', async (req, res) => {
+  try {
+    const r = await cuentas.verificarEmail(req.body, { ip: req.ip });
+    if (r.usuario) {
+      const token = generarJWT(r.usuario._id, r.usuario.tokenVersion ?? 0, { expiresIn: expiracionSegunCliente(req) });
+      return res.json({ token, user: r.usuario.toJSON() });
+    }
+    res.status(r.status).json(r.body);
+  } catch (err) {
+    logger.error('[Auth] Error verificar-email: ' + (err?.message || String(err)));
+    res.status(500).json({ error: 'Error interno. Intentá de nuevo.' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/auth/reenviar-codigo { email } — siempre responde igual (no revela si el email existe)
+// ─────────────────────────────────────────────────────────────
+router.post('/reenviar-codigo', async (req, res) => {
+  try { const r = await cuentas.reenviarCodigo(req.body, { ip: req.ip }); res.status(r.status).json(r.body); }
+  catch (err) { logger.error('[Auth] Error reenviar-codigo: ' + (err?.message || String(err))); res.status(500).json({ error: 'Error interno. Intentá de nuevo.' }); }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -122,8 +98,10 @@ router.post('/register', registerValidations, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post(
   '/login',
-  [body('email').isEmail().normalizeEmail(), body('password').notEmpty()],
+  [body('email').isString().isLength({ max: 254 }).isEmail().normalizeEmail(), body('password').isString().isLength({ min: 1, max: 200 })],
   async (req, res, next) => {
+    const tope = await consumir(`login:ip:${req.ip}`, { max: 40, ventanaMs: 15 * 60e3 }); // en la base: el límite en memoria se reinicia en cada arranque del servidor
+    if (!tope.ok) return res.status(429).json({ error: mensajeEspera(tope.reintentarEnSeg) });
     const validErr = handleValidation(req, res);
     if (validErr !== null) return;
 
@@ -150,6 +128,12 @@ router.post(
         }
         await Log.registrar({ tipo: 'auth_fail', nivel: 'warn', mensaje: `Login fallido (desktop) para: ${req.body.email}`, ip: req.ip });
         return res.status(401).json({ error: info?.message || 'Credenciales incorrectas' });
+      }
+
+      // Cuenta creada con email y contraseña que todavía no confirmó su email: no entra hasta escribir el código.
+      if (user.emailVerificado === false) {
+        await cuentas.reenviarCodigo({ email: user.email }, { ip: req.ip }).catch(() => {});
+        return res.status(403).json({ codigo: 'EMAIL_NO_VERIFICADO', error: 'Confirmá tu email para entrar. Te enviamos un código.', email: user.email });
       }
 
       await User.findByIdAndUpdate(user._id, {
@@ -238,15 +222,17 @@ router.put(
   '/password',
   requireAuth,
   [
-    body('passwordActual').notEmpty().withMessage('Ingresá tu contraseña actual'),
-    body('passwordNueva')
-      .isLength({ min: 8 })
-      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-      .withMessage('La nueva contraseña debe tener mayúsculas, minúsculas y números'),
+    body('passwordActual').isString().isLength({ min: 1, max: 200 }).withMessage('Ingresá tu contraseña actual'),
+    body('passwordNueva').isString().isLength({ min: 8, max: 200 }).withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
   ],
   async (req, res) => {
     const validErr = handleValidation(req, res);
     if (validErr !== null) return;
+    const tope = await consumir(`pw:u:${req.user._id}`, { max: 10, ventanaMs: 3600e3 });
+    if (!tope.ok) return res.status(429).json({ error: mensajeEspera(tope.reintentarEnSeg) });
+    const pw = S.validarPassword(req.body.passwordNueva, { email: req.user.email, nombre: req.user.nombre });
+    if (!pw.ok) return res.status(400).json({ error: pw.error, errors: [{ msg: pw.error }] });
+    if (req.body.passwordNueva === req.body.passwordActual) return res.status(400).json({ error: 'La contraseña nueva tiene que ser distinta de la actual.' });
 
     try {
       const user = await User.findById(req.user._id).select('+password');
@@ -387,14 +373,18 @@ router.get('/facebook/callback', ...callbackOAuth('facebook', 'Facebook'));
 //  POST /api/auth/forgot-password
 // ─────────────────────────────────────────────────────────────
 router.post('/forgot-password',
-  [body('email').isEmail().normalizeEmail()],
+  [body('email').isString().isLength({ max: 254 }).isEmail().normalizeEmail()],
   async (req, res) => {
     const validErr = handleValidation(req, res);
     if (validErr !== null) return;
     try {
-      const user = await User.findOne({ email: req.body.email.toLowerCase() });
       // Siempre responder igual — no revelar si el email existe
       const okMsg = { msg: 'Si ese email está registrado, recibirás un link en minutos.' };
+      const topeIp = await consumir(`fp:ip:${req.ip}`, { max: 10, ventanaMs: 3600e3 });
+      if (!topeIp.ok) return res.status(429).json({ error: mensajeEspera(topeIp.reintentarEnSeg) });
+      const topeEmail = await consumir(`fp:em:${req.body.email.toLowerCase()}`, { max: 3, ventanaMs: 3600e3 });
+      if (!topeEmail.ok) return res.json(okMsg); // sin enviar nada: así no se puede usar para llenarle la casilla a alguien
+      const user = await User.findOne({ email: req.body.email.toLowerCase() });
       if (!user || user.auth_provider !== 'local') return res.json(okMsg);
 
       const token = require('crypto').randomBytes(32).toString('hex');
@@ -423,16 +413,17 @@ router.post('/forgot-password',
 // ─────────────────────────────────────────────────────────────
 router.post('/reset-password',
   [
-    body('email').isEmail().normalizeEmail(),
-    body('token').notEmpty(),
-    body('password')
-      .isLength({ min: 8 })
-      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-      .withMessage('La contraseña debe tener mayúsculas, minúsculas y números'),
+    body('email').isString().isLength({ max: 254 }).isEmail().normalizeEmail(),
+    body('token').isString().isLength({ min: 20, max: 200 }),
+    body('password').isString().isLength({ min: 8, max: 200 }).withMessage('La contraseña debe tener al menos 8 caracteres'),
   ],
   async (req, res) => {
     const validErr = handleValidation(req, res);
     if (validErr !== null) return;
+    const topeRp = await consumir(`rp:ip:${req.ip}`, { max: 20, ventanaMs: 3600e3 });
+    if (!topeRp.ok) return res.status(429).json({ error: mensajeEspera(topeRp.reintentarEnSeg) });
+    const pw = S.validarPassword(req.body.password, { email: req.body.email });
+    if (!pw.ok) return res.status(400).json({ error: pw.error, errors: [{ msg: pw.error }] });
     try {
       const hash = require('crypto').createHash('sha256').update(req.body.token).digest('hex');
       const user = await User.findOne({
@@ -449,7 +440,8 @@ router.post('/reset-password',
       await user.save();
 
       // Invalidar todos los tokens activos
-      await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 } });
+      // Llegar a este paso prueba que la persona controla el email: también queda verificado.
+      await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 }, emailVerificado: true, emailVerificadoEn: new Date() });
       await Log.registrar({ userId: user._id, tipo: 'auth_reset_done', mensaje: 'Contraseña reseteada via email', ip: req.ip });
 
       res.json({ msg: 'Contraseña actualizada correctamente. Ya podés iniciar sesión.' });

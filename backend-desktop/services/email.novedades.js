@@ -1,114 +1,77 @@
 // services/email.novedades.js
-// Email de novedades para los usuarios registrados: avisa que el software de
-// escritorio ya se puede descargar y qué viene después. Mismo estilo que los
-// demás emails de la plataforma (services/email.service.js).
+// Emails de campaña (novedades del programa). Todos usan la plantilla única de services/email.plantilla.js.
+// Regla de contenido: cada punto describe algo que EXISTE hoy en la app o en el servidor; lo que todavía es de prueba se dice como de prueba,
+// y el tamaño y la versión del instalador salen de la misma configuración que usa la web (nada escrito a mano).
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const P = require('./email.plantilla');
+const { escapar } = P;
 
-// Edite esta lista antes de cada envío: es lo que se promete en el email.
+// Lo que se promete como "próximamente" en el aviso de instalador (campaña vieja, ya enviada).
 const PROXIMAMENTE = [
-  ['📅', 'Conectar Google Calendar desde la app', 'Vincular tu calendario con un clic, sin pasos técnicos.'],
-  ['🔄', 'Mejoras cada semana', 'La app se actualiza sola: sin volver a descargar nada.'],
-  ['🐧', 'Versión para Linux', 'Para quienes trabajan con Linux.'],
+  ['Conectar Google Calendar desde la app', 'Vincular tu calendario con un clic, sin pasos técnicos.'],
+  ['Mejoras cada semana', 'La app se actualiza sola: sin volver a descargar nada.'],
+  ['Versión para Linux', 'Para quienes trabajan con Linux.'],
 ];
-
-const escapar = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function urlBaja(userId) {
   // Token firmado, sin vencimiento: la baja debe funcionar aunque el email sea viejo.
   const t = jwt.sign({ id: String(userId), p: 'baja-novedades' }, process.env.JWT_SECRET);
-  return `${(process.env.FRONTEND_URL || 'https://akiracloud.lat').replace(/\/+$/, '')}/api/auth/baja-novedades?t=${encodeURIComponent(t)}`;
+  return `${P.front()}/api/auth/baja-novedades?t=${encodeURIComponent(t)}`;
 }
 
-function asuntoNovedades() {
-  return '🤖 Akira ya se instala en tu PC — descargalo en 3 minutos';
-}
+const PIE = 'Recibís este email porque tenés una cuenta en Akira Cloud.';
+const NOTA_WINDOWS = 'Si Windows muestra “Windows protegió su PC”, tocá <em>Más información</em> y después <em>Ejecutar de todos modos</em>: aparece porque el instalador todavía no tiene firma digital.';
+const dato = (version) => [version ? `Versión ${escapar(version)}` : '', 'Windows 10 y 11', P.tamanoInstalador()].filter(Boolean).join(' · ');
 
+// ─────────────────────────────────────────────────────────────
+// Campaña "instalador" (ya enviada el 6/10): avisa que el programa se instala en la PC.
+// ─────────────────────────────────────────────────────────────
+function asuntoNovedades() { return 'Akira ya se instala en tu PC: descargalo en 3 minutos'; }
 function htmlNovedades({ nombre, userId, urlDescarga, version }) {
-  const front = (process.env.FRONTEND_URL || 'https://akiracloud.lat').replace(/\/+$/, '');
-  const descarga = urlDescarga || `${front}/api/desktop/download`;
-  const guia = `${front}/descargar`;
-  const baja = userId ? urlBaja(userId) : '#';
-
-  const filaProximo = ([ico, titulo, texto]) => `
-    <tr>
-      <td style="padding:10px 0;vertical-align:top;width:34px;font-size:20px">${ico}</td>
-      <td style="padding:10px 0;vertical-align:top">
-        <div style="color:#fff;font-size:14px;font-weight:600">${escapar(titulo)}</div>
-        <div style="color:#888;font-size:13px;margin-top:2px">${escapar(texto)}</div>
-      </td>
-    </tr>`;
-
-  const paso = (n, titulo, texto) => `
-    <tr>
-      <td style="padding:8px 0;vertical-align:top;width:34px">
-        <div style="width:24px;height:24px;border-radius:50%;background:#0f2a1c;color:#00e87b;font-weight:700;font-size:13px;text-align:center;line-height:24px">${n}</div>
-      </td>
-      <td style="padding:8px 0;vertical-align:top">
-        <div style="color:#fff;font-size:14px;font-weight:600">${titulo}</div>
-        <div style="color:#888;font-size:13px;margin-top:2px">${texto}</div>
-      </td>
-    </tr>`;
-
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Akira Cloud</title></head>
-<body style="margin:0;padding:24px 12px;background:#050505">
-  <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;background:#0a0a0a;color:#e5e5e5;border-radius:12px;overflow:hidden;border:1px solid #1a1a1a">
-    <div style="background:#00e87b;padding:24px;text-align:center">
-      <h1 style="margin:0;color:#000;font-size:22px">🤖 Akira Cloud</h1>
-    </div>
-    <div style="padding:32px">
-      <h2 style="margin:0 0 8px;color:#fff;font-size:20px">Hola, ${escapar(nombre || '')} 👋</h2>
-      <p style="color:#aaa;margin:0 0 20px;line-height:1.55">
-        Tenemos una novedad importante: <strong style="color:#fff">Akira ya se instala en tu computadora</strong>.
-        Tu bot de WhatsApp corre en tu PC, y tus conversaciones quedan con vos.
-      </p>
-      <div style="margin:0 0 20px;padding:14px 16px;background:#101010;border:1px solid #1f2a24;border-left:3px solid #00e87b;border-radius:8px">
-        <p style="margin:0;color:#bbb;font-size:13px;line-height:1.6">
-          Sabemos que en estos días hubo fallos y demoras, y te pedimos disculpas: no es la experiencia que queremos darte.
-          Seguimos trabajando todos los días y se vienen mejoras importantes. <strong style="color:#fff">Quedate cerca, no te las querés perder.</strong>
-        </p>
-      </div>
-
-      <div style="text-align:center;margin:26px 0">
-        <a href="${descarga}" style="display:inline-block;background:#00e87b;color:#000;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;font-size:16px">
-          ⬇ Descargar Akira para Windows
-        </a>
-        <div style="color:#666;font-size:12px;margin-top:10px">${version ? `Versión ${escapar(version)} · ` : ''}Windows 10 y 11 · ~85 MB</div>
-      </div>
-
-      <h3 style="color:#fff;font-size:15px;margin:28px 0 4px">Listo en 3 pasos</h3>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
-        ${paso(1, 'Instalalo', 'Abrí el archivo y esperá a que termine. No hay que configurar nada.')}
-        ${paso(2, 'Ingresá con tu cuenta', 'Tocá “Continuar con Google” con la misma cuenta de siempre. Tus datos se cargan solos.')}
-        ${paso(3, 'Escaneá el QR', 'Tocá “Iniciar bot” y vinculá tu WhatsApp desde el celular. ¡Listo!')}
-      </table>
-      <p style="color:#666;font-size:12px;margin:12px 0 0;line-height:1.5">
-        Si Windows muestra “Windows protegió su PC”, tocá <em>Más información → Ejecutar de todos modos</em>: es normal en las apps nuevas.
-        Guía completa: <a href="${guia}" style="color:#00e87b">${guia.replace(/^https?:\/\//, '')}</a>
-      </p>
-
-      <h3 style="color:#fff;font-size:15px;margin:30px 0 2px">Lo que viene 🚀</h3>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
-        ${PROXIMAMENTE.map(filaProximo).join('')}
-      </table>
-
-      <p style="color:#aaa;margin:26px 0 0;line-height:1.55">¿Dudas o algo no te funciona? Respondé este email y te ayudamos.</p>
-    </div>
-    <div style="border-top:1px solid #1a1a1a;padding:16px 32px;text-align:center">
-      <p style="color:#555;font-size:11px;margin:0;line-height:1.6">
-        Recibís este email porque tenés una cuenta en Akira Cloud.<br>
-        <a href="${baja}" style="color:#777">Dejar de recibir novedades</a>
-      </p>
-    </div>
-  </div>
-</body></html>`;
+  const descarga = urlDescarga || P.enlaceDescarga('email-instalador');
+  const guia = `${P.front()}/descargar`;
+  return P.marco({
+    titulo: 'Akira ya se instala en tu PC', pie: PIE, enlaceBaja: userId ? urlBaja(userId) : '',
+    cuerpo: `${P.saludo(nombre)}
+      ${P.parrafo(`Tenemos una novedad importante: ${P.fuerte('Akira ya se instala en tu computadora')}. Tu bot de WhatsApp corre en tu PC y tus conversaciones quedan con vos.`)}
+      ${P.aviso('Sabemos que en estos días hubo fallos y demoras, y te pedimos disculpas: no es la experiencia que queremos darte. Seguimos trabajando todos los días.')}
+      ${P.boton(descarga, 'Descargar Akira para Windows', dato(version))}
+      ${P.titulo2('Listo en 3 pasos')}
+      ${P.pasos([['Instalalo', 'Abrí el archivo y esperá a que termine. No hay que configurar nada.'], ['Ingresá con tu cuenta', 'Usá la misma cuenta que ya tenés en Akira.'], ['Escaneá el QR', 'Tocá “Iniciar bot” y vinculá tu WhatsApp desde el celular.']])}
+      ${P.parrafo(`${NOTA_WINDOWS} Guía completa: <a href="${guia}" style="color:#00e87b">${guia.replace(/^https?:\/\//, '')}</a>`, { color: '#7a7a7a', tam: 12.5 })}
+      ${P.titulo2('Lo que viene')}
+      ${P.listaNovedades(PROXIMAMENTE)}
+      ${P.parrafo('¿Dudas o algo no te funciona? Respondé este email y te ayudamos.', { margen: '22px 0 16px' })}`,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
-// Campaña "actualización": novedades de gestión del negocio (octubre 2026).
-// Mismo marco visual que el aviso de descarga, con el logo real y sin emojis.
+// Campañas de novedades: mismo armado, distinto contenido.
+// ─────────────────────────────────────────────────────────────
+function armarActualizacion({ nombre, userId, urlDescarga, version, reactivado }, { novedades, enCamino, intro, avisoReactivado, origen, instalar }) {
+  const descarga = urlDescarga || P.enlaceDescarga(origen || 'email');
+  const guia = `${P.front()}/descargar`;
+  return P.marco({
+    titulo: 'Novedades de Akira', pie: PIE, enlaceBaja: userId ? urlBaja(userId) : '',
+    cuerpo: `${P.saludo(nombre)}
+      ${P.parrafo(`${escapar(intro)} Esto es lo nuevo hasta la versión ${escapar(version || '')}:`)}
+      ${reactivado && avisoReactivado ? P.aviso(avisoReactivado) : ''}
+      ${P.listaNovedades(novedades)}
+      ${P.aviso(`${P.fuerte('Tus datos siguen siendo tuyos.')} La información de gestión (clientes, caja, deudas, proveedores y documentos) se guarda en tu propia computadora y no pasa por nuestros servidores. La única excepción son los contadores del día, y solo si activás ver tu negocio desde el celular.`)}
+      ${P.titulo2('Cómo actualizar')}
+      ${P.parrafo(`Si ya tenés Akira instalada, ${P.fuerte('se actualiza sola')}: vas a ver un aviso dentro de la app para reiniciar con la versión nueva (o tocá “Buscar actualización” en el menú lateral). Si todavía no la instalaste, podés descargarla acá:`, { tam: 13.5 })}
+      ${P.boton(descarga, 'Descargar Akira para Windows', `${dato(version)} · <a href="${guia}" style="color:#00e87b;text-decoration:none">guía de instalación</a>`)}
+      ${instalar ? P.parrafo(NOTA_WINDOWS, { color: '#7a7a7a', tam: 12.5, margen: '0 0 6px' }) : ''}
+      ${enCamino && enCamino.length ? `${P.titulo2('En camino')}${P.listaNovedades(enCamino)}` : ''}
+      ${P.parrafo('¿Dudas o sugerencias? Respondé este email y las vemos. Gracias por acompañarnos.', { margen: '22px 0 6px', tam: 13.5 })}
+      ${P.parrafo('El equipo de Akira', { color: '#8a8a8a', tam: 13.5, margen: '0 0 20px' })}`,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Campaña "actualización" (7/10, ya enviada): novedades de gestión del negocio.
 // ─────────────────────────────────────────────────────────────
 const NOVEDADES_GESTION = [
   ['Catálogo con importación', 'Cargá tus productos y servicios a mano o importalos desde Excel, CSV, PDF o una foto de tu lista de precios. Tu bot los usa al instante para cotizar y agendar.'],
@@ -125,94 +88,14 @@ const EN_CAMINO = [
   ['Versión para Linux', 'Para quienes trabajan con ese sistema.'],
 ];
 
-function asuntoActualizacion() {
-  return 'Novedades de Akira: Caja, Deudores, Proveedores y más';
-}
 
+function asuntoActualizacion() { return 'Novedades de Akira: Caja, Deudores, Proveedores y más'; }
 function htmlActualizacion(datos) {
-  return armarActualizacion(datos, { novedades: NOVEDADES_GESTION, enCamino: EN_CAMINO, intro: 'Seguimos mejorando Akira. Sumamos herramientas para llevar la gestión de tu negocio desde el mismo programa donde atiende tu bot.' });
-}
-
-function armarActualizacion({ nombre, userId, urlDescarga, version, reactivado }, { novedades, enCamino, intro, datos, avisoReactivado }) {
-  const front = (process.env.FRONTEND_URL || 'https://akiracloud.lat').replace(/\/+$/, '');
-  const descarga = urlDescarga || `${front}/api/desktop/download`;
-  const guia = `${front}/descargar`;
-  const baja = userId ? urlBaja(userId) : '#';
-  const logo = `${front}/logo-email.png`;
-
-  const fila = ([titulo, texto]) => `
-    <tr>
-      <td style="padding:11px 0 11px 14px;border-left:2px solid #00e87b;vertical-align:top">
-        <div style="color:#fff;font-size:14px;font-weight:600">${escapar(titulo)}</div>
-        <div style="color:#999;font-size:13px;margin-top:3px;line-height:1.5">${escapar(texto)}</div>
-      </td>
-    </tr>
-    <tr><td style="height:2px;line-height:2px;font-size:0">&nbsp;</td></tr>`;
-  const filaCamino = ([titulo, texto]) => `
-    <tr>
-      <td style="padding:7px 0;vertical-align:top">
-        <span style="color:#ddd;font-size:13px;font-weight:600">${escapar(titulo)}</span>
-        <span style="color:#777;font-size:13px"> — ${escapar(texto)}</span>
-      </td>
-    </tr>`;
-
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Novedades de Akira</title></head>
-<body style="margin:0;padding:24px 12px;background:#050505">
-  <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;background:#0a0a0a;color:#e5e5e5;border-radius:12px;overflow:hidden;border:1px solid #1a1a1a">
-    <div style="background:#00e87b;padding:20px 28px">
-      <table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse"><tr>
-        <td style="vertical-align:middle;padding-right:12px"><img src="${logo}" width="40" height="40" alt="Akira" style="display:block;border-radius:10px;border:0"></td>
-        <td style="vertical-align:middle"><span style="color:#000;font-size:20px;font-weight:700;letter-spacing:-0.2px">Akira Cloud</span></td>
-      </tr></table>
-    </div>
-    <div style="padding:30px 30px 8px">
-      <h2 style="margin:0 0 10px;color:#fff;font-size:19px;font-weight:600">Hola, ${escapar(nombre || '')}</h2>
-      <p style="color:#aaa;margin:0 0 6px;line-height:1.6;font-size:14px">
-        ${escapar(intro)}
-        Esto es lo nuevo hasta la versión ${escapar(version || '')}:
-      </p>
-      ${reactivado && avisoReactivado ? `<div style="margin:14px 0 4px;padding:14px 16px;background:#06210f;border:1px solid #0d4a24;border-radius:8px"><p style="margin:0;color:#b8f5d0;font-size:13.5px;line-height:1.6">${avisoReactivado}</p></div>` : ''}
-
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:16px 0 4px">
-        ${novedades.map(fila).join('')}
-      </table>
-
-      <div style="margin:20px 0 6px;padding:13px 15px;background:#101010;border:1px solid #1f1f1f;border-radius:8px">
-        <p style="margin:0;color:#aaa;font-size:13px;line-height:1.55"><strong style="color:#fff">Tus datos siguen siendo tuyos.</strong> La información de gestión (clientes, caja, deudas, proveedores y documentos) se guarda en tu propia computadora y no pasa por nuestros servidores.</p>
-      </div>
-
-      <h3 style="color:#fff;font-size:15px;margin:28px 0 6px">Cómo actualizar</h3>
-      <p style="color:#aaa;margin:0 0 14px;line-height:1.6;font-size:13px">
-        Si ya tenés Akira instalada, <strong style="color:#ddd">se actualiza sola</strong>: vas a ver un aviso dentro de la app para reiniciar con la versión nueva (o tocá “Buscar actualización” en el menú lateral).
-        Si todavía no la instalaste, podés descargarla acá:
-      </p>
-      <div style="text-align:center;margin:18px 0 8px">
-        <a href="${descarga}" style="display:inline-block;background:#00e87b;color:#000;font-weight:700;padding:13px 30px;border-radius:9px;text-decoration:none;font-size:15px">Descargar Akira para Windows</a>
-        <div style="color:#666;font-size:12px;margin-top:9px">${version ? `Versión ${escapar(version)} · ` : ''}Windows 10 y 11 · ~89 MB · <a href="${guia}" style="color:#00e87b;text-decoration:none">guía de instalación</a></div>
-      </div>
-
-      <h3 style="color:#fff;font-size:15px;margin:30px 0 4px">En camino</h3>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
-        ${enCamino.map(filaCamino).join('')}
-      </table>
-
-      <p style="color:#aaa;margin:26px 0 0;line-height:1.6;font-size:13px">¿Dudas o sugerencias? Respondé este email y las vemos. Gracias por acompañarnos.</p>
-      <p style="color:#888;margin:14px 0 22px;font-size:13px">El equipo de Akira</p>
-    </div>
-    <div style="border-top:1px solid #1a1a1a;padding:16px 30px;text-align:center">
-      <p style="color:#555;font-size:11px;margin:0;line-height:1.6">
-        Recibís este email porque tenés una cuenta en Akira Cloud.<br>
-        <a href="${baja}" style="color:#777">Dejar de recibir novedades</a>
-      </p>
-    </div>
-  </div>
-</body></html>`;
+  return armarActualizacion(datos, { novedades: NOVEDADES_GESTION, enCamino: EN_CAMINO, origen: 'email-gestion', intro: 'Seguimos mejorando Akira. Sumamos herramientas para llevar la gestión de tu negocio desde el mismo programa donde atiende tu bot.' });
 }
 
 // ─────────────────────────────────────────────────────────────
-// Campaña "actualización 2": todo lo que se sumó entre las versiones 1.0.17 y 1.0.24.
-// Cada punto existe hoy en la app; no se promete nada que no esté publicado.
+// Campaña "actualización 2" (7/10, ya enviada): lo que se sumó entre las versiones 1.0.17 y 1.0.24.
 // ─────────────────────────────────────────────────────────────
 const NOVEDADES_2 = [
   ['Clientes', 'Importá tu agenda desde Excel, mirá la ficha completa de cada cliente, armá grupos, avisá cumpleaños, controlá ausencias y premiá a los habituales ("a la décima visita, una gratis"). Los mensajes a grupos tienen tope diario y baja voluntaria.'],
@@ -229,37 +112,33 @@ const EN_CAMINO_2 = [
   ['App de celular para monitorear', 'Estado del bot y resumen del día desde el teléfono. El bot y tus datos siguen en la PC.'],
   ['Instalador con firma digital', 'Para que Windows no muestre el aviso de “editor desconocido”.'],
 ];
-function asuntoActualizacion2() {
-  return 'Novedades de Akira: clientes, pedidos, presupuestos, equipo y más';
-}
-function htmlActualizacion2(datos) {
-  return armarActualizacion(datos, { novedades: NOVEDADES_2, enCamino: EN_CAMINO_2, intro: 'Desde el último aviso sumamos muchas herramientas nuevas para atender y manejar tu negocio desde el mismo programa.' });
-}
 
+function asuntoActualizacion2() { return 'Novedades de Akira: clientes, pedidos, presupuestos, equipo y más'; }
+function htmlActualizacion2(datos) {
+  return armarActualizacion(datos, { novedades: NOVEDADES_2, enCamino: EN_CAMINO_2, origen: 'email-gestion2', intro: 'Desde el último aviso sumamos muchas herramientas nuevas para atender y manejar tu negocio desde el mismo programa.' });
+}
 
 // ─────────────────────────────────────────────────────────────
-// Campaña "actualización 3": prueba gratis por uso, Marketing con IA, asistentes de IA (MCP) y lo demás de la 1.0.25 / 1.0.26.
-// Cada punto existe hoy en la app (o en el servidor); lo que todavía es de prueba se dice como de prueba.
+// Campaña "actualización 4" (la vigente): todo lo que se sumó desde la versión 1.0.24 hasta la 1.0.31, que es lo último que recibieron.
+// Cada punto se verificó contra el programa. Los precios no se mencionan: están en la pantalla Planes.
 // A quien se le devolvió la prueba (user.trialReactivado) se le suma un aviso destacado arriba.
 // ─────────────────────────────────────────────────────────────
-const NOVEDADES_3 = [
-  ['Prueba gratis por uso, no por calendario', 'Los 7 días de prueba se gastan solo los días en que el bot atiende al menos un mensaje. Si te registraste y todavía no la probaste, no se te vence. Tiene un tope de 60 días desde el alta y 100 mensajes.'],
-  ['Marketing con IA', 'Un equipo de especialistas que te escribe borradores con los datos reales de tu negocio: publicaciones para redes, promociones, respuestas a reseñas, un plan semanal, mensajes para tus clientes y un consultor que mira tus números. Usa tu propia clave de Groq (gratis) y nada se publica ni se envía solo.'],
-  ['Si vendés por mayor', 'Contale a Akira cómo vendés y cargá tus condiciones (pedido mínimo, entrega, pagos): se suman la presentación para mayoristas, la prospección de clientes nuevos y el seguimiento comercial y de cobranzas, y el consultor mira tus ventas y lo que tenés por cobrar.'],
-  ['Asistentes de IA conectados (opcional)', 'Si usás un asistente como Claude, podés dejar que consulte tu negocio: es solo lectura, funciona únicamente en tu computadora y se apaga cuando quieras. Está desactivado hasta que lo actives en Integraciones.'],
-  ['Celular de avisos a la vista', 'El campo para cargar el celular donde el bot te avisa ahora aparece donde corresponde, en Config.'],
-  ['Mac y celular (versiones de prueba)', 'Hay una versión de prueba para Mac, una app de prueba para Android y la web instalable /celular para ver el estado del bot desde el teléfono.'],
+const NOVEDADES_4 = [
+  ['Verificación de comprobantes de transferencia', 'Cuando un cliente te manda la captura o el PDF de una transferencia, Akira lee el comprobante y controla que el monto, el destinatario, la fecha y el número de operación coincidan con lo que ese cliente debe. Te avisa el resultado por WhatsApp y lo ves en Documentos. La lectura se hace en tu PC. Una captura se puede falsificar, así que dar el pago por recibido sigue siendo decisión tuya.'],
+  ['Tu negocio en el celular, casi en vivo', 'Si activás “Ver tu negocio desde el celular”, el resumen del día se actualiza solo cada pocos segundos mientras lo mirás desde la web o el celular. Se envían únicamente contadores del día, y solo si lo activás.'],
+  ['Prueba gratis por uso, no por calendario', 'Los 7 días de prueba se gastan solo los días en que el bot atiende al menos un mensaje. Si te registraste y todavía no la probaste, no se te vence. Tiene un tope de 60 días desde el alta y de 100 mensajes.'],
+  ['Marketing con IA', 'Borradores con los datos reales de tu negocio: publicaciones para redes, promociones, respuestas a reseñas, un plan semanal y mensajes para tus clientes. Usa tu propia clave de Groq (gratis) y nada se publica ni se envía solo.'],
+  ['Menos cortes y una actualización que no se traba', 'Corregimos el aviso “Tu sesión venció” que aparecía de más y la actualización que se quedaba en “Reiniciando”.'],
+  ['Mac y Android (versiones de prueba)', 'Hay una versión de prueba para Mac, una app de prueba para Android y la web instalable /celular para ver el estado del bot desde el teléfono.'],
 ];
-const EN_CAMINO_3 = [
-  ['Escáner de códigos con la cámara', 'Cargar y vender productos escaneando con la cámara de la compu o del celular.'],
+const EN_CAMINO_4 = [
   ['Instalador con firma digital', 'Para que Windows no muestre el aviso de “editor desconocido”.'],
 ];
-function asuntoActualizacion3() {
-  return 'Novedades de Akira: marketing con IA, prueba gratis por uso y más';
-}
-function htmlActualizacion3(datos) {
-  return armarActualizacion(datos, { novedades: NOVEDADES_3, enCamino: EN_CAMINO_3, intro: 'Cambiamos cómo funciona la prueba gratis y sumamos herramientas nuevas para vender y atender mejor.',
-    avisoReactivado: '<strong>Te devolvimos tu prueba gratis.</strong> Vimos que se te había vencido sin que llegaras a usar Akira. Ahora son 7 días de uso: solo se gastan los días en que el bot atiende mensajes. Abrí la app, conectá tu WhatsApp y empezá cuando quieras.' });
+function asuntoActualizacion4() { return 'Novedades de Akira: comprobantes de transferencia, tu negocio en el celular y más'; }
+function htmlActualizacion4(datos) {
+  return armarActualizacion(datos, { novedades: NOVEDADES_4, enCamino: EN_CAMINO_4, origen: 'email-actualizacion4', instalar: true,
+    intro: 'Desde el último aviso mejoramos Akira en varios frentes.',
+    avisoReactivado: `${P.fuerte('Te devolvimos tu prueba gratis.')} Vimos que se te había vencido sin que llegaras a usar Akira. Ahora son 7 días de uso: solo se gastan los días en que el bot atiende mensajes. Abrí la app, conectá tu WhatsApp y empezá cuando quieras.` });
 }
 
 // Campañas de email disponibles. La clave se guarda en cada usuario (novedadesEnviadas)
@@ -268,7 +147,10 @@ const CAMPANAS = {
   'instalador-1.0.0': { asunto: asuntoNovedades, html: htmlNovedades },
   'actualizacion-2026-10': { asunto: asuntoActualizacion, html: htmlActualizacion },
   'actualizacion-2026-10b': { asunto: asuntoActualizacion2, html: htmlActualizacion2 },
-  'actualizacion-2026-10c': { asunto: asuntoActualizacion3, html: htmlActualizacion3 },
+  'actualizacion-2026-10d': { asunto: asuntoActualizacion4, html: htmlActualizacion4 },
 };
 
-module.exports = { htmlNovedades, asuntoNovedades, htmlActualizacion, asuntoActualizacion, CAMPANAS, urlBaja, PROXIMAMENTE };
+// Encabezado para que Gmail y Outlook muestren su propio botón "Cancelar suscripción".
+const cabecerasBaja = (userId) => (userId ? { 'List-Unsubscribe': `<${urlBaja(userId)}>` } : undefined);
+
+module.exports = { htmlNovedades, asuntoNovedades, htmlActualizacion, asuntoActualizacion, CAMPANAS, urlBaja, cabecerasBaja, PROXIMAMENTE };

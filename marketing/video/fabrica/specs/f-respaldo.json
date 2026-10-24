@@ -1,0 +1,70 @@
+{
+  "id": "f-respaldo",
+  "titulo": "Respaldo",
+  "titular": [
+    "Si se rompe la compu,",
+    "no perdés nada"
+  ],
+  "frases": [
+    "¿Qué pasa con tus datos si se rompe la computadora?",
+    "Elegís una carpeta y una contraseña que solo sabés vos.",
+    "Akira hace una copia cifrada por día y conserva las últimas diez.",
+    "Y la restaurás en otra PC con la misma contraseña.",
+    "Probalo gratis en akiracloud punto lat."
+  ],
+  "visuales": [
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/respaldo.png",
+      "titulo": "Respaldo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960,
+      "desde_el_inicio": true
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/respaldo.png",
+      "titulo": "Respaldo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/respaldo.png",
+      "titulo": "Respaldo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "ventana",
+      "archivo": "../capturas-video/respaldo.png",
+      "titulo": "Respaldo",
+      "escala": 1.0,
+      "alto": 1100,
+      "maxh": 1260,
+      "recorta_menu": false,
+      "cy": 960
+    },
+    {
+      "tipo": "cta"
+    }
+  ],
+  "voz": "abril",
+  "tomas": 3,
+  "caption": "Respaldo en Akira Cloud: copia cifrada diaria de tus datos, con restauración en otra computadora. Si perdés la contraseña, el respaldo no se puede abrir. Los datos que se ven son de un negocio de ejemplo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+  "hashtags": [
+    "#respaldo",
+    "#seguridad",
+    "#pymes",
+    "#akiracloud"
+  ]
+}

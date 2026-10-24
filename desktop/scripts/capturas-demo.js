@@ -106,6 +106,27 @@ async function sembrar() {
 
   await Conocimiento.create({ userId: uid, titulo: 'Preguntas frecuentes de Aurora', origen: 'texto', caracteres: 1800, fragmentos: ['Aceptamos transferencia, MercadoPago y efectivo. Los turnos se reservan con una seña.', 'Estamos en Belgrano 450. Atendemos de lunes a viernes de 9 a 18 y sábados de 9 a 13.'] });
   await Documento.create({ userId: uid, jid: '5492241555102@s.whatsapp.net', nombreOriginal: 'comprobante-seña.png', mimetype: 'image/png', ruta: 'x', estado: 'nuevo', tipo: 'comprobante', monto: 4000 });
+  // ── Qué preguntan: consultas de ejemplo de los últimos 30 días (algunas que el bot no supo responder) ──
+  const Analitica = require('../main/bot-engine/models/Analitica'); const anal = require('../main/bot-engine/services/bot/analitica.service');
+  const consultas = [['¿Cuánto sale el corte con barba?', 9], ['¿Tienen turno para mañana?', 8], ['¿Dónde están ubicados?', 6], ['¿Aceptan transferencia?', 6], ['¿Hacen alisado con keratina?', 4, true], ['¿Qué horarios tienen los sábados?', 5], ['¿Tienen shampoo sin sulfatos?', 4], ['¿Tienen estacionamiento?', 3, true], ['¿Hacen descuento a jubilados?', 3, true], ['¿Puedo cambiar mi turno?', 3]];
+  let k = 0;
+  for (const [q, veces, sin] of consultas) for (let i = 0; i < veces; i++, k++) await Analitica.create({ userId: uid, ts: new Date(hoy.getTime() - (k % 28) * 86400000 - 3600000 * (k % 9)).toISOString(), pregunta: q, tema: anal.clasificarTema(q), sinRespuesta: !!sin });
+
+  // ── Presupuestos y recibos ──
+  const Comprobante = require('../main/bot-engine/models/Comprobante'); const comp = require('../main/gestion/comprobantes');
+  const catalogoEj = [{ nombre: 'Corte con barba', precio: 9500 }, { nombre: 'Color completo', precio: 24000 }, { nombre: 'Shampoo reparador 350 ml', precio: 6500 }, { nombre: 'Máscara nutritiva 250 g', precio: 9800 }];
+  for (const [tipo, cliente, items, num] of [['presupuesto', 'Martina Gómez', [{ nombre: 'Color completo', cantidad: 1 }, { nombre: 'Máscara nutritiva 250 g', cantidad: 1 }], 1], ['recibo', 'Valentina Suárez', [{ nombre: 'Corte con barba', cantidad: 1 }, { nombre: 'Shampoo reparador 350 ml', cantidad: 2 }], 1], ['presupuesto', 'Sofía Benítez', [{ nombre: 'Color completo', cantidad: 2 }], 2]]) {
+    const r = comp.sanear({ tipo, cliente: { nombre: cliente }, items, metodo: 'transferencia' }, catalogoEj);
+    if (r.ok) await Comprobante.create({ ...r.dato, userId: uid, numero: num, estado: tipo === 'recibo' ? 'cobrado' : 'emitido' });
+  }
+
+  // ── Documentos de clientes (comprobantes y facturas recibidos por WhatsApp) ──
+  const docs = [['comprobante-seña.png', 'Valentina Suárez', 'comprobante', 4000], ['transferencia-turno.pdf', 'Martina Gómez', 'comprobante', 9500], ['factura-proveedor.pdf', 'Distribuidora Belleza Sur', 'factura', 96000]];
+  for (const [nombre, cli, tipo, monto] of docs.slice(1)) await Documento.create({ userId: uid, jid: '5492241555103@s.whatsapp.net', clienteNombre: cli, clienteNumero: '2241555103', nombreOriginal: nombre, mimetype: nombre.endsWith('.pdf') ? 'application/pdf' : 'image/png', ruta: 'x', bytes: 184000, estado: 'nuevo', tipo, montoSugerido: monto, fechaSugerida: new Date().toISOString().slice(0, 10) });
+
+  // ── Sucursales ──
+  const Sucursal = require('../main/bot-engine/models/Sucursal'); const suc = require('../main/gestion/sucursales');
+  for (const [nombre, direccion] of [['Centro', 'Av. San Martín 1234, Ranchos'], ['Barrio Norte', 'Calle 25 de Mayo 480, Ranchos']]) { const r = suc.sanear({ nombre, direccion }); if (r.ok) await Sucursal.create({ ...r.dato, userId: uid }); }
   log('datos de ejemplo cargados');
 }
 
@@ -138,6 +159,10 @@ app.whenReady().then(async () => {
     const modelos = { Movimiento: require('../main/bot-engine/models/Movimiento'), Turno: require('../main/bot-engine/models/Turno'), BotCliente: require('../main/bot-engine/models/BotCliente'), Config: require('../main/bot-engine/models/Config') };
     appHooks.servicioWebhooks = require('../main/webhooks').crearServicio({ userDataDir: tmp, log });
     appHooks.servicioExportacion = require('../main/exportacion-auto').crearServicio({ userDataDir: tmp, obtenerUserId: () => 'demo', modelos, log });
+    appHooks.servicioRespaldo = require('../main/respaldo-servicio').crearServicio({ userDataDir: tmp, snapshotDb: (destino) => require('../main/db/store').respaldarA(destino), credenciales: require('../main/security/credentials-store'), version: '1.0.31', log, carpetaSugerida: 'C:\\Users\\Public\\Documents\\Respaldos de Akira' });
+    const carpetaRespaldo = 'C:\\Respaldos de Akira'; // ruta neutra: la captura no tiene que mostrar el usuario de quien la saca
+    log('respaldo de ejemplo: carpeta', carpetaRespaldo);
+    try { fs.mkdirSync(carpetaRespaldo, { recursive: true }); appHooks.servicioRespaldo.configurar({ activo: true, carpeta: carpetaRespaldo, clave: 'clave-de-ejemplo-2026' }); log('respaldo de ejemplo: copiando...'); await Promise.race([appHooks.servicioRespaldo.respaldarAhora(), new Promise((r) => setTimeout(r, 20000))]); log('respaldo de ejemplo: listo'); } catch (e) { log('respaldo de ejemplo:', e.message); }
     appHooks.servicioMcp = require('../main/mcp/servicio').crearServicio({ userDataDir: tmp, obtenerUserId: () => 'demo', version: '1.0.26', log });
     appHooks.servicioMarketing = require('../main/marketing/servicio').crearServicio({
       userDataDir: tmp, log, llamarIA: async () => 'Opción 1\n¡Este sábado tenemos huecos libres en la mañana para que te des un nuevo look! Vení a Aurora Estudio y aprovechá el turno para un corte a $8.000.\nReservá por WhatsApp y asegurá tu espacio.\n\n#PeluqueríaAurora #CorteDePelo #TurnosDisponibles #SábadoDeCorte\n\nFoto o video sugerido: una foto del interior del estudio con la silla de corte vacía y luz natural de la mañana.\n\nOpción 2\n¿Querés cambiar tu estilo antes del fin de semana? Este sábado por la mañana quedan turnos libres para corte a $8.000. Mandanos un mensaje por WhatsApp y agendá tu hora.\n\n#Corte #SábadoEnAurora #TurnosAbiertos #RenováTuPeinado\n\nFoto o video sugerido: un video corto de Lucía preparando las herramientas de corte, lista para recibir a la próxima clienta.',
@@ -149,11 +174,11 @@ app.whenReady().then(async () => {
     const srv = await require('../main/local-api/server').iniciar({ appHooks, userDataDir: tmp, serverUrl: `http://127.0.0.1:${nube.address().port}`, frontendDir: path.join(__dirname, '..', 'renderer-app'), nombreEquipo: 'demo', botService });
     log('servidor local en', srv.url);
 
-    const win = new BrowserWindow({ width: 1440, height: 900, show: true, frame: false, x: 0, y: 0, backgroundColor: '#0a0a0a', webPreferences: { backgroundThrottling: false } });
+    const win = new BrowserWindow({ width: 1440, height: 900, show: process.env.CAPTURA_VISIBLE === '1', frame: false, x: 0, y: 0, backgroundColor: '#0a0a0a', webPreferences: { backgroundThrottling: false } });
     await win.loadURL(srv.url + '/login');
     await js(win, "localStorage.setItem('akira_token','demo-token'); localStorage.setItem('akira_primeros_pasos_oculto','1'); true");
 
-    for (const [nombre, ruta, ms, alto] of [['dashboard', '/dashboard', 4200, 1000], ['agenda', '/agenda', 3800, 1000], ['caja', '/caja', 3500, 1250], ['reportes', '/reportes', 4200, 1250], ['catalogo', '/catalogo', 3000, 760], ['clientes', '/clientes', 3000, 900], ['pedidos', '/pedidos', 3000, 780], ['deudores', '/deudores', 3000, 640], ['conocimiento', '/conocimiento', 3000, 780], ['integraciones', '/integraciones', 4500, 1600]]) {
+    for (const [nombre, ruta, ms, alto] of [['dashboard', '/dashboard', 4200, 1000], ['agenda', '/agenda', 3800, 1000], ['caja', '/caja', 3500, 1250], ['reportes', '/reportes', 4200, 1250], ['catalogo', '/catalogo', 3000, 760], ['clientes', '/clientes', 3000, 900], ['pedidos', '/pedidos', 3000, 780], ['deudores', '/deudores', 3000, 640], ['conocimiento', '/conocimiento', 3000, 780], ['integraciones', '/integraciones', 4500, 1600], ['chats', '/chats', 3200, 1000], ['profesionales', '/profesionales', 3000, 900], ['vender', '/vender', 3200, 1000], ['sucursales', '/sucursales', 3000, 800], ['presupuestos', '/comprobantes', 3200, 1000], ['proveedores', '/proveedores', 3000, 900], ['documentos', '/documentos', 3200, 1000], ['preguntan', '/analisis', 3200, 1000], ['equipo', '/equipo', 3000, 900], ['respaldo', '/respaldo', 3000, 900], ['config', '/config', 3500, 1500], ['app', '/descargar', 3500, 1200], ['ideas', '/sugerencias', 3000, 900], ['ayuda', '/ayuda', 3000, 900]]) {
       await ir(win, srv.url, ruta); await capturar(win, nombre, ms, alto);
     }
     // Marketing: la pantalla de especialistas y un borrador generado

@@ -90,8 +90,12 @@ module.exports = function crearRouter({ botService, requerirSesion }) {
               }))
               : [],
           } : {}),
-          ...(direccionPropiedad !== undefined ? { direccionPropiedad: (direccionPropiedad || '').trim() } : {}),
-          ...(linkUbicacion !== undefined ? { linkUbicacion: (linkUbicacion || '').trim() } : {}),
+          // Datos de contacto y ubicación: se validan igual que los ve el bot (links solo http/https, sin saltos de línea, con tope de largo)
+          ...(() => { // solo se pisan los campos que vienen en el pedido
+            const x = require('../../bot-engine/services/bot/info-negocio').sanear(req.body);
+            const lim = { direccionPropiedad: x.direccion, linkUbicacion: x.linkUbicacion, telefonoNegocio: x.telefono, instagramNegocio: x.instagram, webNegocio: x.web, comoLlegar: x.comoLlegar };
+            return Object.fromEntries(Object.entries(lim).filter(([k]) => req.body[k] !== undefined));
+          })(),
           configurado: true,
         },
         { upsert: true, new: true },
@@ -195,12 +199,14 @@ module.exports = function crearRouter({ botService, requerirSesion }) {
         categoria: String(p.categoria || '').trim(),
         stock: parseInt(p.stock) >= 0 ? parseInt(p.stock) : -1,
         imagen: String(p.imagen || '').trim(),
+        codigo: require('../../gestion/codigo-barras').sanear(p.codigo), // antes se perdía al guardar desde acá
         disponible: p.disponible !== false,
         fuente: ['manual', 'wa_catalog', 'status'].includes(p.fuente) ? p.fuente : 'manual',
       })).filter((p) => p.nombre);
       await asegurarConfig(req.user._id);
       const config = await Config.findOneAndUpdate({ userId: req.user._id }, { catalogo: sanitizado }, { upsert: true, new: true });
       await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Catálogo actualizado: ${sanitizado.length} producto(s)` });
+      recargar();
       res.json({ ok: true, catalogo: config.catalogo, keys: config.resumenKeys() });
     } catch { res.status(500).json({ error: 'Error al guardar catálogo' }); }
   });
@@ -219,6 +225,7 @@ module.exports = function crearRouter({ botService, requerirSesion }) {
       if (isNaN(idx) || idx < 0 || idx >= config.catalogo.length) return res.status(400).json({ error: 'Índice inválido' });
       config.catalogo.splice(idx, 1);
       await config.save();
+      recargar();
       res.json({ ok: true, catalogo: config.catalogo });
     } catch (err) { res.status(500).json({ error: err.message }); }
   });

@@ -6,6 +6,26 @@
 'use strict';
 
 const router = require('express').Router();
+const logger = require('../config/logger');
+const descargas = require('../lib/descargas');
+
+// Anota la descarga para el contador del panel de administración. Nunca demora ni rompe la descarga: si algo falla, se descarga igual.
+// (En Vercel hay que esperar el guardado antes de responder, por eso lleva un tope de tiempo corto.)
+async function contar(req, plataforma) {
+  try {
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) return;
+    const ua = req.headers['user-agent'];
+    if (descargas.esRobot(ua, req.method)) return;
+    const Descarga = require('../models/Descarga');
+    const visitante = descargas.huella(req.ip, ua, process.env.JWT_SECRET);
+    const guardar = (async () => {
+      const reciente = await Descarga.exists({ visitante, plataforma, fecha: { $gt: new Date(Date.now() - descargas.VENTANA_REPETIDO_MS) } });
+      if (!reciente) await Descarga.create({ plataforma, origen: descargas.limpiarOrigen(req.query.r), visitante });
+    })();
+    await Promise.race([guardar, new Promise((r) => setTimeout(r, 1500))]);
+  } catch (e) { logger.warn('[Descargas] no se pudo contar: ' + e.message); }
+}
 
 const urlInstalador = () => {
   const u = (process.env.DESKTOP_DOWNLOAD_URL || '').trim();
@@ -50,21 +70,25 @@ router.get('/latest', (_req, res) => {
   });
 });
 
-router.get('/download-android', (_req, res) => {
+router.get('/download-android', async (req, res) => {
   const u = urlAndroid();
   if (!u) return res.status(404).json({ error: 'La app de Android todavía no está disponible' });
+  await contar(req, 'android');
   res.redirect(302, u);
 });
 
-router.get('/download-mac', (req, res) => {
-  const u = urlMac(req.query.arch === 'x64' ? 'x64' : 'arm64');
+router.get('/download-mac', async (req, res) => {
+  const arch = req.query.arch === 'x64' ? 'x64' : 'arm64';
+  const u = urlMac(arch);
   if (!u) return res.status(404).json({ error: 'La versión para Mac todavía no está disponible' });
+  await contar(req, `mac-${arch}`);
   res.redirect(302, `${u}${u.includes('?') ? '&' : '?'}download=1`);
 });
 
-router.get('/download', (_req, res) => {
+router.get('/download', async (req, res) => {
   const u = urlInstalador();
   if (!u) return res.status(404).json({ error: 'El instalador todavía no está disponible' });
+  await contar(req, 'windows');
   res.redirect(302, `${u}${u.includes('?') ? '&' : '?'}download=1`);
 });
 

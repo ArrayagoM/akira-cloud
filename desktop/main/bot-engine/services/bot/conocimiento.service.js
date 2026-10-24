@@ -68,7 +68,7 @@ function buscar(docs, consulta, { k = 3, minimo = 0.45 } = {}) {
 function notaParaPrompt(fragmentos) {
   if (!fragmentos?.length) return '';
   const lista = fragmentos.map((f, i) => `[${i + 1}] ${f.texto.replace(/\s+/g, ' ').slice(0, MAX_FRAGMENTO)}`).join('\n');
-  return `📚 INFORMACIÓN DEL NEGOCIO (documento propio del dueño). Si la pregunta del cliente se responde con esto, usala y no inventes nada más; si NO alcanza para responder, decile que consultás con el dueño y que le avisás:\n${lista}\n`;
+  return `📚 INFORMACIÓN DEL NEGOCIO (documento propio del dueño). Si la pregunta del cliente se responde con esto, usala y no inventes nada más; si NO alcanza para responder, usá avisar_al_dueno y decile al cliente que ya le avisaste y que le van a responder:\n${lista}\n`;
 }
 
 // La consulta para buscar: último mensaje del cliente (si es muy corto, se le suma el anterior para tener contexto).

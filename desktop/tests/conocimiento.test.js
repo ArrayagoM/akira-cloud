@@ -60,7 +60,7 @@ Menores de edad: los menores de 12 años deben venir acompañados por un adulto 
 
   // ── prompt y consulta ──
   const nota = svc.notaParaPrompt(svc.buscar([doc], 'formas de pago'));
-  assert(/INFORMACIÓN DEL NEGOCIO/.test(nota) && /no inventes/.test(nota) && /consultás con el dueño/.test(nota) && /\[1\]/.test(nota), 'la nota para la IA le dice que use el documento, que no invente y que consulte al dueño si no alcanza');
+  assert(/INFORMACIÓN DEL NEGOCIO/.test(nota) && /no inventes/.test(nota) && /avisar_al_dueno/.test(nota) && /\[1\]/.test(nota), 'la nota para la IA le dice que use el documento, que no invente y que use avisar_al_dueno si no alcanza');
   assert(svc.notaParaPrompt([]) === '', 'sin fragmentos relevantes no agrega nada al prompt');
   const h = [{ role: 'user', content: '¿Aceptan MercadoPago?' }, { role: 'assistant', content: 'Sí' }, { role: 'user', content: 'y tarjeta?' }];
   assert(/MercadoPago/.test(svc.consultaDesdeHistorial(h)) && /tarjeta/.test(svc.consultaDesdeHistorial(h)), 'si el último mensaje es muy corto ("y tarjeta?") le suma el anterior para entender el contexto');

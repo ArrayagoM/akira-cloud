@@ -62,6 +62,8 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  ‚ú
   inyectar('models/User.js', UserFalso);
   inyectar('models/Referido.js', { findOne: async () => referidoPendiente });
   inyectar('models/Log.js', { registrar: async (x) => { logs.push(x); } });
+  const pagosAsentados = [];
+  inyectar('models/Pago.js', { create: async (x) => { pagosAsentados.push(x); return x; } });
   const rutas = require('../routes/subscription.routes');
   const activar = rutas.activarPlanYProcesarReferido; const PL = rutas.PLANES;
   const pago = (id, monto, extra = {}) => ({ id, transaction_amount: monto, currency_id: 'ARS', metadata: { precio_esperado: monto }, ...extra });
@@ -92,6 +94,10 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  ‚ú
   const antes3 = usuarios.get('u3').planExpira.getTime();
   r = await activar({ userId: 'u3', planKey: 'agencia', periodo: 'anual', planInfo: PL.agencia_anual, descuentoAplicado: 0, pago: pago(555, 1075200) });
   assert(r.activado && usuarios.get('u3').plan === 'agencia' && usuarios.get('u3').planExpira.getTime() > antes3 + 300 * 86400000, 'pasar a otro plan anual: activa Agencia por 12 meses');
+
+  // cada cobro que activa un plan queda asentado UNA vez para el panel de ingresos (lo que MP cobr√≥ de verdad)
+  assert(pagosAsentados.map((x) => x.mpPagoId).join() === '111,222,555', `se asientan los 3 cobros que activaron un plan (${pagosAsentados.map((x) => x.mpPagoId)}) y no los repetidos, rechazados ni de usuario inexistente`);
+  assert(pagosAsentados[0].monto === 49000 && pagosAsentados[0].plan === 'pro' && pagosAsentados[0].periodo === 'mensual' && pagosAsentados[2].monto === 1075200 && pagosAsentados[2].periodo === 'anual', 'el cobro asentado guarda monto, plan y per√≠odo');
 
   // el endpoint p√∫blico de planes devuelve los precios nuevos
   assert(rutas.PLANES.pro_anual.precio === 470400, 'la ruta usa los mismos precios que lib/cobro.js');

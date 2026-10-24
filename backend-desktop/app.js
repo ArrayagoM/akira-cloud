@@ -78,15 +78,15 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://akiracloud.lat',
   'https://www.akiracloud.lat',
-  'http://localhost:3000',
-  'http://localhost:5173',
-].filter(Boolean);
+  // los orígenes de desarrollo solo valen fuera de producción
+  ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://localhost:5173']),
+].filter(Boolean).map((o) => String(o).replace(/\/+$/, ''));
 
 app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true); // apps de escritorio / curl / Postman no mandan Origin
-      const ok = allowedOrigins.some((o) => origin === o || origin.startsWith(o));
+      const ok = allowedOrigins.includes(origin);   // coincidencia EXACTA (antes: startsWith, que dejaba pasar dominios que empiezan igual)
       if (ok) return cb(null, true);
       logger.warn(`[CORS] Origen bloqueado: ${origin}`);
       cb(new Error('CORS: origen no permitido'));
