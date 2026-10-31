@@ -8,7 +8,8 @@ Datos clave para responder preguntas sobre Akira Cloud:
 - Dónde viven los datos: en la PC del usuario (base de datos local, sesión de WhatsApp y respaldos). La nube guarda solo la cuenta, la licencia y manda emails. Las claves que carga el usuario se cifran con el almacén de claves de Windows.
 - Requisito: la PC tiene que estar prendida y con internet para que el bot responda, y el usuario carga su propia clave de Groq (servicio de IA con plan gratuito). Si el bot se desconecta, avisa por email y por notificación al celular.
 - Precios (ARS, por mes): Prueba gratis (7 días de uso, sin tarjeta) · Básico $21.000 (1 número de WhatsApp, 500 mensajes/mes) · Pro $49.000 (mensajes ilimitados, Google Calendar, MercadoPago, audios) · Agencia $112.000 (hasta 5 números de WhatsApp y 2 PCs). 20 % de descuento pagando el año completo.
-- Creador: Juan Martín Arrayago (TinchoDev), Ranchos, Buenos Aires, Argentina.
+- Fundador: Juan Martín Arrayago.
+- Descarga para Windows: Microsoft Store, https://apps.microsoft.com/detail/9PM7BL2V6W22
 - Contacto: soporte@akiracloud.lat · info@akiracloud.lat · pagos@akiracloud.lat
 
 ## Qué hace

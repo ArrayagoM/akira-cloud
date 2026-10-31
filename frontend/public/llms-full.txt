@@ -1,6 +1,6 @@
 # Akira Cloud — información completa
 
-Akira Cloud es un programa para Windows (10 y 11) creado en Argentina por Juan Martín Arrayago (TinchoDev). Combina un asistente de WhatsApp con inteligencia artificial y herramientas de gestión para pequeños negocios. Sitio: https://akiracloud.lat
+Akira Cloud es un programa para Windows (10 y 11) creado en Argentina. Fundador: Juan Martín Arrayago. Combina un asistente de WhatsApp con inteligencia artificial y herramientas de gestión para pequeños negocios. Sitio: https://akiracloud.lat
 
 ## Cómo funciona
 1. El dueño instala el programa en una PC con Windows y crea su cuenta.
@@ -47,7 +47,7 @@ Usa modelos de lenguaje de última generación servidos por Groq, con la propia 
 **¿Emite facturas?** No. Genera presupuestos y recibos en PDF que no son facturas fiscales.
 **¿Hay app de celular?** Sí, de monitoreo, sin App Store ni Google Play. En Android hay una app nativa (.apk, versión de prueba) en akiracloud.lat/descargar. En iPhone y Android hay además una versión web instalable (akiracloud.lat/celular → “Agregar a inicio” en iPhone, “Instalar app” en Android); Apple no permite instalar apps nativas fuera de su tienda sin una cuenta de pago. Muestra el estado del bot, el resumen del día, permite pausar/reanudar y manda avisos si el bot se cae. El bot y los datos siguen en la PC. En iPhone, los avisos requieren iOS 16.4 o superior y abrir la app desde el ícono de inicio.
 **¿Mac o Linux?** Hoy solo Windows.
-**¿Quién lo hace?** Juan Martín Arrayago (TinchoDev), desarrollador full stack de Ranchos, Buenos Aires.
+**¿Quién lo hace?** Akira Cloud es un producto argentino; su fundador es Juan Martín Arrayago.
 
 ## Contacto
 soporte@akiracloud.lat (ayuda técnica) · info@akiracloud.lat (consultas) · pagos@akiracloud.lat (pagos)

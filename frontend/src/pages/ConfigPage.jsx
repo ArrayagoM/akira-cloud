@@ -4,9 +4,8 @@ import Layout from '../components/Layout';
 import PlantillasRubro from '../components/PlantillasRubro';
 import api from '../services/api';
 import toast from 'react-hot-toast';
-import { useSocket } from '../hooks/useSocket';
 import { useAuth } from '../context/AuthContext';
-import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin, RefreshCw } from 'lucide-react';
+import { Save, Key, Eye, EyeOff, CheckCircle, XCircle, Upload, Trash2, ChevronDown, ChevronUp, Plus, X, Copy, ExternalLink, AlertTriangle, Info, CalendarCheck, Unlink, Clock, BellRing, Ban, PauseCircle, PlayCircle, MapPin } from 'lucide-react';
 
 function CopiarTexto({ texto }) {
   const [copiado, setCopiado] = useState(false);
@@ -22,14 +21,17 @@ function CopiarTexto({ texto }) {
   );
 }
 
+const AVISOS_MP_URL = 'https://akira-licencias.vercel.app';
+
 // URL de webhook auto-generada por usuario — solo lectura, con botón copiar
 function WebhookUrlField() {
   const { user } = useAuth();
   const [copiado, setCopiado] = useState(false);
 
-  const backendBase = (import.meta.env.VITE_API_URL || '/api').replace(/\/api$/, '');
+  // Mercado Pago avisa al servidor de Akira (única dirección pública); la app retira esos avisos cada pocos segundos y
+  // vuelve a verificar cada pago contra Mercado Pago. Por eso no hace falta ngrok ni un servidor propio.
   const webhookUrl = user?._id
-    ? `${backendBase}/api/subscriptions/webhook/${user._id}`
+    ? `${AVISOS_MP_URL}/api/bot/webhook-mp/${user._id}`
     : '';
 
   const copiar = () => {
@@ -63,8 +65,8 @@ function WebhookUrlField() {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 mt-1.5">
-        Esta URL es única para tu cuenta. Pegala en MercadoPago en <strong className="text-gray-400">Tu negocio → Configuraciones → Notificaciones</strong>.
-        Cada vez que un cliente pague, MP avisa a tu bot automáticamente.
+        Esta URL es única para tu cuenta. Pegala en Mercado Pago en <strong className="text-gray-400">Tu negocio → Configuración → Notificaciones Webhooks</strong> (evento: Pagos).
+        Cada vez que un cliente pague, Mercado Pago avisa a Akira y tu bot lo confirma solo. Funciona con la PC prendida y la app abierta; no necesitás ngrok ni ningún servidor propio.
       </p>
     </div>
   );
@@ -232,7 +234,7 @@ function KeyField({ campo, label, placeholder, keys, onSave, onDelete }) {
   const [show, setShow]       = useState(false);
   const [saving, setSaving]   = useState(false);
   const cargada = keys[campo.replace('key','').replace('id','').replace('Key','').toLowerCase()] ||
-                  keys[campo === 'idCalendar' ? 'calendar' : campo === 'keyRime' ? 'rime' : campo === 'keyNgrok' ? 'ngrok' : campo === 'credentialsGoogleB64' ? 'credentialsGoogle' : campo.replace('key','').toLowerCase()];
+                  keys[campo === 'idCalendar' ? 'calendar' : campo === 'keyRime' ? 'rime' : campo === 'credentialsGoogleB64' ? 'credentialsGoogle' : campo.replace('key','').toLowerCase()];
 
   const save = async () => {
     if (!valor.trim()) return;
@@ -287,7 +289,6 @@ function KeyField({ campo, label, placeholder, keys, onSave, onDelete }) {
 
 export default function ConfigPage() {
   const { user } = useAuth();
-  const { on }   = useSocket(user?._id);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   // Llegar desde "Primeros pasos" con #avisos-celular: bajar directo a esa sección.
@@ -302,7 +303,7 @@ export default function ConfigPage() {
   const [keys,   setKeys]     = useState({});
   const [form,   setForm]     = useState({
     miNombre: '', negocio: '', servicios: '', precioTurno: '1000',
-    horasCancelacion: '24', promptPersonalizado: '', dominioNgrok: '', mpWebhookUrl: '',
+    horasCancelacion: '24', promptPersonalizado: '',
     aliasTransferencia: '', cbuTransferencia: '', bancoTransferencia: '', titularTransferencia: '', cuilTransferencia: '',
     serviciosList: [],
     tipoNegocio: 'turnos', checkInHora: '14:00', checkOutHora: '10:00',
@@ -314,20 +315,8 @@ export default function ConfigPage() {
   const [mostrarFormServicio, setMostrarFormServicio] = useState(false);
   const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', descripcion: '', capacidad: '2', precioPorNoche: '0', amenidades: '' });
   const [mostrarFormUnidad, setMostrarFormUnidad] = useState(false);
-  // ── Catálogo de productos ────────────────────────────────────
-  const [catalogo,          setCatalogo]          = useState([]);
-  const [nuevoProd,         setNuevoProd]         = useState({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true });
-  const [mostrarFormProd,   setMostrarFormProd]   = useState(false);
-  const [savingCatalogo,    setSavingCatalogo]    = useState(false);
-  const [syncingCatalogo,   setSyncingCatalogo]   = useState(false);
-  // Guarda de re-entrancia sincrónica: evita que un doble click dispare dos
-  // requests de sync antes de que React re-renderice el botón con disabled=true
-  // (ver syncCatalogo más abajo).
-  const syncingCatalogoRef = useRef(false);
-  const [catalogoSyncInfo,  setCatalogoSyncInfo]  = useState(null); // { count, ts }
   const [saving, setSaving]   = useState(false);
   const [desconectandoCalendar, setDesconectandoCalendar] = useState(false);
-  const [botStatus, setBotStatus] = useState({ activo: false, conectado: false, cargando: true });
 
   // Horarios de atención
   const DIAS_ORDEN = ['lunes','martes','miercoles','jueves','viernes','sabado','domingo'];
@@ -363,15 +352,15 @@ export default function ConfigPage() {
       const debugMsg    = searchParams.get('debug') || '';
 
       const MENSAJES = {
-        redirect_uri_mismatch: `URI de redirección no registrada en Google Cloud Console.\nAgregá esta URL en "Credenciales → URIs de redirección autorizadas":\n${redirectUri || '(revisá los logs de Render)'}`,
-        invalid_client:        'Client ID o Client Secret incorrectos. Verificá las variables GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Render.',
+        redirect_uri_mismatch: `URI de redirección no registrada en Google Cloud Console.\nAgregá esta URL en "Credenciales → URIs de redirección autorizadas":\n${redirectUri || '(la muestra el detalle de abajo)'}`,
+        invalid_client:        'Client ID o Client Secret incorrectos. Volvé a subir tu credentials.json.',
         invalid_grant:         'El código de autorización expiró. Intentá conectar de nuevo.',
         access_denied:         'Permiso denegado por el usuario.',
         token_expired:         'Tu sesión expiró. Volvé a iniciar sesión e intentá de nuevo.',
         access_blocked:        'App bloqueada por Google. Agregá tu cuenta como "Usuario de prueba" en Google Cloud Console → Pantalla de consentimiento OAuth.',
         jwt_error:             'Error de autenticación (JWT inválido). Cerrá sesión, volvé a entrar e intentá de nuevo.',
-        encryption_error:      'Error de cifrado en el servidor. Verificá que ENCRYPTION_KEY esté configurada en Render.',
-        network_error:         'Error de red en el servidor. Verificá la conexión de Render con los servicios de Google.',
+        encryption_error:      'Error de cifrado en el servidor de Akira. Probá de nuevo en unos minutos; si sigue, escribinos desde Ayuda.',
+        network_error:         'El servidor de Akira no pudo comunicarse con Google. Probá de nuevo en unos minutos.',
       };
 
       const base = MENSAJES[reason] || `Error (${reason || 'unknown'}) conectando Google Calendar.`;
@@ -380,18 +369,6 @@ export default function ConfigPage() {
       setSearchParams({});
     }
   }, []);
-
-  const conectarGoogleCalendar = () => {
-    const token = localStorage.getItem('akira_token');
-    if (!token) return toast.error('Sesión expirada. Volvé a iniciar sesión.');
-    // api.defaults.baseURL puede ser '/api' (relativo, dev) o 'https://....onrender.com/api' (prod).
-    // Necesitamos la URL absoluta del backend para el redirect de OAuth.
-    const base = api.defaults.baseURL || '/api';
-    const backendUrl = base.startsWith('http')
-      ? base.replace(/\/api\/?$/, '')   // 'https://akira-cloud.onrender.com'
-      : window.location.origin;          // fallback mismo origen (dev local)
-    window.location.href = `${backendUrl}/api/config/google/connect?token=${encodeURIComponent(token)}`;
-  };
 
   const desconectarGoogleCalendar = async () => {
     setDesconectandoCalendar(true);
@@ -408,11 +385,6 @@ export default function ConfigPage() {
   };
 
   useEffect(() => {
-    // Verificar estado del bot
-    api.get('/bot/status')
-      .then(r => setBotStatus({ activo: !!r.data.botActivo, conectado: !!r.data.botConectado, cargando: false }))
-      .catch(() => setBotStatus({ activo: false, conectado: false, cargando: false }));
-
     api.get('/config').then(r => {
       setConfig(r.data.config);
       setKeys(r.data.keys);
@@ -424,8 +396,6 @@ export default function ConfigPage() {
         precioTurno:         String(c.precioTurno || 1000),
         horasCancelacion:    String(c.horasCancelacion || 24),
         promptPersonalizado: c.promptPersonalizado || '',
-        dominioNgrok:        c.dominioNgrok || '',
-        mpWebhookUrl:        c.mpWebhookUrl || '',
         aliasTransferencia:  c.aliasTransferencia  || '',
         cbuTransferencia:    c.cbuTransferencia    || '',
         bancoTransferencia:  c.bancoTransferencia  || '',
@@ -464,41 +434,8 @@ export default function ConfigPage() {
       setCelularNotif(c.celularNotificaciones || '');
       setModoPausa(!!c.modoPausa);
       setDiasBloqueados(Array.isArray(c.diasBloqueados) ? c.diasBloqueados : []);
-      setCatalogo(Array.isArray(c.catalogo) ? c.catalogo : []);
-      if (r.data.keys?.catalogoSincronizadoEn) {
-        setCatalogoSyncInfo({ ts: r.data.keys.catalogoSincronizadoEn, count: r.data.keys.catalogoProductos || 0 });
-      }
     }).catch(() => toast.error('Error cargando configuración'));
-
-    // Socket: catálogo sincronizado desde WA Business
-    const offSynced = on('catalog:synced', ({ count, total }) => {
-      syncingCatalogoRef.current = false;
-      setSyncingCatalogo(false);
-      setCatalogoSyncInfo({ ts: new Date().toISOString(), count: total ?? count });
-      toast.success(`✅ Catálogo sincronizado — ${count} producto(s) desde WA`);
-      // Recargar catálogo desde la API
-      api.get('/config').then(r => {
-        if (Array.isArray(r.data.config?.catalogo)) setCatalogo(r.data.config.catalogo);
-      }).catch(() => {});
-    });
-
-    // Socket: cuenta no es WA Business o sync falló — detener spinner y avisar
-    const offNotBusiness = on('catalog:not_business', () => {
-      syncingCatalogoRef.current = false;
-      setSyncingCatalogo(false);
-      toast('ℹ️ Esta cuenta no es WhatsApp Business o el catálogo no está habilitado.\nPodés cargar productos manualmente desde esta sección.', {
-        duration: 7000, icon: 'ℹ️',
-      });
-    });
-
-    // Socket: producto nuevo detectado desde un estado WA
-    const offNew = on('catalog:new-product', (prod) => {
-      toast.success(`📸 Nuevo producto detectado en estado: "${prod.nombre}"`);
-      setCatalogo(c => [...c, { ...prod, disponible: true, fuente: 'status' }]);
-    });
-
-    return () => { offSynced(); offNotBusiness(); offNew(); };
-  }, [on]);
+  }, []);
 
   const handleForm = (e) => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -536,120 +473,6 @@ export default function ConfigPage() {
 
   const eliminarUnidad = (idx) => {
     setForm(f => ({ ...f, unidadesAlojamiento: f.unidadesAlojamiento.filter((_, i) => i !== idx) }));
-  };
-
-  // ── Catálogo: funciones ──────────────────────────────────────
-  // Guarda el catálogo pasado como parámetro y actualiza el estado con la respuesta
-  const _guardarCatalogo = async (nuevoCatalogo) => {
-    try {
-      const r = await api.put('/config/catalogo', { catalogo: nuevoCatalogo });
-      if (Array.isArray(r.data.catalogo)) setCatalogo(r.data.catalogo);
-    } catch {
-      toast.error('Error al guardar el catálogo');
-    }
-  };
-
-  const agregarProducto = async () => {
-    if (!nuevoProd.nombre.trim()) return;
-    const prod = {
-      nombre:      nuevoProd.nombre.trim(),
-      precio:      parseFloat(nuevoProd.precio) || 0,
-      categoria:   nuevoProd.categoria.trim(),
-      descripcion: nuevoProd.descripcion.trim(),
-      stock:       nuevoProd.stock !== '' ? parseInt(nuevoProd.stock) : -1,
-      imagen:      nuevoProd.imagen.trim(),
-      disponible:  nuevoProd.disponible !== false,
-      moneda:      'ARS',
-      fuente:      'manual',
-    };
-    const nuevo = [...catalogo, prod];
-    setCatalogo(nuevo);
-    setNuevoProd({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true });
-    setMostrarFormProd(false);
-    setSavingCatalogo(true);
-    await _guardarCatalogo(nuevo);
-    setSavingCatalogo(false);
-    toast.success('Producto guardado');
-  };
-
-  const eliminarProducto = async (idx) => {
-    const nuevo = catalogo.filter((_, i) => i !== idx);
-    setCatalogo(nuevo);
-    await _guardarCatalogo(nuevo);
-  };
-
-  const toggleDisponible = async (idx) => {
-    const nuevo = catalogo.map((p, i) => i === idx ? { ...p, disponible: !p.disponible } : p);
-    setCatalogo(nuevo);
-    await _guardarCatalogo(nuevo);
-  };
-
-  const saveCatalogo = async () => {
-    setSavingCatalogo(true);
-    try {
-      const r = await api.put('/config/catalogo', { catalogo });
-      setCatalogo(Array.isArray(r.data.catalogo) ? r.data.catalogo : catalogo);
-      toast.success(`Catálogo guardado — ${catalogo.length} producto(s)`);
-    } catch {
-      toast.error('Error al guardar catálogo');
-    } finally {
-      setSavingCatalogo(false);
-    }
-  };
-
-  const syncCatalogo = async () => {
-    // Guarda sincrónica: si ya hay un sync en curso (p. ej. doble click antes de
-    // que React re-renderice el botón con disabled=true), ignorar el segundo disparo.
-    if (syncingCatalogoRef.current) return;
-    syncingCatalogoRef.current = true;
-    setSyncingCatalogo(true);
-    const toastId = toast.loading('🔄 Contactando WA Business...', { duration: 20000 });
-    try {
-      await api.post('/config/catalogo/sync');
-      setBotStatus(s => ({ ...s, activo: true, conectado: true }));
-
-      // Polling: recargar catálogo cada 3 s hasta que aparezcan productos nuevos (máx 18 s)
-      let intentos = 0;
-      const prevCount = catalogo.length;
-      const poll = setInterval(async () => {
-        intentos++;
-        try {
-          const r = await api.get('/config');
-          const nuevos = r.data.config?.catalogo;
-          if (Array.isArray(nuevos) && nuevos.length > prevCount) {
-            // Llegaron productos nuevos
-            setCatalogo(nuevos);
-            setCatalogoSyncInfo({ ts: new Date().toISOString(), count: nuevos.filter(p => p.fuente === 'wa_catalog').length });
-            toast.success(`✅ ${nuevos.filter(p => p.fuente === 'wa_catalog').length} producto(s) importados desde WA Business`, { id: toastId });
-            syncingCatalogoRef.current = false;
-            setSyncingCatalogo(false);
-            clearInterval(poll);
-          } else if (intentos >= 6) {
-            // 6 × 3 s = 18 s sin cambios
-            if (Array.isArray(nuevos)) setCatalogo(nuevos);
-            const waProds = (nuevos || []).filter(p => p.fuente === 'wa_catalog').length;
-            if (waProds > 0) {
-              toast.success(`✅ ${waProds} producto(s) encontrados en WA Business`, { id: toastId });
-            } else {
-              toast('⚠️ Sync completado pero no se encontraron productos en el catálogo de WA Business.\n¿El catálogo está publicado en la cuenta?', { id: toastId, duration: 6000, icon: '⚠️' });
-            }
-            syncingCatalogoRef.current = false;
-            setSyncingCatalogo(false);
-            clearInterval(poll);
-          }
-        } catch { /* ignorar errores de polling */ }
-      }, 3000);
-
-    } catch (err) {
-      const data = err.response?.data || {};
-      if (data.botConectado) {
-        toast('⏳ Bot reconectando… intentá sincronizar en 30 segundos.', { id: toastId, icon: '🔄', duration: 5000 });
-      } else {
-        toast.error(data.error || 'Error al sincronizar — iniciá el bot desde el Dashboard primero.', { id: toastId });
-      }
-      syncingCatalogoRef.current = false;
-      setSyncingCatalogo(false);
-    }
   };
 
   const saveNegocio = async (e) => {
@@ -1334,53 +1157,13 @@ export default function ConfigPage() {
             ) : (
               /* Botón principal: conectar con Google */
               <div className="space-y-4">
-                <p className="text-sm" style={{ color: 'var(--text2)' }}>
-                  Conectá tu Google Calendar con un click. El bot podrá ver horarios disponibles y crear turnos automáticamente.
-                </p>
-
-                {/* Checklist de requisitos antes de conectar */}
-                <div className="rounded-xl p-4 space-y-3 text-xs" style={{ background: 'rgba(0,232,123,0.04)', border: '1px solid rgba(0,232,123,0.15)' }}>
-                  <p className="font-semibold" style={{ color: 'var(--accent)' }}>⚙️ Requisitos en Google Cloud Console</p>
-                  <div className="space-y-2" style={{ color: 'var(--text2)' }}>
-                    <div>
-                      <p className="font-medium text-white mb-1">1. Credenciales → URIs de redirección autorizadas</p>
-                      <p className="mb-1">Esta URL debe estar registrada exactamente así:</p>
-                      <div className="flex items-center gap-2 px-2.5 py-2 rounded-lg font-mono break-all" style={{ background: 'var(--surface3)', border: '1px solid var(--border2)', color: '#7dd3fc', fontSize: 11 }}>
-                        <span className="flex-1">
-                          {(() => {
-                            const base = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '');
-                            return base || 'https://akira-cloud.onrender.com';
-                          })()}/api/config/google/callback
-                        </span>
-                        <CopiarTexto texto={`${(import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '') || 'https://akira-cloud.onrender.com'}/api/config/google/callback`} />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">2. Pantalla de consentimiento → Usuarios de prueba</p>
-                      <p>Agregá el Gmail que vas a conectar (necesario mientras la app esté en modo Testing).</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">3. Variables en Render</p>
-                      <p><code className="px-1 py-0.5 rounded" style={{ background: 'var(--surface3)' }}>GOOGLE_CLIENT_ID</code> y <code className="px-1 py-0.5 rounded" style={{ background: 'var(--surface3)' }}>GOOGLE_CLIENT_SECRET</code> configuradas.</p>
-                    </div>
-                  </div>
+                <div className="rounded-xl p-4 text-xs space-y-1.5" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  <p className="font-semibold text-amber-300">Conexión con un click: todavía no disponible en la app de escritorio</p>
+                  <p style={{ color: 'var(--text2)' }}>
+                    Si ya lo tenías conectado en Akira Cloud, se importó con tu configuración y figura arriba como conectado. Para conectarlo ahora,
+                    usá la opción de abajo: subís el archivo <code className="px-1 py-0.5 rounded" style={{ background: 'var(--surface3)' }}>credentials.json</code> de tu proyecto de Google y el correo del calendario.
+                  </p>
                 </div>
-
-                <button
-                  onClick={conectarGoogleCalendar}
-                  className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg bg-white hover:bg-gray-100 text-gray-800 font-medium text-sm transition-colors shadow"
-                >
-                  <svg width="18" height="18" viewBox="0 0 48 48">
-                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.36-8.16 2.36-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-                  </svg>
-                  Conectar con Google Calendar
-                </button>
-                <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
-                  Solo pedimos permiso para ver y editar tu calendario. Podés desconectarlo cuando quieras.
-                </p>
               </div>
             )}
 
@@ -1399,7 +1182,7 @@ export default function ConfigPage() {
 
             {/* Opción avanzada: subir JSON manualmente */}
             {!keys.googleCalendarOAuth && (
-              <SeccionCollapsible titulo="⚙️ Opción avanzada — Subir credentials.json manualmente">
+              <SeccionCollapsible titulo="⚙️ Conectar subiendo credentials.json" defaultOpen>
                 <div className="space-y-4 pt-1">
                   <GuiaGoogleCalendar />
                   <div>
@@ -1434,155 +1217,6 @@ export default function ConfigPage() {
             Permite que Akira responda con voz. Conseguí tu key en <a href="https://rime.ai" target="_blank" rel="noreferrer" className="text-green-400 hover:underline">rime.ai</a>.
           </p>
           <KeyField campo="keyRime" label="RIME API Key" placeholder="rime_..." keys={keys} onSave={saveKey} onDelete={deleteKey} />
-        </SeccionCollapsible>
-
-        {/* Ngrok */}
-        <SeccionCollapsible titulo="🌐 Ngrok (webhook local)" delay={420}>
-          <p className="text-xs text-gray-500 mb-3">Solo necesario si tu servidor es local y no tenés dominio propio. Si ya tenés el backend en <strong className="text-gray-300">Render</strong>, no necesitás ngrok — dejá este campo vacío.</p>
-          <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(0,232,123,0.05)', border: '1px solid rgba(0,232,123,0.15)' }}>
-            <p className="text-[11px] text-green-400 font-semibold mb-1">✅ Ya tenés Render — ngrok no es necesario</p>
-            <p className="text-[11px] text-gray-400">Tu backend en Render ya es público. Para cualquier webhook (MercadoPago, etc.) usá directamente la URL de Render. Si tenés el token de ngrok cargado, podés eliminarlo.</p>
-          </div>
-          <div className="space-y-4">
-            <KeyField campo="keyNgrok" label="Ngrok Auth Token" placeholder="de dashboard.ngrok.com" keys={keys} onSave={saveKey} onDelete={deleteKey} />
-            <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Dominio fijo (opcional)</label>
-              <div className="flex gap-2">
-                <input name="dominioNgrok" value={form.dominioNgrok} onChange={handleForm} className="input-base flex-1" placeholder="tu-nombre.ngrok-free.app" />
-                <button onClick={saveNegocio} className="btn-secondary px-4 text-xs"><Save size={13} /></button>
-              </div>
-            </div>
-          </div>
-        </SeccionCollapsible>
-
-        {/* ── Catálogo de productos ─────────────────────────── */}
-        <SeccionCollapsible titulo={`📦 Catálogo de productos${catalogo.length > 0 ? ` (${catalogo.length})` : ''}`} delay={480}>
-          <div className="space-y-4">
-            <p className="text-xs text-gray-500">
-              El bot consulta este catálogo cuando un cliente pregunta por productos, precios o stock.
-              Si usás <strong>WhatsApp Business</strong> con catálogo, podés sincronizarlo automáticamente. También se detectan productos publicados en tus <strong>estados de WA</strong>.
-            </p>
-
-            {/* Estado del bot + botón sync */}
-            {!botStatus.cargando && !botStatus.activo && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-                style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }}>
-                <Ban size={12} />
-                <span>
-                  {botStatus.conectado
-                    ? 'El bot tiene sesión guardada pero no está corriendo. Inicialo desde el Dashboard, esperá que conecte y luego sincronizá.'
-                    : 'El bot no está activo. Inicialo desde el Dashboard primero.'}
-                </span>
-              </div>
-            )}
-
-            {/* Botón sync desde WA Business */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={syncCatalogo} disabled={syncingCatalogo}
-                className="btn-secondary text-xs flex items-center gap-1.5">
-                <RefreshCw size={13} className={syncingCatalogo ? 'animate-spin' : ''} />
-                {syncingCatalogo ? 'Sincronizando...' : 'Sincronizar desde WA Business'}
-              </button>
-              {botStatus.activo && (
-                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--accent)' }}>
-                  <CheckCircle size={11} /> Bot activo
-                </span>
-              )}
-              {catalogoSyncInfo?.ts && (
-                <span className="text-xs text-gray-600">
-                  Última sync: {new Date(catalogoSyncInfo.ts).toLocaleString('es-AR')} · {catalogoSyncInfo.count} producto(s)
-                </span>
-              )}
-            </div>
-
-            {/* Lista de productos */}
-            {catalogo.length > 0 && (
-              <div className="space-y-2">
-                {catalogo.map((p, idx) => (
-                  <div key={idx} className="flex items-start justify-between bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2.5 gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-sm font-medium ${p.disponible ? 'text-white' : 'text-gray-500 line-through'}`}>{p.nombre}</span>
-                        <span className="text-xs font-semibold text-green-400">${parseFloat(p.precio || 0).toLocaleString('es-AR')} ARS</span>
-                        {p.categoria && <span className="text-xs text-gray-500 bg-gray-700/50 rounded px-1.5">{p.categoria}</span>}
-                        {p.fuente === 'wa_catalog' && <span className="text-xs text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5">WA</span>}
-                        {p.fuente === 'status'     && <span className="text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5">estado</span>}
-                        {p.stock >= 0 && <span className="text-xs text-gray-500">stock: {p.stock}</span>}
-                      </div>
-                      {p.descripcion && <p className="text-xs text-gray-500 mt-0.5 truncate">{p.descripcion}</p>}
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => toggleDisponible(idx)} title={p.disponible ? 'Deshabilitar' : 'Habilitar'}
-                        className={`p-1.5 rounded-lg text-xs transition-colors ${p.disponible ? 'text-green-400 hover:bg-green-500/10' : 'text-gray-600 hover:bg-gray-700'}`}>
-                        {p.disponible ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                      </button>
-                      <button onClick={() => eliminarProducto(idx)} className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Formulario nuevo producto */}
-            {mostrarFormProd ? (
-              <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4 space-y-3">
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Nuevo producto</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">Nombre *</label>
-                    <input value={nuevoProd.nombre} onChange={e => setNuevoProd(p => ({ ...p, nombre: e.target.value }))}
-                      className="input-base" placeholder="Ej: Zapatillas Nike Air Max" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Precio (ARS)</label>
-                    <input type="number" min="0" value={nuevoProd.precio} onChange={e => setNuevoProd(p => ({ ...p, precio: e.target.value }))}
-                      className="input-base" placeholder="15000" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Categoría</label>
-                    <input value={nuevoProd.categoria} onChange={e => setNuevoProd(p => ({ ...p, categoria: e.target.value }))}
-                      className="input-base" placeholder="Ropa, Electro, etc." />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Stock (-1 = sin límite)</label>
-                    <input type="number" min="-1" value={nuevoProd.stock} onChange={e => setNuevoProd(p => ({ ...p, stock: e.target.value }))}
-                      className="input-base" placeholder="-1" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">URL Imagen (opcional)</label>
-                    <input value={nuevoProd.imagen} onChange={e => setNuevoProd(p => ({ ...p, imagen: e.target.value }))}
-                      className="input-base" placeholder="https://..." />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">Descripción</label>
-                    <input value={nuevoProd.descripcion} onChange={e => setNuevoProd(p => ({ ...p, descripcion: e.target.value }))}
-                      className="input-base" placeholder="Talles 38-45, colores variados..." />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={agregarProducto} disabled={!nuevoProd.nombre.trim()} className="btn-primary text-xs px-4 py-2">
-                    <Plus size={13} /> Agregar
-                  </button>
-                  <button onClick={() => { setMostrarFormProd(false); setNuevoProd({ nombre: '', precio: '', categoria: '', descripcion: '', stock: '', imagen: '', disponible: true }); }}
-                    className="btn-secondary text-xs px-4 py-2">Cancelar</button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setMostrarFormProd(true)} className="btn-secondary text-xs flex items-center gap-1.5">
-                <Plus size={13} /> Agregar producto manualmente
-              </button>
-            )}
-
-            {/* Guardar catálogo */}
-            {catalogo.length > 0 && (
-              <button onClick={saveCatalogo} disabled={savingCatalogo} className="btn-primary text-xs flex items-center gap-1.5 mt-1">
-                <Save size={13} className={savingCatalogo ? 'animate-spin' : ''} />
-                {savingCatalogo ? 'Guardando...' : `Guardar catálogo (${catalogo.length} producto${catalogo.length !== 1 ? 's' : ''})`}
-              </button>
-            )}
-          </div>
         </SeccionCollapsible>
 
         {/* Horarios de atención — solo para modo turnos */}

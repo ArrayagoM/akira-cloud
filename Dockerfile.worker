@@ -1,0 +1,35 @@
+# Dockerfile.worker — Build del Worker desde la raíz del proyecto
+# Railway: configurar "Root Directory" = / y "Dockerfile Path" = Dockerfile.worker
+#
+# Se construye desde la raíz para tener acceso a:
+#   - worker/          (código del worker)
+#   - backend/models/  (modelos Mongoose compartidos)
+#   - backend/services/(modelos de negocio)
+
+FROM node:20-alpine
+
+RUN apk add --no-cache ca-certificates python3 make g++
+
+WORKDIR /app
+
+# ── Instalar dependencias del worker ─────────────────────────
+COPY worker/package*.json ./
+RUN npm ci --omit=dev || npm install --omit=dev
+
+# ── Copiar código ─────────────────────────────────────────────
+# Worker
+COPY worker/ ./worker/
+
+# Modelos y servicios del backend que el worker necesita
+COPY backend/models/ ./backend/models/
+COPY backend/services/ ./backend/services/
+
+# ── Crear directorios ─────────────────────────────────────────
+RUN mkdir -p sessions logs
+
+# WA_SESSIONS_PATH se setea como env var en Railway apuntando al Volume:
+# WA_SESSIONS_PATH=/app/sessions
+
+WORKDIR /app/worker
+
+CMD ["node", "--no-deprecation", "worker.js"]

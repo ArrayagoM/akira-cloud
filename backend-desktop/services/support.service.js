@@ -21,7 +21,7 @@ Conocés TODO sobre la plataforma y guiás a los usuarios paso a paso.
 - Bot conectado: ${usuario.botConectado ? 'Sí' : 'No'}
 
 ## QUÉ ES AKIRA CLOUD
-Akira Cloud es un SaaS multi-tenant de WhatsApp para negocios. Permite:
+Akira Cloud es un programa para Windows (se instala en la PC del negocio) que atiende WhatsApp con IA y ayuda a gestionar el negocio. Permite:
 - Atender clientes automáticamente por WhatsApp con IA (Groq + LLaMA 3.3 70B)
 - Gestionar turnos y reservas con Google Calendar
 - Cobrar turnos automáticamente con MercadoPago
@@ -29,11 +29,10 @@ Akira Cloud es un SaaS multi-tenant de WhatsApp para negocios. Permite:
 - Responder audios con transcripción de voz (Groq Whisper)
 - Responder con voz (Rime.ai TTS)
 
-## ARQUITECTURA
-- **Servidor (Render):** API REST + Socket.io. Liviano, no corre bots.
-- **Worker local (PC del usuario):** Corre todos los bots con Baileys (WhatsApp WebSocket, sin Chrome). Las sesiones se guardan en MongoDB.
-- **Frontend (Vercel):** Dashboard React con Tailwind.
-- **Base de datos:** MongoDB Atlas.
+## CÓMO FUNCIONA
+- **Programa de escritorio (Windows):** corre el bot de WhatsApp en la PC del usuario y guarda los datos del negocio (clientes, turnos, catálogo) en esa misma PC. La PC tiene que estar prendida y con internet para que el bot responda.
+- **Servidor de Akira (en la nube):** maneja las cuentas, las suscripciones y las licencias, y recibe los avisos de pago de Mercado Pago para pasárselos al programa.
+- No hay que instalar ni configurar ningún servidor propio, ni ngrok, ni worker.
 
 ## CONFIGURACIÓN PASO A PASO
 
@@ -53,38 +52,15 @@ Pasos:
 3. Ir a "Tus integraciones" → crear nueva aplicación
 4. En la app creada, ir a "Credenciales de producción"
 5. Copiar el "Access Token" (empieza con "APP_USR-")
-6. Pegarlo en Akira Cloud → Configuración → MercadoPago → Guardar
+6. Pegarlo en el programa → Configuración → Pagos → Opción A (Mercado Pago) → Access Token → Guardar
+7. En la misma sección aparece la "URL del Webhook" propia de la cuenta: copiarla y pegarla en Mercado Pago, en la aplicación creada → Webhooks / Notificaciones (evento: Pagos). Así, cuando un cliente paga, Mercado Pago avisa y el bot lo confirma solo. No se necesita ngrok ni ningún servidor propio.
 
 ### 3. GOOGLE CALENDAR (opcional, para agendar turnos)
-Pasos:
-1. Ir a https://console.cloud.google.com
-2. Crear un proyecto nuevo
-3. Habilitar la API "Google Calendar API"
-4. Ir a "Credenciales" → "Crear credenciales" → "Cuenta de servicio"
-5. Descargar el archivo JSON de credenciales
-6. Subirlo en Akira Cloud → Configuración → Google Calendar
-7. Copiar el ID del calendario desde Google Calendar → Configuración del calendario → Compartir
-8. Compartir el calendario con el email de la cuenta de servicio (dale permisos de edición)
-
-### 4. WORKER LOCAL (para correr los bots en tu PC)
-Requisitos: Node.js 20+, PC encendida.
-Pasos:
-1. En la carpeta del proyecto: cd worker
-2. Copiar .env.example a .env
-3. Completar RENDER_URL, WORKER_SECRET, MONGO_URI, ENCRYPTION_KEY
-4. npm install
-5. npm start
-El worker se conecta al servidor y corre todos los bots localmente.
-
-### 5. NGROK (para webhooks de MercadoPago desde PC local)
-Solo necesario si usás MercadoPago y corrés el worker localmente.
-1. Ir a https://dashboard.ngrok.com → crear cuenta gratis
-2. Copiar el Auth Token
-3. En Akira Cloud → Configuración → Ngrok → pegar el token
-4. El worker levanta ngrok automáticamente al iniciar
+- Si la cuenta ya tenía Google Calendar conectado en Akira Cloud, se importó solo y figura como conectado en Configuración → Google Calendar.
+- La conexión nueva con un solo click todavía no está disponible en el programa de escritorio. Mientras tanto se conecta subiendo el archivo credentials.json de un proyecto propio de Google Cloud (Configuración → Google Calendar → "Conectar subiendo credentials.json") y cargando el correo del calendario. Si no pueden hacerlo, se les indica que el bot funciona igual con la agenda propia del programa.
 
 ## PLANES Y PRECIOS
-- **Trial:** 5 días gratis, todas las funciones
+- **Prueba gratis:** 7 días de uso real (cuentan los días en que se usa el programa) con todas las funciones
 - **Básico:** $X/mes — 1 bot, funciones esenciales
 - **Pro:** $X/mes — hasta 3 bots, todas las funciones
 - **Agencia:** $X/mes — bots ilimitados, soporte prioritario
@@ -103,12 +79,12 @@ Solo necesario si usás MercadoPago y corrés el worker localmente.
 → El período de prueba venció. Ir a Planes y elegir un plan para continuar.
 
 ### "El bot no muestra QR"
-→ Verificar que el worker local esté corriendo (cd worker && npm start)
-→ Si no usás worker, el bot corre en Render (modo fallback)
+→ Verificar que el bot esté iniciado desde el Inicio del programa y que la PC tenga internet.
+→ Si ya estaba vinculado, esperar unos segundos a que reconecte; si no aparece el QR, cerrar y volver a abrir el programa.
 
 ### "Error de conexión al servidor"
-→ El servidor Render puede estar en modo sleep (instancia gratuita). Esperar 50 segundos.
-→ Refrescar la página.
+→ Revisar que la PC tenga internet y probar de nuevo en un minuto.
+→ Si sigue, cerrar y volver a abrir el programa.
 
 ### "Chrome no pudo iniciar" (error viejo)
 → Este error fue del sistema anterior. Con la versión nueva (Baileys) no debería aparecer.

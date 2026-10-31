@@ -12,35 +12,22 @@ import {
   CheckCircle,
   ArrowRight,
   MessageSquare,
-  Clock,
   Star,
   ChevronRight,
   Sparkles,
   Users,
   Bell,
   Hourglass,
-  Tag,
-  TrendingUp,
   Quote,
-  Github,
-  Linkedin,
-  Globe,
   ChevronDown,
   PauseCircle,
   BellRing,
   MoreVertical,
   Check,
   CheckCheck,
-  Instagram,
-  Facebook,
-  Code2,
-  MapPin,
-  GraduationCap,
-  Heart,
   Send,
   Wallet,
   Package,
-  Truck,
   FileSearch,
   Smartphone,
   HardDrive,
@@ -51,6 +38,10 @@ import {
   Download,
   X as XIcon,
 } from 'lucide-react';
+
+// Ficha de Akira Cloud en Microsoft Store (publicada el 31/10/2026)
+const MS_STORE_URL = 'https://apps.microsoft.com/detail/9PM7BL2V6W22';
+
 import api from '../services/api';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -696,6 +687,14 @@ function Hero() {
             </Link>
             <a href="#demo" className="btn-secondary text-base px-6 py-3">
               Ver demo en vivo
+            </a>
+            <a
+              href={MS_STORE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary text-base px-6 py-3"
+            >
+              <Download size={16} /> Ya en Microsoft Store
             </a>
           </div>
 
@@ -1633,553 +1632,6 @@ function Verticales() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SOBRE EL CREADOR — Juan Martín Arrayago / TinchoDev
-// ─────────────────────────────────────────────────────────────
-const REDES_CREADOR = [
-  { Icon: Github, label: 'GitHub', href: 'https://github.com/ArrayagoM' },
-  { Icon: Linkedin, label: 'LinkedIn', href: 'https://www.linkedin.com/in/juan-martin-arrayago/' },
-  { Icon: Globe, label: 'Portfolio', href: 'https://martinarrayago.lat/' },
-  { Icon: Instagram, label: 'Instagram', href: 'https://www.instagram.com/juanmartinarrayago/' },
-  { Icon: Facebook, label: 'Facebook', href: 'https://www.facebook.com/juan.arrayago/' },
-];
-
-const STACK_CREADOR = [
-  {
-    categoria: 'Frontend',
-    items: [
-      'React',
-      'React Native',
-      'TypeScript',
-      'JavaScript',
-      'Redux',
-      'HTML5',
-      'CSS3',
-      'Tailwind',
-      'Bootstrap',
-    ],
-  },
-  {
-    categoria: 'Backend',
-    items: ['Node.js', 'Python', 'PHP', 'Express', 'JWT', 'REST APIs'],
-  },
-  {
-    categoria: 'Bases de datos',
-    items: ['MongoDB', 'PostgreSQL', 'MySQL', 'Mongoose'],
-  },
-  {
-    categoria: 'IA & Bots',
-    items: ['Modelos de lenguaje (Groq)', 'Transcripción de voz', 'Baileys (WhatsApp)'],
-  },
-  {
-    categoria: 'IoT & Hardware',
-    items: ['Arduino', 'ESP32', 'C', 'C++', 'Sensores', 'Impresión 3D'],
-  },
-  {
-    categoria: 'Cloud & DevOps',
-    items: ['Vercel', 'Render', 'Google Cloud', 'Docker', 'Linux', 'PM2'],
-  },
-];
-
-const SERVICIOS_CREADOR = [
-  {
-    icon: Globe,
-    titulo: 'Sitios y aplicaciones web',
-    desc: 'Landing pages, e-commerce, sistemas de gestión, dashboards, APIs REST. React + Node.js + MongoDB.',
-  },
-  {
-    icon: MessageSquare,
-    titulo: 'Apps móviles',
-    desc: 'Aplicaciones iOS y Android con React Native. Una sola base de código, dos plataformas nativas.',
-  },
-  {
-    icon: Bot,
-    titulo: 'Bots con IA',
-    desc: 'Bots de WhatsApp con inteligencia artificial, agenda de turnos, integración con MercadoPago.',
-  },
-  {
-    icon: Zap,
-    titulo: 'IoT y automatización',
-    desc: 'Sistemas con Arduino, ESP32, sensores, alertas, control remoto y dashboards en tiempo real.',
-  },
-  {
-    icon: Sparkles,
-    titulo: 'Diseño y 3D Printing',
-    desc: 'Modelado 3D, prototipos, piezas técnicas e impresión. Del concepto al producto físico.',
-  },
-  {
-    icon: Shield,
-    titulo: 'Mantenimiento y soporte',
-    desc: 'Mejora de proyectos existentes, refactoring, optimización de performance y corrección de bugs.',
-  },
-];
-
-const COMO_TRABAJA = [
-  {
-    num: '1',
-    titulo: 'Me contás el proyecto',
-    desc: 'Análisis gratuito de viabilidad y presupuesto sin compromiso.',
-  },
-  {
-    num: '2',
-    titulo: 'Acordamos alcance y precio',
-    desc: 'Contrato claro, sin sorpresas ni costos ocultos.',
-  },
-  {
-    num: '3',
-    titulo: 'Desarrollo iterativo',
-    desc: 'Actualizaciones frecuentes — siempre sabés cómo va el proyecto.',
-  },
-  {
-    num: '4',
-    titulo: 'Entrega con documentación',
-    desc: 'No te dejo solo después de terminar. Todo queda explicado.',
-  },
-  {
-    num: '5',
-    titulo: 'Soporte post-entrega',
-    desc: 'Mínimo 30 días de acompañamiento incluidos en todo proyecto.',
-  },
-];
-
-const PROYECTOS_DESTACADOS = [
-  {
-    nombre: 'Akira Cloud',
-    desc: 'SaaS de bot WhatsApp con IA, agenda y cobros',
-    stack: 'React · Node.js · MongoDB · Groq AI',
-    icon: '🤖',
-  },
-  {
-    nombre: 'Gas Alert',
-    desc: 'Sistema IoT de alerta de fuga de gas en tiempo real',
-    stack: 'Arduino · C++ · sensores',
-    icon: '⚡',
-  },
-  {
-    nombre: 'ESP3D',
-    desc: 'Firmware para control remoto de impresoras 3D',
-    stack: 'ESP32 · C++',
-    icon: '🖨️',
-  },
-  {
-    nombre: 'IoT Dashboard',
-    desc: 'Control y monitoreo de dispositivos ESP32',
-    stack: 'C++ · WebSockets',
-    icon: '📡',
-  },
-  {
-    nombre: 'RFID System',
-    desc: 'Sistema de control de acceso con RFID',
-    stack: 'Arduino · C++',
-    icon: '🔑',
-  },
-];
-
-const DATOS_CLAVE = [
-  { label: 'Modalidad', valor: '100% Remoto' },
-  { label: 'Disponible', valor: 'Sí — Freelance / Fijo' },
-  { label: 'Idiomas', valor: 'Español · Inglés técnico' },
-  { label: 'Respuesta', valor: 'En menos de 24 hs' },
-];
-
-function SobreElCreador() {
-  return (
-    <Section id="creador" className="!py-24 md:!py-32">
-      <div className="max-w-6xl mx-auto">
-        {/* ═══ Header de la sección ═══ */}
-        <div className="text-center mb-14">
-          <Eyebrow color="#a78bfa">Sobre el creador</Eyebrow>
-          <h2 className="mt-4 text-3xl md:text-4xl font-bold text-white tracking-tight">
-            La mente detrás de <span style={{ color: 'var(--accent)' }}>Akira</span>
-          </h2>
-          <p className="mt-3 text-base max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
-            Akira no es de una corporación: la pensé, la diseñé y la programé yo, línea por línea.
-          </p>
-        </div>
-
-        {/* ═══ Card principal: avatar + bio + filosofía ═══ */}
-        <div
-          className="relative rounded-3xl overflow-hidden"
-          style={{
-            background: 'linear-gradient(160deg, rgba(167,139,250,0.08) 0%, var(--surface) 50%)',
-            border: '1px solid var(--border)',
-            boxShadow: '0 20px 60px -30px rgba(167,139,250,0.20)',
-          }}
-        >
-          <div
-            className="absolute -top-24 -left-24 w-72 h-72 rounded-full pointer-events-none"
-            style={{
-              background: 'radial-gradient(circle, rgba(167,139,250,0.18), transparent 70%)',
-              filter: 'blur(30px)',
-            }}
-          />
-          <div
-            className="absolute -bottom-24 -right-24 w-72 h-72 rounded-full pointer-events-none"
-            style={{
-              background: 'radial-gradient(circle, rgba(0,232,123,0.12), transparent 70%)',
-              filter: 'blur(30px)',
-            }}
-          />
-
-          <div className="relative grid md:grid-cols-[280px_1fr] gap-8 md:gap-12 p-8 md:p-12 items-start">
-            {/* ── Avatar + identidad ── */}
-            <div className="flex flex-col items-center md:items-start text-center md:text-left">
-              <div className="relative">
-                <div
-                  className="absolute inset-0 rounded-full"
-                  style={{
-                    background: 'linear-gradient(135deg, var(--accent), #a78bfa)',
-                    filter: 'blur(20px)',
-                    opacity: 0.6,
-                    transform: 'scale(1.05)',
-                  }}
-                />
-                <img
-                  src="https://github.com/ArrayagoM.png"
-                  alt="Juan Martín Arrayago (TinchoDev) — Creador y fundador de Akira Cloud"
-                  loading="lazy"
-                  className="relative w-40 h-40 md:w-48 md:h-48 rounded-full object-cover"
-                  style={{
-                    border: '3px solid var(--accent)',
-                    boxShadow: '0 10px 40px -10px rgba(0,232,123,0.5)',
-                  }}
-                />
-                <div
-                  className="absolute -bottom-2 -right-2 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-bold"
-                  style={{
-                    background: 'var(--bg)',
-                    border: '2px solid var(--accent)',
-                    color: 'var(--accent)',
-                  }}
-                >
-                  <Code2 size={10} /> FOUNDER
-                </div>
-              </div>
-
-              <h3 className="mt-5 text-xl font-bold text-white">Juan Martín Arrayago</h3>
-              <p className="text-sm font-semibold mt-0.5" style={{ color: 'var(--accent)' }}>
-                @TinchoDev
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-                Desarrollador Full Stack · Fundador de Akira Cloud
-              </p>
-
-              <div className="mt-3 flex flex-col gap-1.5 text-xs" style={{ color: 'var(--muted)' }}>
-                <span className="flex items-center gap-1.5">
-                  <MapPin size={12} /> Ranchos, Buenos Aires · Argentina 🇦🇷
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <GraduationCap size={12} /> Facultad de Ingeniería · UNLZ
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Globe size={12} /> Trabaja 100% remoto
-                </span>
-              </div>
-
-              <div className="mt-5 flex items-center gap-2 flex-wrap justify-center md:justify-start">
-                {REDES_CREADOR.map(({ Icon, label, href }) => (
-                  <a
-                    key={label}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={label}
-                    title={label}
-                    className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:scale-110"
-                    style={{
-                      background: 'var(--surface2)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    <Icon size={15} style={{ color: 'var(--text2)' }} />
-                  </a>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Bio + filosofía ── */}
-            <div>
-              <p className="text-base leading-relaxed" style={{ color: 'var(--text)' }}>
-                Soy <strong>Juan Martín Arrayago</strong>, conocido en la comunidad como{' '}
-                <strong>TinchoDev</strong>. Desarrollador Full Stack argentino, autodidacta en gran
-                parte de mi formación.
-              </p>
-              <p className="mt-3 text-base leading-relaxed" style={{ color: 'var(--text2)' }}>
-                Trabajo en tecnologías web modernas (React, Node.js, MongoDB), desarrollo
-                aplicaciones móviles con React Native, automatización con Arduino y ESP32, y diseño
-                UI/UX. <strong>Akira Cloud</strong> es mi proyecto más ambicioso: nació de una idea
-                simple — que cualquier comerciante argentino pueda tener un asistente inteligente en
-                WhatsApp sin ser técnico, sin contratar agencias caras y sin atarse a plataformas
-                que cambian las reglas cuando quieren.
-              </p>
-
-              <div
-                className="mt-5 p-4 rounded-xl"
-                style={{
-                  background: 'rgba(0,232,123,0.06)',
-                  borderLeft: '3px solid var(--accent)',
-                }}
-              >
-                <Quote size={16} className="mb-2" style={{ color: 'var(--accent)' }} />
-                <p className="text-sm italic leading-relaxed" style={{ color: 'var(--text)' }}>
-                  Vengo de una familia humilde. Cada línea de código que escribo es el resultado de
-                  años de estudio autodidacta y dedicación.
-                  <strong> No entrego proyectos — entrego soluciones.</strong>
-                </p>
-                <p className="text-xs mt-2 font-semibold" style={{ color: 'var(--accent)' }}>
-                  — Juan Martín Arrayago
-                </p>
-              </div>
-
-              {/* Datos clave en mini grid */}
-              <div className="mt-6 grid grid-cols-2 gap-3">
-                {DATOS_CLAVE.map((d) => (
-                  <div
-                    key={d.label}
-                    className="p-3 rounded-lg"
-                    style={{
-                      background: 'var(--surface2)',
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    <p
-                      className="text-[10px] uppercase tracking-wider font-semibold"
-                      style={{ color: 'var(--muted)' }}
-                    >
-                      {d.label}
-                    </p>
-                    <p className="mt-0.5 text-sm font-semibold text-white">{d.valor}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <a
-                  href="https://martinarrayago.lat/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary text-sm px-5 py-2.5"
-                >
-                  Ver mi portfolio <ArrowRight size={14} />
-                </a>
-                <a
-                  href="https://github.com/ArrayagoM"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary text-sm px-5 py-2.5 flex items-center gap-2"
-                >
-                  <Github size={14} /> Ver mi GitHub
-                </a>
-                <a
-                  href="https://www.linkedin.com/in/juan-martin-arrayago/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary text-sm px-5 py-2.5 flex items-center gap-2"
-                >
-                  <Linkedin size={14} /> LinkedIn
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ═══ STACK TÉCNICO ═══ */}
-        <div className="mt-14">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl md:text-3xl font-bold text-white">
-              Stack <span style={{ color: 'var(--accent)' }}>técnico</span>
-            </h3>
-            <p className="mt-2 text-sm" style={{ color: 'var(--text2)' }}>
-              Las tecnologías con las que construyo soluciones reales todos los días.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {STACK_CREADOR.map((cat) => (
-              <div
-                key={cat.categoria}
-                className="p-5 rounded-2xl"
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <p
-                  className="text-[11px] font-bold uppercase tracking-wider mb-3"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  {cat.categoria}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {cat.items.map((it) => (
-                    <span
-                      key={it}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-medium"
-                      style={{
-                        background: 'var(--surface2)',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text2)',
-                      }}
-                    >
-                      {it}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ═══ ¿QUÉ PUEDO HACER POR TU NEGOCIO? ═══ */}
-        <div className="mt-14">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl md:text-3xl font-bold text-white">
-              ¿Qué puedo hacer por <span style={{ color: 'var(--accent)' }}>tu negocio</span>?
-            </h3>
-            <p className="mt-2 text-sm max-w-2xl mx-auto" style={{ color: 'var(--text2)' }}>
-              Akira Cloud es solo uno de mis proyectos. También trabajo de forma independiente
-              desarrollando software a medida.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {SERVICIOS_CREADOR.map(({ icon: Icon, titulo, desc }) => (
-              <div
-                key={titulo}
-                className="p-5 rounded-2xl transition-all hover:-translate-y-1"
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center mb-3"
-                  style={{
-                    background: 'rgba(0,232,123,0.10)',
-                    border: '1px solid rgba(0,232,123,0.20)',
-                  }}
-                >
-                  <Icon size={18} style={{ color: 'var(--accent)' }} />
-                </div>
-                <h4 className="text-sm font-bold text-white mb-1.5">{titulo}</h4>
-                <p className="text-xs leading-relaxed" style={{ color: 'var(--text2)' }}>
-                  {desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ═══ CÓMO TRABAJO ═══ */}
-        <div className="mt-14">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl md:text-3xl font-bold text-white">
-              Cómo <span style={{ color: 'var(--accent)' }}>trabajo</span>
-            </h3>
-            <p className="mt-2 text-sm" style={{ color: 'var(--text2)' }}>
-              Un proceso simple, transparente y honesto. Sin sorpresas.
-            </p>
-          </div>
-          <div className="grid md:grid-cols-5 gap-3">
-            {COMO_TRABAJA.map(({ num, titulo, desc }) => (
-              <div
-                key={num}
-                className="p-4 rounded-xl text-center md:text-left"
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold mx-auto md:mx-0 mb-2"
-                  style={{
-                    background: 'rgba(0,232,123,0.12)',
-                    border: '1px solid rgba(0,232,123,0.30)',
-                    color: 'var(--accent)',
-                  }}
-                >
-                  {num}
-                </div>
-                <h4 className="text-xs font-bold text-white mb-1">{titulo}</h4>
-                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--muted)' }}>
-                  {desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ═══ PROYECTOS DESTACADOS ═══ */}
-        <div className="mt-14">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl md:text-3xl font-bold text-white">
-              Otros <span style={{ color: 'var(--accent)' }}>proyectos</span> destacados
-            </h3>
-            <p className="mt-2 text-sm" style={{ color: 'var(--text2)' }}>
-              Más allá de Akira, esto es lo que vengo construyendo.
-            </p>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {PROYECTOS_DESTACADOS.map((p) => (
-              <div
-                key={p.nombre}
-                className="p-5 rounded-2xl"
-                style={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="text-2xl">{p.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-bold text-white">{p.nombre}</h4>
-                    <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text2)' }}>
-                      {p.desc}
-                    </p>
-                    <p className="text-[10px] mt-2 font-mono" style={{ color: 'var(--muted)' }}>
-                      {p.stack}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ═══ CTA FINAL DEL CREADOR ═══ */}
-        <div
-          className="mt-14 text-center p-8 rounded-3xl"
-          style={{
-            background: 'linear-gradient(160deg, rgba(167,139,250,0.10) 0%, var(--surface) 60%)',
-            border: '1px solid rgba(167,139,250,0.25)',
-          }}
-        >
-          <Heart size={20} className="mx-auto mb-3" style={{ color: 'var(--accent)' }} />
-          <h3 className="text-xl md:text-2xl font-bold text-white">¿Tenés un proyecto en mente?</h3>
-          <p className="mt-2 text-sm max-w-xl mx-auto" style={{ color: 'var(--text2)' }}>
-            Escribime. Análisis de viabilidad gratis, presupuesto sin compromiso y respuesta en
-            menos de 24 horas.
-          </p>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-            <a href="mailto:info@akiracloud.lat" className="btn-primary text-sm px-5 py-2.5">
-              Hablemos <ArrowRight size={14} />
-            </a>
-            <a
-              href="https://martinarrayago.lat/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary text-sm px-5 py-2.5"
-            >
-              Ver mi portfolio
-            </a>
-          </div>
-          <p className="mt-4 text-[11px]" style={{ color: 'var(--muted)' }}>
-            📍 Ranchos, Buenos Aires · 💼 100% remoto · ⏰ Respuesta en menos de 24 hs
-          </p>
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
 // FOOTER
 // ─────────────────────────────────────────────────────────────
 function Footer() {
@@ -2206,12 +1658,17 @@ function Footer() {
               </span>
             </Link>
             <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--muted)' }}>
-              Tu bot de WhatsApp con IA. Atiende, agenda y cobra solo. Hecho en Argentina por{' '}
-              <Link to="/#creador" className="hover:text-white">
-                Juan M. Arrayago
-              </Link>
-              .
+              Tu bot de WhatsApp con IA. Atiende, agenda y cobra solo. Hecho en Argentina.
             </p>
+            <a
+              href={MS_STORE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-xs font-semibold mb-3 px-3 py-1.5 rounded-lg transition-colors hover:text-white"
+              style={{ color: 'var(--accent)', background: 'rgba(0,232,123,0.10)', border: '1px solid rgba(0,232,123,0.25)' }}
+            >
+              <Download size={13} /> Ya disponible en Microsoft Store
+            </a>
             <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--muted)' }}>
               📍 Ranchos · Buenos Aires · 🇦🇷
             </p>
@@ -2237,9 +1694,9 @@ function Footer() {
                 </a>
               </li>
               <li>
-                <Link to="/descargar" className="hover:text-white transition-colors">
-                  Descargar para Windows
-                </Link>
+                <a href={MS_STORE_URL} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                  Microsoft Store (Windows)
+                </a>
               </li>
               <li>
                 <a href="#precios" className="hover:text-white transition-colors">
@@ -2300,39 +1757,7 @@ function Footer() {
                   Soporte
                 </a>
               </li>
-              <li>
-                <Link to="/#creador" className="hover:text-white transition-colors">
-                  Sobre el creador
-                </Link>
-              </li>
             </ul>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-white mb-3">
-              Conectate
-            </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              {REDES_CREADOR.map(({ Icon, label, href }) => (
-                <a
-                  key={label}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={label}
-                  title={label}
-                  className="w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--surface3)]"
-                  style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
-                >
-                  <Icon size={14} style={{ color: 'var(--text2)' }} />
-                </a>
-              ))}
-            </div>
-            <p className="text-[11px] mt-3" style={{ color: 'var(--muted)' }}>
-              Creador:{' '}
-              <Link to="/#creador" className="hover:text-white transition-colors">
-                Juan M. Arrayago
-              </Link>
-            </p>
           </div>
         </div>
         <div
@@ -2340,7 +1765,7 @@ function Footer() {
           style={{ borderTop: '1px solid var(--border)' }}
         >
           <p className="text-[11px]" style={{ color: 'var(--muted)' }}>
-            © {new Date().getFullYear()} Akira Cloud. Todos los derechos reservados.
+            © {new Date().getFullYear()} Akira Cloud. Todos los derechos reservados. Fundador: Juan M. Arrayago.
           </p>
           <p className="text-[11px]" style={{ color: 'var(--muted)' }}>
             Hecho con <span className="text-[var(--accent)]">●</span> en Argentina
@@ -2479,8 +1904,16 @@ function DatosLocalesSection() {
           </div>
         </div>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Link to="/descargar" className="btn-primary text-sm px-5 py-2.5">
-            <Download size={15} /> Descargar para Windows
+          <a
+            href={MS_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary text-sm px-5 py-2.5"
+          >
+            <Download size={15} /> Instalar desde Microsoft Store
+          </a>
+          <Link to="/descargar" className="btn-secondary text-sm px-5 py-2.5">
+            Otras formas de instalar
           </Link>
           <Link to="/documentacion" className="btn-secondary text-sm px-5 py-2.5">
             Cómo se instala y configura
@@ -2686,7 +2119,6 @@ export default function Landing() {
         <Verticales />
         <Pricing />
         <Faq />
-        <SobreElCreador />
         <CtaFinal />
       </main>
       <Footer />

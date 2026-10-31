@@ -320,8 +320,6 @@ function BlogPost({ post }) {
     author: {
       '@type': 'Person',
       name: 'Juan Martín Arrayago',
-      alternateName: 'TinchoDev',
-      url: 'https://martinarrayago.lat',
     },
     publisher: {
       '@type': 'Organization',
@@ -430,8 +428,8 @@ function BlogPost({ post }) {
 
           <div className="mt-16 pt-8" style={{ borderTop: '1px solid var(--border)' }}>
             <p className="text-sm" style={{ color: 'var(--text2)' }}>
-              Escrito por <Link to="/#creador" className="font-semibold hover:text-white" style={{ color: 'var(--accent)' }}>Juan Martín Arrayago (TinchoDev)</Link>,
-              creador y fundador de Akira Cloud.
+              Escrito por <span className="font-semibold" style={{ color: 'var(--accent)' }}>Juan Martín Arrayago</span>,
+              fundador de Akira Cloud.
             </p>
           </div>
         </article>

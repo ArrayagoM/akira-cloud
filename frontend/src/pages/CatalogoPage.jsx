@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import ImportarAsistente from '../components/ImportarAsistente';
 import FotoProducto from '../components/FotoProducto';
 import { bajarArchivo, descargar } from '../utils/archivos';
-import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, ChevronDown, Save, Barcode } from 'lucide-react';
+import { Package, Scissors, Plus, Upload, Download, Trash2, Search, Loader2, ChevronDown, Save, Barcode, RefreshCw } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
 // Catálogo: productos y servicios del negocio. Es la MISMA lista que usa el bot
@@ -80,6 +80,22 @@ export default function CatalogoPage() {
     } catch (e) { toast.error(e.response?.data instanceof Blob ? 'Ningún producto tiene código de barras todavía' : 'No se pudieron generar las etiquetas'); }
   };
 
+  // Trae el catálogo de WhatsApp Business (el bot tiene que estar conectado). La respuesta no es inmediata: se recarga la lista un par de veces.
+  const [sincronizando, setSincronizando] = useState(false);
+  const sincronizarWA = async () => {
+    if (sucio && !window.confirm('Tenés cambios sin guardar que se perderían al traer el catálogo. ¿Seguir?')) return;
+    setSincronizando(true);
+    const aviso = toast.loading('Pidiendo el catálogo a WhatsApp Business…');
+    try {
+      await api.post('/config/catalogo/sync');
+      await new Promise((r) => setTimeout(r, 6000));
+      await cargar();
+      toast.success('Listo: revisá la lista. Si no apareció nada, la cuenta no es WhatsApp Business o su catálogo está vacío.', { id: aviso, duration: 7000 });
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'No se pudo: el bot tiene que estar conectado (iniciá el bot desde el Inicio).', { id: aviso, duration: 7000 });
+    } finally { setSincronizando(false); }
+  };
+
   const cambiarTipo = (t) => { if (sucio && !window.confirm('Tenés cambios sin guardar. ¿Descartarlos?')) return; setTipo(t); };
 
   const visibles = useMemo(() => {
@@ -133,6 +149,11 @@ export default function CatalogoPage() {
               </div>
             )}
           </div>
+          {tipo === 'productos' && (
+            <button className="btn-secondary text-sm flex items-center gap-1.5" disabled={sincronizando} onClick={sincronizarWA} title="Trae los productos del catálogo de tu WhatsApp Business">
+              <RefreshCw size={14} className={sincronizando ? 'animate-spin' : ''} /> Traer de WhatsApp Business
+            </button>
+          )}
           {tipo === 'productos' && lista.length > 0 && (
             <>
               {sinCodigo > 0 && <button className="btn-secondary text-sm flex items-center gap-1.5" onClick={completarCodigos} title="Les pone un código propio a los productos que no traen uno"><Barcode size={14} /> Generar códigos ({sinCodigo})</button>}

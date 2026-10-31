@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, LogIn, QrCode, CheckCircle2, ChevronDown, Monitor, Clock, Laptop, Smartphone, ArrowRight } from 'lucide-react';
+import { Download, LogIn, QrCode, CheckCircle2, ChevronDown, Monitor, Laptop, Smartphone, ArrowRight } from 'lucide-react';
 
 // Servidor de licencias (Vercel): mismo JWT que la plataforma, así que el
 // panel web puede preguntarle si esta cuenta ya tiene la app instalada.
 const LICENSE_API = import.meta.env.VITE_LICENSE_API_URL || 'https://akira-licencias.vercel.app';
 
+// Ficha de Akira Cloud en Microsoft Store (publicada el 31/10/2026)
+const MS_STORE_URL = 'https://apps.microsoft.com/detail/9PM7BL2V6W22';
+
 const PREGUNTAS = [
   {
     q: 'Windows dice "Windows protegió su PC". ¿Es normal?',
-    a: 'Sí, es normal con las apps nuevas. Tocá "Más información" y después "Ejecutar de todos modos". Se hace una sola vez.',
+    a: 'Si instalás Akira desde Microsoft Store no aparece ningún aviso: la tienda ya lo verificó. El aviso solo puede salir con el instalador directo (.exe); en ese caso tocá "Más información" y después "Ejecutar de todos modos", una sola vez.',
   },
   {
     q: '¿Tengo que dejar la computadora prendida?',
@@ -73,17 +76,20 @@ export default function InstalarApp({ compacto = false }) {
 
   if (compacto && instalada) return null;
 
-  const botonDescarga = info?.disponible ? (
-    <a href={conOrigen(info.url)} className="btn-primary inline-flex items-center gap-2 px-5 py-3 rounded-xl text-base font-semibold">
-      <Download size={18} /> Descargar Akira para Windows
-      {info.sizeMB ? <span className="text-xs font-normal opacity-80">({info.sizeMB} MB)</span> : null}
+  const botonStore = (
+    <a href={MS_STORE_URL} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex items-center gap-2 px-5 py-3 rounded-xl text-base font-semibold">
+      <Download size={18} /> Instalar desde Microsoft Store
     </a>
-  ) : (
-    <div className="inline-flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
-      style={{ background: 'var(--surface3)', color: 'var(--text2)', border: '1px solid var(--border)' }}>
-      <Clock size={16} /> El instalador estará disponible muy pronto — te avisamos por email.
-    </div>
   );
+  const botonDescarga = info?.disponible ? (
+    <div className="flex flex-col items-start gap-2">
+      {botonStore}
+      <p className="text-xs" style={{ color: 'var(--text2)' }}>Recomendado: la tienda lo verifica y no aparece ningún aviso de Windows.</p>
+      <a href={conOrigen(info.url)} className="text-sm underline" style={{ color: 'var(--text2)' }}>
+        O descargá el instalador directo{info.sizeMB ? ` (${info.sizeMB} MB)` : ''} — Windows puede mostrar un aviso la primera vez
+      </a>
+    </div>
+  ) : botonStore;
 
   return (
     <section className="rounded-2xl p-5 md:p-6 mb-6"
@@ -95,7 +101,7 @@ export default function InstalarApp({ compacto = false }) {
 
       <div className="space-y-3">
         <Paso n={1} icono={Download} titulo="Descargá e instalá Akira" hecho={instalada === true}
-          texto="Descargalo, abrilo y tocá “Siguiente” hasta que termine. Es como instalar cualquier programa.">
+          texto="Buscalo en Microsoft Store (o tocá el botón), apretá “Obtener” y esperá a que se instale.">
           {instalada === true && (
             <p className="text-sm mb-2" style={{ color: '#00e87b' }}>✓ Ya tenés Akira instalado y vinculado a tu cuenta. ¿Lo necesitás en otra PC o hay que reinstalarlo?</p>
           )}

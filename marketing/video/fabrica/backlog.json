@@ -471,6 +471,292 @@
           "tipo": "cta"
         }
       ]
+    },
+    {
+      "id": "vender",
+      "titulo": "Vender por WhatsApp y cobrar sin escribir",
+      "titular": [
+        "¿Vendés por WhatsApp",
+        "y cobrás todo a mano?"
+      ],
+      "caption": "¿Vendés por WhatsApp y cobrás todo a mano? Akira responde el precio con foto y stock, arma el pedido, manda el link de Mercado Pago y te avisa cuando pagan (los pedidos por WhatsApp se activan desde el Catálogo). ¿Cuántos pedidos tomás por día? Contame abajo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#ventasonline",
+        "#mercadopago",
+        "#argentina",
+        "#whatsappbusiness"
+      ],
+      "frases": [
+        "¿Vendés por WhatsApp y cobrás todo a mano?",
+        "Tu cliente pregunta el precio, y Akira le responde con foto y stock.",
+        "Arma el pedido, le manda el link de Mercado Pago, y cuando paga, te avisa.",
+        "Vos solo preparás el paquete.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "chat",
+          "desde_el_inicio": true,
+          "items": [
+            [
+              0.0,
+              "texto",
+              "cliente",
+              "¿Cuánto sale el shampoo?"
+            ],
+            [
+              1.3,
+              "texto",
+              "bot",
+              "Sale $ 6.800. ¿Te lo mando?"
+            ]
+          ]
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.0,
+              "texto",
+              "cliente",
+              "¿Cuánto sale el shampoo?"
+            ],
+            [
+              0.0,
+              "texto",
+              "bot",
+              "Sale $ 6.800. ¿Te lo mando?"
+            ],
+            [
+              0.6,
+              "foto",
+              "bot",
+              [
+                "Shampoo reparador",
+                "$ 6.800"
+              ]
+            ]
+          ]
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.2,
+              "texto",
+              "cliente",
+              "Lo quiero, ¿cómo pago?"
+            ],
+            [
+              1.4,
+              "texto",
+              "bot",
+              "Dale. Pagá con este link:"
+            ],
+            [
+              2.6,
+              "pago",
+              "bot",
+              ""
+            ]
+          ]
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Vos solo",
+            "preparás",
+            "el paquete"
+          ],
+          "tam": 150
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "lunes",
+      "titulo": "Lunes a la mañana",
+      "titular": [
+        "Lunes, 9 de la mañana:",
+        "¿cuántos mensajes te esperan?"
+      ],
+      "caption": "Lunes a la mañana y el WhatsApp explotado. Con Akira prendido, mientras dormís contesta, muestra precios y agenda turnos; vos abrís la agenda y ya están cargados, y lo que no pudo resolver te lo avisa. ¿Cuántos mensajes te esperan los lunes? Contame abajo. Probalo gratis, 7 días de uso y sin tarjeta: akiracloud.lat",
+      "hashtags": [
+        "#emprendedores",
+        "#negocios",
+        "#argentina",
+        "#turnos",
+        "#whatsappbusiness"
+      ],
+      "frases": [
+        "Lunes a la mañana. ¿Cuántos mensajes de WhatsApp te esperan?",
+        "Con Akira, mientras dormís, contesta, muestra precios y agenda turnos.",
+        "Vos abrís la agenda y ya están los turnos cargados.",
+        "Y lo que no pudo resolver, te avisa para que lo veas vos.",
+        "Probalo gratis en akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "notifs",
+          "desde_el_inicio": true
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.2,
+              "audio",
+              "cliente",
+              "0:07"
+            ],
+            [
+              1.6,
+              "texto",
+              "bot",
+              "El corte con barba sale $ 9.500. ¿Te anoto?"
+            ],
+            [
+              3.4,
+              "texto",
+              "bot",
+              "Mañana: 16:00 o 17:30."
+            ]
+          ]
+        },
+        {
+          "tipo": "ventana",
+          "archivo": "akira-agenda.webp",
+          "titulo": "Agenda · Akira Cloud"
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Lo que no puede,",
+            "te avisa"
+          ],
+          "tam": 130
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "tienda",
+      "titulo": "Llega a Microsoft Store",
+      "titular": [
+        "Akira Cloud",
+        "llega a Microsoft Store"
+      ],
+      "tienda": false,
+      "caption": "¿Y si tu bot de WhatsApp se instalara desde la tienda de Windows? Akira Cloud está por llegar a Microsoft Store. Mientras tanto, ya podés probarlo gratis desde la web: 7 días de uso y sin tarjeta, en akiracloud.lat. ¿Lo querés ver en la tienda? Decímelo abajo.",
+      "hashtags": [
+        "#windows",
+        "#microsoftstore",
+        "#emprendedores",
+        "#argentina",
+        "#software"
+      ],
+      "frases": [
+        "¿Y si tu bot de WhatsApp se instalara desde la tienda de Windows?",
+        "Akira Cloud está por llegar a Microsoft Store.",
+        "Mientras tanto, ya podés probarlo gratis desde la web.",
+        "Siete días de uso, sin tarjeta.",
+        "Entrá a akiracloud punto lat."
+      ],
+      "visuales": [
+        {
+          "tipo": "tienda",
+          "desde_el_inicio": true
+        },
+        {
+          "tipo": "tienda",
+          "offset": 4.0
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "Hoy: probalo",
+            "gratis en la web"
+          ],
+          "tam": 120
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "7 días",
+            "de uso"
+          ],
+          "tam": 190
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
+    },
+    {
+      "id": "disponible",
+      "titulo": "Akira Cloud ya está en Microsoft Store",
+      "titular": [
+        "Tu bot de WhatsApp",
+        "ya está en Microsoft Store"
+      ],
+      "caption": "Ya está: Akira Cloud se instala desde Microsoft Store. Buscalo como Akira Cloud, tocás Obtener y lo tenés en tu compu con la agenda, los chats y los cobros con Mercado Pago. Probalo gratis, 7 días de uso y sin tarjeta. Link directo: https://apps.microsoft.com/detail/9PM7BL2V6W22 y más info en akiracloud.lat. ¿Lo instalás hoy? Contame abajo cómo te va.",
+      "hashtags": [
+        "#microsoftstore",
+        "#windows",
+        "#emprendedores",
+        "#argentina",
+        "#whatsappbusiness"
+      ],
+      "frases": [
+        "Tu bot de WhatsApp ya está en Microsoft Store.",
+        "Buscás Akira Cloud, tocás Obtener, y se instala solo.",
+        "Atiende a tus clientes, agenda turnos y cobra con Mercado Pago.",
+        "Probalo gratis, siete días de uso y sin tarjeta.",
+        "Buscalo como Akira Cloud, en Microsoft Store."
+      ],
+      "visuales": [
+        {
+          "tipo": "tienda",
+          "desde_el_inicio": true
+        },
+        {
+          "tipo": "tienda",
+          "offset": 1.1
+        },
+        {
+          "tipo": "chat",
+          "items": [
+            [
+              0.2,
+              "texto",
+              "cliente",
+              "¿Tenés turno para mañana?"
+            ],
+            [
+              1.5,
+              "texto",
+              "bot",
+              "Sí, 16:00 o 17:30. ¿Cuál te anoto?"
+            ]
+          ]
+        },
+        {
+          "tipo": "texto",
+          "lineas": [
+            "7 días",
+            "gratis"
+          ],
+          "tam": 190
+        },
+        {
+          "tipo": "cta"
+        }
+      ]
     }
   ]
 }

@@ -283,7 +283,7 @@ export default function VerticalNicho({
       <footer className="px-5 md:px-8 py-8 text-center"
         style={{ borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
-          © {new Date().getFullYear()} Akira Cloud — creado por <Link to="/#creador" className="hover:text-white">Juan M. Arrayago</Link>
+          © {new Date().getFullYear()} Akira Cloud — fundador: Juan M. Arrayago
         </p>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-3 text-xs">
           <Link to="/" style={{ color: 'var(--text2)' }} className="hover:text-white">Inicio</Link>

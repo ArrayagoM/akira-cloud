@@ -19,6 +19,12 @@ from render import (VERDE, VERDE_OSC, BLANCO, GRIS, GRIS2, F, NEGRITA, REG, SEMI
 from pausas import pausa_despues
 
 W, H, FPS = 1080, 1920, 30
+# Estado de Akira en Microsoft Store (archivo estado-tienda.txt: proximamente | disponible | oculto). Mientras no esté publicada se dice "Próximamente".
+def _estado_tienda():
+    try: return open(os.path.join(AQUI, 'estado-tienda.txt'), encoding='utf-8').read().strip().lower()
+    except OSError: return 'oculto'
+TIENDA = _estado_tienda()
+TIENDA_TXT = {'proximamente': 'Próximamente en Microsoft Store', 'disponible': 'Ya en Microsoft Store'}.get(TIENDA, '')
 SOLO_VISTA = '--vista' in sys.argv
 LEAD, PAD_FINAL = 0.08, 1.6
 
@@ -28,7 +34,11 @@ def cargar_spec(arg):
         return next(t for t in bl['temas'] if t['id'] == arg.split(':', 1)[1])
     return json.load(open(arg, encoding='utf-8'))
 SPEC = cargar_spec(next(a for a in sys.argv[1:] if not a.startswith('--')))
-ID = SPEC['id']; FRASES = SPEC['frases']; VIS = SPEC['visuales']; assert len(FRASES) == len(VIS), 'frases y visuales deben tener la misma cantidad'
+ID = SPEC['id']; FRASES = list(SPEC['frases'])
+if FRASES and FRASES[-1].startswith('Probalo gratis') and SPEC.get('tienda', True):
+    if TIENDA == 'proximamente': FRASES[-1] = FRASES[-1].rstrip('.') + '. Y muy pronto, en Microsoft Store.'
+    elif TIENDA == 'disponible': FRASES[-1] = FRASES[-1].rstrip('.') + '. Y ya está en Microsoft Store.'
+VIS = SPEC['visuales']; assert len(FRASES) == len(VIS), 'frases y visuales deben tener la misma cantidad'
 TMP = os.path.join(AQUI, 'tmp', ID); os.makedirs(TMP, exist_ok=True)
 
 # ── voz ─────────────────────────────────────────────────────────────────────────
@@ -91,37 +101,63 @@ def pegar(im, sp, cx, cy, maxw=1000, maxh=1010, k=1.0, extra=1.0):
     e = min(maxw / sp.width, maxh / sp.height, 1.18) * extra
     sp = sp.resize((int(sp.width * e), int(sp.height * e)), Image.BILINEAR); im.alpha_composite(fade(sp, k), (int(cx - sp.width / 2), int(cy - sp.height / 2)))
 
-def dibujar_karaoke(im, t):
-    fr = next((f for f in TIEMPOS if f['t0'] - 0.05 <= t <= f['t0'] + f['dur'] + 0.15), None)
-    if not fr: return
+def _palabras(fr):
+    """Tiempos de cada palabra de la frase y su agrupación en trozos de hasta 3 palabras (o hasta una coma/punto)."""
     toks = fr['texto'].split(); pesos = [len(w.strip('.,¡!¿?…:;')) + 2 + (7 if w[-1] in '.?!…' else 3 if w[-1] == ',' else 0) for w in toks]; tot = sum(pesos); a = fr['t0']; tiem = []
     for w, p in zip(toks, pesos): b = a + fr['dur'] * p / tot; tiem.append((a, b, w)); a = b
-    k = next((i for i, (a, b, w) in enumerate(tiem) if a <= t < b), len(tiem) - 1 if t >= tiem[-1][1] else 0)
     trozos = []; act = []
     for i, (a, b, w) in enumerate(tiem):
         act.append(i)
         if len(act) >= 3 or w[-1] in '.?!…,': trozos.append(act); act = []
     if act: trozos.append(act)
+    return tiem, trozos
+def inicio_trozo(t):
+    """Segundos desde que empezó el trozo de texto que se está diciendo (para dar un golpe de zoom en cada cambio)."""
+    fr = next((f for f in TIEMPOS if f['t0'] - 0.05 <= t <= f['t0'] + f['dur'] + 0.15), None)
+    if not fr: return 9.0
+    tiem, trozos = _palabras(fr); k = next((i for i, (a, b, w) in enumerate(tiem) if a <= t < b), len(tiem) - 1 if t >= tiem[-1][1] else 0)
+    tz = next(z for z in trozos if k in z); return t - tiem[tz[0]][0]
+
+def dibujar_karaoke(im, t):
+    fr = next((f for f in TIEMPOS if f['t0'] - 0.05 <= t <= f['t0'] + f['dur'] + 0.15), None)
+    if not fr: return
+    tiem, trozos = _palabras(fr)
+    k = next((i for i, (a, b, w) in enumerate(tiem) if a <= t < b), len(tiem) - 1 if t >= tiem[-1][1] else 0)
     tz = next(z for z in trozos if k in z); fu = F(BLACK, 84); esp = fu.getlength(' '); lineas = [[]]; ancho = 0
     for i in tz:
         lw = fu.getlength(tiem[i][2])
         if lineas[-1] and ancho + esp + lw > 980: lineas.append([]); ancho = 0
         lineas[-1].append((i, lw)); ancho += (esp if len(lineas[-1]) > 1 else 0) + lw
-    lh = 108; capa = Image.new('RGBA', (W, len(lineas) * lh + 30), (0, 0, 0, 0)); d = ImageDraw.Draw(capa)
+    lh = 118; capa = Image.new('RGBA', (W, len(lineas) * lh + 40), (0, 0, 0, 0)); d = ImageDraw.Draw(capa)
     for n, ln in enumerate(lineas):
-        x = (W - (sum(w for _, w in ln) + esp * (len(ln) - 1))) / 2
-        for i, lw in ln: d.text((x, 15 + n * lh + lh / 2), tiem[i][2], font=fu, fill=VERDE if i == k else BLANCO, anchor='lm', stroke_width=9, stroke_fill=(0, 0, 0, 255)); x += lw + esp
+        x = (W - (sum(w for _, w in ln) + esp * (len(ln) - 1))) / 2; cy = 20 + n * lh + lh / 2
+        for i, lw in ln:
+            if i == k:   # palabra que se está diciendo: pastilla verde con letra oscura, que "salta" al entrar
+                dt = max(0.0, t - tiem[i][0]); s_ = 1 + 0.10 * max(0.0, 1 - dt / 0.12)
+                d.rounded_rectangle((x - 14, cy - 56 * s_, x + lw + 14, cy + 56 * s_), 28, fill=VERDE); d.text((x, cy), tiem[i][2], font=fu, fill=(3, 30, 18, 255), anchor='lm')
+            else: d.text((x, cy), tiem[i][2], font=fu, fill=BLANCO, anchor='lm', stroke_width=9, stroke_fill=(0, 0, 0, 255))
+            x += lw + esp
     im.alpha_composite(capa, (0, 1640 - (len(lineas) * lh) // 2))
 
 def titular(im, t):
+    """El gancho: durante el primer segundo y medio el titular ocupa el centro, enorme y con un golpe de zoom; después sube a su lugar fijo.
+    Está completo desde el cuadro 0 (el primer segundo es lo que decide si se queda)."""
     lin = SPEC.get('titular') or []
     if not lin: return
-    a = 1.0; capa = Image.new('RGBA', (W, 330), (0, 0, 0, 0)); d = ImageDraw.Draw(capa)   # completo desde el cuadro 0: el primer segundo es lo que decide si se queda
+    capa = Image.new('RGBA', (W, 330), (0, 0, 0, 0)); d = ImageDraw.Draw(capa); ancho = 1
     for j, l in enumerate(lin[:3]):
         tam = 86
         while tam > 44 and F(BLACK, tam).getlength(l) > 980: tam -= 2
-        texto_en(d, (540, 70 + j * 100), l, F(BLACK, tam), BLANCO if j == 0 else VERDE, 'mm', True)
-    im.alpha_composite(fade(capa, a), (0, int(150 + (1 - a) * 30)))
+        ancho = max(ancho, F(BLACK, tam).getlength(l)); texto_en(d, (540, 70 + j * 100), l, F(BLACK, tam), BLANCO if j == 0 else VERDE, 'mm', True)
+    HOLD, MOV = 1.3, 0.45                      # segundos quieto en el centro y segundos que tarda en subir
+    if t < HOLD + MOV:
+        m = ease_io(min(1.0, max(0.0, (t - HOLD) / MOV)))            # 0 = centro y grande, 1 = arriba y chico
+        esc = min(lerp(1.28, 1.0, m) + 0.10 * max(0.0, 1 - t / 0.18), 1040 / ancho)   # golpe de zoom al aparecer, sin pasarse de los bordes
+        y = lerp(760, 150, m)
+        if m < 1:                                                         # tira oscura detrás para que se lea sobre cualquier escena
+            tira = Image.new('RGBA', (W, 360), (4, 10, 8, int(200 * (1 - m)))); im.alpha_composite(tira, (0, int(y - 15)))
+        g = capa.resize((int(W * esc), int(330 * esc)), Image.BILINEAR); im.alpha_composite(g, (int(W / 2 - g.width / 2), int(y + 165 - g.height / 2)))
+    else: im.alpha_composite(capa, (0, 150))
 
 def visual(im, v, tl, f, t):
     """v: dict del guion. tl: segundos desde que empezó la frase. f: avance dentro de la frase (0 a 1)."""
@@ -173,6 +209,20 @@ def visual(im, v, tl, f, t):
             while tam > 50 and F(BLACK, tam).getlength(l) > 980: tam -= 4
             texto_en(d, (540, 120 + j * (tam + 24)), l, F(BLACK, tam), BLANCO if j % 2 == 0 else VERDE, 'mm', True)
         im.alpha_composite(fade(capa, ent), (0, int(cy - 330 + (1 - ent) * 40)))
+    elif tipo == 'tienda':   # animación: la tarjeta de la aplicación entra con rebote, se aprieta "Obtener", avanza la instalación y queda "Instalado"
+        c = Image.new('RGBA', (900, 760), (0, 0, 0, 0)); d = ImageDraw.Draw(c); d.rounded_rectangle((0, 0, 899, 759), 44, fill=(16, 26, 30, 248), outline=(0, 232, 123, 150), width=3)
+        s_ = max(0.01, ease_back(tl / 0.5)); ic = LOGO.resize((int(230 * s_), int(230 * s_)), Image.LANCZOS); c.paste(ic, (450 - ic.width // 2, 160 - ic.height // 2), redondeada(ic.size, int(54 * s_)))
+        texto_en(d, (450, 335), 'Akira Cloud', F(BLACK, 66), BLANCO, 'mm'); texto_en(d, (450, 405), 'Tu negocio y tu WhatsApp, en una sola app', F(REG, 32), GRIS, 'mm')
+        if tl < 1.3:
+            pr = 1.0 + 0.04 * math.sin(tl * 9); d.rounded_rectangle((450 - 190 * pr, 500, 450 + 190 * pr, 500 + 96), 48, fill=VERDE); texto_en(d, (450, 548), 'Obtener', F(BLACK, 48), (3, 30, 18), 'mm')
+        elif tl < 2.7:
+            p_ = ease_io((tl - 1.3) / 1.4); d.rounded_rectangle((150, 530, 750, 566), 18, fill=(38, 52, 58)); d.rounded_rectangle((150, 530, 150 + int(600 * p_), 566), 18, fill=VERDE)
+            texto_en(d, (450, 625), f'Instalando… {int(p_ * 100)} %', F(SEMI, 36), GRIS, 'mm')
+        else:
+            k2 = ease_back((tl - 2.7) / 0.35); r_ = int(48 * max(0.01, k2)); d.ellipse((450 - r_, 548 - r_, 450 + r_, 548 + r_), fill=VERDE)
+            if k2 > 0.6: d.line([(425, 548), (443, 566), (478, 530)], fill=(3, 30, 18), width=9, joint='curve')
+            texto_en(d, (450, 640), 'Instalado', F(BLACK, 46), BLANCO, 'mm')
+        pegar(im, c, 540, cy, 940, 900, ent, pop)
     elif tipo == 'cta':
         k = ease_back(tl / 0.5); s = max(0.01, k); lg = LOGO.resize((int(280 * s), int(280 * s)), Image.LANCZOS)
         halo = Image.new('RGBA', (620, 620), (0, 0, 0, 0)); ImageDraw.Draw(halo).ellipse((80, 80, 540, 540), fill=(0, 232, 123, 100)); halo = halo.filter(ImageFilter.GaussianBlur(60)); im.alpha_composite(halo, (230, 340))
@@ -184,14 +234,18 @@ def visual(im, v, tl, f, t):
         for n_, c in enumerate(['Hecho en Argentina', 'En pesos', 'Con Mercado Pago']):
             fu = F(SEMI, 38); w = int(fu.getlength(c)) + 70; x = 540 - w // 2; y = 470 + n_ * 90
             dc.rounded_rectangle((x, y, x + w, y + 74), 37, fill=(18, 30, 36), outline=(0, 232, 123, 160), width=2); texto_en(dc, (540, y + 37), c, fu, BLANCO, 'mm')
+        if TIENDA_TXT and SPEC.get('tienda', True):   # insignia de la tienda (solo texto: sin el logo de otra marca)
+            fu = F(BLACK, 44); w = int(fu.getlength(TIENDA_TXT)) + 110; x = 540 - w // 2; y = 745; pu = 0.5 + 0.5 * math.sin(t * 4)
+            dc.rounded_rectangle((x, y, x + w, y + 96), 48, fill=(16, 38, 32), outline=(0, int(lerp(170, 255, pu)), int(lerp(100, 150, pu))), width=4)
+            dc.ellipse((x + 26, y + 30, x + 62, y + 66), fill=VERDE); texto_en(dc, (x + 86 + (w - 110) / 2, y + 48), TIENDA_TXT, fu, BLANCO, 'mm')
         im.alpha_composite(fade(capa, a), (0, int(780 + (1 - a) * 40)))
 
 def cuadro(tg):
     k = idx(tg); fr = TIEMPOS[k]; tl = tg - fr['t0']; v = VIS[k]; ult = (k == len(FRASES) - 1 and v['tipo'] == 'cta')
     im = R.fondo(tg); cont = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    if not ult: titular(cont, tg)
     visual(cont, v, max(0.0, tl), min(1.0, max(0.0, tl / max(0.5, fr['dur'] + 0.5))), tg)
-    z = 1.0 + 0.07 * (1 - ease_out(tl / 0.2)) if tl >= 0 else 1.0
+    if not ult: titular(cont, tg)   # después de la escena: en el primer segundo el titular grande va por encima
+    z = (1.0 + 0.07 * (1 - ease_out(tl / 0.2)) if tl >= 0 else 1.0) + 0.012 * min(max(tl, 0.0), 6.0) / 6.0 + 0.025 * max(0.0, 1 - inicio_trozo(tg) / 0.14)   # golpe al empezar cada escena y cada trozo de texto + zoom lento
     if z > 1.002: cont = cont.resize((int(W * z), int(H * z)), Image.BILINEAR).crop((int((W * z - W) / 2), int((H * z - H) / 2), int((W * z - W) / 2) + W, int((H * z - H) / 2) + H))
     im.alpha_composite(cont)
     if 0 <= tl < 0.12 and k > 0: im.alpha_composite(Image.new('RGBA', (W, H), (220, 255, 235, int(70 * (1 - tl / 0.12)))))
@@ -228,6 +282,9 @@ def armar_audio(ruta):
         if VIS[k]['tipo'] == 'cta': poner(fx, (tono(784, 0.8, 4) + tono(988, 0.8, 4) + tono(1175, 0.8, 4)) * 0.13, f['t0'])
         if VIS[k]['tipo'] == 'notifs':
             for j in range(4): poner(fx, tono(1318.5, 0.3, 9) * 0.18, f['t0'] + j * 0.55)
+    for f in TIEMPOS:   # un "tic" muy suave al empezar cada trozo de texto: marca el ritmo sin tapar la voz
+        _t, trozos = _palabras(f)
+        for z in trozos[1:]: poner(fx, tono(1568, 0.07, 40) * 0.05, _t[z[0]][0])
     m = (voz * 0.95 + musica * 0.17 + fx)[:int(TOTAL * SR)]; fn = int(1.0 * SR); m[-fn:] *= np.linspace(1, 0, fn); m = np.clip(m, -0.98, 0.98)
     with wave.open(ruta, 'wb') as w: w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR); w.writeframes((m * 32767).astype(np.int16).tobytes())
 

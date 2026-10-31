@@ -132,6 +132,13 @@ const UserSchema = new mongoose.Schema(
 
     // Pagos de Mercado Pago ya aplicados a este usuario (los últimos 100): un mismo pago activa el plan una sola vez
     pagosMpProcesados:   { type: [String], default: [], select: false },
+
+    // Cobro con Stripe (clientes del exterior). El cliente de Stripe lo crea el servidor y queda atado a este usuario: los avisos
+    // de pago (webhook) se buscan por este id, no por lo que diga el texto de un pedido.
+    stripeCustomerId:     { type: String, unique: true, sparse: true, select: false },
+    stripeSubscriptionId: { type: String, default: '', select: false },
+    stripeEstado:         { type: String, default: '', select: false },     // active | past_due | canceled | unpaid ...
+    stripeCancelaAlFinal: { type: Boolean, default: false, select: false },  // pidió cancelar: sigue activo hasta que termine lo pagado
   },
   {
     timestamps: true,
