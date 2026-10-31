@@ -1,4 +1,4 @@
-# Publica la versión del programa que está compilada en desktop\dist:
+﻿# Publica la versión del programa que está compilada en desktop\dist:
 #   1) sube el instalador y el manifiesto a Vercel Blob (con verificación del hash)
 #   2) le avisa al servidor cuál es la versión nueva (DESKTOP_VERSION y DESKTOP_SIZE_MB)
 #   3) despliega el servidor (backend-desktop)
@@ -19,7 +19,10 @@ Write-Host "Publicando la versión $version ($mb MB)..." -ForegroundColor Green
 Push-Location $backend
 try {
   Write-Host '1/4 Sacando el permiso de subida (queda en un archivo temporal que se borra al final)...'
+  vercel whoami | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Vercel no tiene la sesión iniciada en esta terminal. Corré primero:  vercel login   (se abre el navegador) y después volvé a correr este script.' }
   vercel env pull $tmp --environment=production --yes | Out-Null
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmp)) { throw 'No se pudo leer la configuración de Vercel.' }
   $tok = ((Get-Content $tmp) | Where-Object { $_ -match '^BLOB_READ_WRITE_TOKEN=' }) -replace '^BLOB_READ_WRITE_TOKEN=', '' -replace '"', ''
   if (-not $tok) { throw 'No encontré BLOB_READ_WRITE_TOKEN.' }
 
@@ -32,8 +35,10 @@ try {
   Write-Host '3/4 Avisando al servidor cuál es la versión nueva...'
   vercel env rm DESKTOP_VERSION production --yes | Out-Null
   vercel env add DESKTOP_VERSION production --value $version --yes | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar DESKTOP_VERSION.' }
   vercel env rm DESKTOP_SIZE_MB production --yes | Out-Null
   vercel env add DESKTOP_SIZE_MB production --value "$mb" --yes | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'No se pudo guardar DESKTOP_SIZE_MB.' }
 
   Write-Host '4/4 Desplegando el servidor...'
   vercel --prod --yes
