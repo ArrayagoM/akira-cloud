@@ -26,6 +26,8 @@ try {
   $tok = ((Get-Content $tmp) | Where-Object { $_ -match '^BLOB_READ_WRITE_TOKEN=' }) -replace '^BLOB_READ_WRITE_TOKEN=', '' -replace '"', ''
   if (-not $tok) { throw 'No encontré BLOB_READ_WRITE_TOKEN.' }
 
+  $blobdir = Split-Path -Parent $up3
+  if (-not (Test-Path (Join-Path $blobdir 'node_modules\@vercellob\package.json'))) { Write-Host '  Instalando la herramienta de subida...'; Push-Location $blobdir; npm install --no-audit --no-fund | Out-Null; Pop-Location }
   Write-Host '2/4 Subiendo el instalador y verificando (tarda unos 5 minutos, no cierres la ventana)...'
   $env:TOK = $tok
   node $up3 $dist
