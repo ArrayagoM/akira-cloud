@@ -128,3 +128,20 @@ Corrige AUD-001 #1, #3 y #6. **Backend de producción: sin publicar hasta que el
 
 **Pendiente (no hecho, necesita decisión):** hacer atómica la cola de órdenes en la nube (hoy `Device.comandos` se reescribe entero por quien guarda último). Es backend de producción: requiere entrada propia y pruebas.
 **Riesgo.** Bajo. Estado: **sin publicar** (próximo instalador).
+
+---
+
+## CAM-006 — Versión 1.0.36: instalador, paquete de la Microsoft Store y commits (5/11/2026)
+
+**Qué es.** Primera versión que junta todo lo pendiente (carga de productos con IA, afiliados, y los arreglos CAM-001, 004 y 005). Se subió de 1.0.35 a 1.0.36 a propósito: la 1.0.35 ya compilada no tenía los arreglos de hoy.
+
+| Pieza | Estado |
+|---|---|
+| `desktop/package.json` | `version` 1.0.36 |
+| Instalador directo `desktop/dist/AkiraCloud.exe` (93,9 MB) | Compilado con `npm run release:build`: pruebas del escritorio OK y 9/9 verificaciones del paquete OK. `latest.yml` anuncia 1.0.36. **Sin subir** (`scripts/publicar-version.ps1` lo sube y avisa al servidor). |
+| Paquete Store `desktop/dist-store/AkiraCloud-1.0.36.msix` (168 MB) | Armado con el `makeappx` oficial de Microsoft (firma verificada: Microsoft Corporation) sobre el mismo `win-unpacked` del instalador, con `Version="1.0.36.0"` en `stage-1.0.36/AppxManifest.xml` (copia del manifiesto de la 1.0.32, mismas identidades). La carpeta y el paquete de la 1.0.32 NO se tocaron. **Sin subir a Partner Center.** |
+| Commits locales | `ffd81b0` backend · `98d3d1d` escritorio · `ddb9247` web y documentos. **Sin `push`.** |
+
+**Quedó afuera de los commits a propósito:** `scripts/migrar-atlas-a-local.js` (contiene la contraseña de Mongo), `backend/services/akira.bot.tmp` (temporal) y todo el material de marketing (videos y capturas).
+**Límite.** El paquete MSIX no se instaló ni se probó abriéndolo; solo se verificó que `makeappx` lo creó sin errores y que el contenido es el del instalador ya verificado.
+**Falta (acción del dueño):** subir `AkiraCloud-1.0.36.msix` en Partner Center → Paquetes (envío nuevo) y esperar la certificación; publicar el instalador y el backend (`publicar-version.ps1`); desplegar la web.
