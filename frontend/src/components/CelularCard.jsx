@@ -26,7 +26,7 @@ export default function CelularCard() {
       <div className="flex-1 min-w-[220px]">
         <p className="text-sm font-semibold text-white">Controlar desde la app del celular</p>
         <p className="text-xs" style={{ color: 'var(--text2)' }}>
-          {activo ? 'Activado: desde la app de Akira podés pausar/reanudar el bot y activar el modo vacaciones. Lo demás sigue en esta PC.' : 'Opcional. Permite pausar/reanudar el bot y activar el modo vacaciones desde la app de Akira del celular (nada más).'}
+          {activo ? 'Activado: desde la app de Akira podés pausar/reanudar el bot, activar el modo vacaciones y cargar productos con la cámara (llegan al Catálogo de esta PC). Lo demás sigue en esta PC.' : 'Opcional. Permite pausar/reanudar el bot, activar el modo vacaciones y cargar productos con la cámara del celular, que llegan al Catálogo de esta PC (nada más).'}
         </p>
       </div>
       <button onClick={cambiar} disabled={guardando} aria-pressed={activo} aria-label="Controlar desde la app del celular"

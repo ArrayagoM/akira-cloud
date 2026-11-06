@@ -1,8 +1,22 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Solo la web (no el programa de Windows): la tipografía deja de ser una hoja de estilos que bloquea la pantalla y se suma el
+// aviso de "no pudo abrir" (public/boot-check.js, que además carga la tipografía sin bloquear). Ver ese archivo.
+function arranqueWeb() {
+  return {
+    name: 'arranque-web',
+    transformIndexHtml(html) {
+      if (process.env.VITE_DESKTOP) return html;
+      return html
+        .replace(/<link\s+href="https:\/\/fonts\.googleapis\.com\/css2[\s\S]*?\/>/, '')
+        .replace('<head>', '<head>\n  <script src="/boot-check.js"></script>');
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), arranqueWeb()],
 
   // ── Build optimizado para producción ─────────────────────
   build: {

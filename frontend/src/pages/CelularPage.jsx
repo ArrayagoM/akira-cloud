@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, Activity, BarChart3, Settings, RefreshCw, Bell, LogOut, Share, Plus, Smartphone, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Bot, Activity, BarChart3, Settings, RefreshCw, Bell, LogOut, Share, Plus, Smartphone, Loader2, Eye, EyeOff, Camera } from 'lucide-react';
+import CargarProducto from '../components/celular/CargarProducto';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { describirBot, hace, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS } from '../lib/estadoMovil';
@@ -101,7 +102,7 @@ function PC({ pc, alCambiar }) {
       <p className="text-[15px] leading-relaxed">{info.detalle}</p>
       <p className="text-xs mt-2" style={{ color: 'var(--text2, #9aa8b8)' }}>Última señal de la PC: {hace(pc.ultimoHeartbeat)}</p>
 
-      {!pc.controlRemoto && pc.online && <p className="text-xs mt-3" style={{ color: '#f59e0b' }}>Para pausar o reanudar desde acá, activá “Controlar desde la app del celular” en Akira (PC) → Inicio.</p>}
+      {!pc.controlRemoto && pc.online && <p className="text-xs mt-3" style={{ color: '#f59e0b' }}>Para pausar, reanudar o cargar productos desde acá, activá “Controlar desde la app del celular” en Akira (PC) → Inicio.</p>}
       {pc.controlRemoto && (
         <div className="mt-4 space-y-3">
           {acc.puedePausar && <button className="btn-secondary w-full justify-center" disabled={!!trabajando} onClick={() => ejecutar('bot-pausar')}>{trabajando === 'bot-pausar' ? <Loader2 size={15} className="animate-spin" /> : 'Pausar el bot'}</button>}
@@ -220,7 +221,7 @@ function PestañaAjustes({ usuario, alSalir }) {
 
       <div className="card">
         <p className="font-bold">Qué hace y qué no hace esta app</p>
-        <p className="text-sm mt-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Es un control remoto: ves si tu bot está atendiendo, mirás unos números del negocio y podés pausarlo o ponerlo en modo vacaciones. El bot, WhatsApp y los datos de tus clientes están en tu PC y no pasan por el celular.</p>
+        <p className="text-sm mt-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Es un control remoto: ves si tu bot está atendiendo, mirás unos números del negocio, podés pausarlo o ponerlo en modo vacaciones y cargar productos con la cámara. El bot, WhatsApp y los datos de tus clientes están en tu PC y no pasan por el celular. Lo único que sí pasa por la nube, unos minutos, es el producto que cargás con la cámara (la foto se borra apenas tu PC la recibe).</p>
       </div>
 
       <button className="btn-secondary w-full justify-center" onClick={alSalir}><LogOut size={15} />Cerrar sesión</button>
@@ -256,7 +257,7 @@ export default function CelularPage() {
   if (loading) return <Marco><div className="flex justify-center pt-24"><Loader2 className="animate-spin" style={{ color: '#00e87b' }} /></div></Marco>;
   if (!user) return <Ingreso />;
 
-  const TABS = [{ id: 'estado', texto: 'Estado', Icono: Activity }, { id: 'resumen', texto: 'Resumen', Icono: BarChart3 }, { id: 'ajustes', texto: 'Ajustes', Icono: Settings }];
+  const TABS = [{ id: 'estado', texto: 'Estado', Icono: Activity }, { id: 'resumen', texto: 'Resumen', Icono: BarChart3 }, { id: 'productos', texto: 'Productos', Icono: Camera }, { id: 'ajustes', texto: 'Ajustes', Icono: Settings }];
   return (
     <Marco>
       <header className="sticky top-0 z-10 flex items-center justify-between px-5 py-3" style={{ background: 'rgba(7,11,16,0.92)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--border, #1e2a3a)', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
@@ -266,6 +267,7 @@ export default function CelularPage() {
       <main className="max-w-lg mx-auto px-5 pt-5 pb-28">
         {pestaña === 'estado' && <PestañaEstado estado={estado} cargando={cargando} error={error} recargar={recargar} usuario={user} />}
         {pestaña === 'resumen' && <PestañaResumen estado={estado} />}
+        {pestaña === 'productos' && <CargarProducto estado={estado} />}
         {pestaña === 'ajustes' && <PestañaAjustes usuario={user} alSalir={logout} />}
       </main>
       <nav className="fixed bottom-0 inset-x-0 flex" style={{ background: 'rgba(7,11,16,0.96)', borderTop: '1px solid var(--border, #1e2a3a)', paddingBottom: 'env(safe-area-inset-bottom)' }}>

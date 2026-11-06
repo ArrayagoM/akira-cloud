@@ -678,6 +678,24 @@ function Hero() {
             <strong className="text-white">Listo en 5 minutos.</strong>
           </p>
 
+          {/* Qué es y qué hace falta, sin vueltas: Akira se instala en una PC con Windows */}
+          <div
+            className="mt-5 flex items-start gap-3 max-w-xl mx-auto lg:mx-0 rounded-xl px-4 py-3 text-left text-sm leading-relaxed animate-fade-up"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text2)',
+              animationDelay: '200ms',
+            }}
+          >
+            <Monitor size={18} className="shrink-0 mt-0.5 text-[var(--accent)]" />
+            <span>
+              <strong className="text-white">Es un programa que se instala en tu PC con Windows</strong> y
+              atiende desde tu mismo número de WhatsApp. La PC tiene que quedar prendida y con internet.
+              El celular sirve para controlarlo, no para instalarlo.
+            </span>
+          </div>
+
           <div
             className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-3 animate-fade-up"
             style={{ animationDelay: '240ms' }}
@@ -729,21 +747,27 @@ function Hero() {
 const PASOS = [
   {
     n: '01',
-    icon: Zap,
-    title: 'Instalás y conectás tu WhatsApp',
-    desc: 'Descargás Akira para Windows y escaneás un QR como en WhatsApp Web. Tarda 30 segundos.',
+    icon: Monitor,
+    title: 'Instalás Akira en tu PC',
+    desc: 'Es un programa para Windows: lo bajás de Microsoft Store e ingresás con la cuenta que creaste acá. Tu PC queda prendida y con internet para que el bot atienda.',
   },
   {
     n: '02',
-    icon: Bot,
-    title: 'Cargás tu negocio',
-    desc: 'Servicios, precios, horarios y duración. Akira aprende a venderlos.',
+    icon: Zap,
+    title: 'Vinculás tu WhatsApp',
+    desc: 'Escaneás un QR como en WhatsApp Web. Akira atiende desde tu mismo número. Tarda 30 segundos.',
   },
   {
     n: '03',
+    icon: Bot,
+    title: 'Le contás de tu negocio',
+    desc: 'Servicios, precios y horarios (hay plantillas por rubro). Le pegás una clave gratis de Groq, que es la inteligencia que usa el bot, y Akira aprende a vender.',
+  },
+  {
+    n: '04',
     icon: Sparkles,
     title: 'Listo. Akira atiende sola.',
-    desc: 'Responde, agenda, cobra y te avisa cada vez que confirma un turno.',
+    desc: 'Responde, agenda, cobra y te avisa cada vez que confirma un turno. Desde el celular mirás cómo va y la pausás cuando quieras.',
   },
 ];
 
@@ -761,7 +785,7 @@ function ComoFunciona() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {PASOS.map((p, i) => {
             const Icon = p.icon;
             return (

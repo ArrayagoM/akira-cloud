@@ -10,7 +10,35 @@ export default function ReferralCard() {
   const [copiado, setCopiado]  = useState(false);
   const [cargando, setCargando] = useState(false);
 
+  const [resumen, setResumen]     = useState(null);
+  const [cuenta, setCuenta]       = useState('');
+  const [guardando, setGuardando] = useState(false);
+
   const codigo = user?.codigoReferido;
+
+  // Cuántos se registraron con tu código, cuántos pagaron y dónde cobrás (alias o CVU)
+  useEffect(() => {
+    if (!user || user.rol === 'admin') return;
+    api.get('/auth/referidos/resumen')
+      .then(({ data }) => { setResumen(data); setCuenta(data.cuenta?.valor || ''); })
+      .catch(() => {});
+  }, [user?._id]);
+
+  const guardarCuenta = async () => {
+    setGuardando(true);
+    try {
+      const { data } = await api.put('/auth/referidos/cuenta', { cuenta });
+      setCuenta(data.cuenta.valor);
+      setResumen(r => ({ ...(r || {}), cuenta: data.cuenta }));
+      toast.success('Listo, ahí te vamos a transferir');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'No se pudo guardar');
+    } finally {
+      setGuardando(false);
+    }
+  };
+  const cuentaGuardada = resumen?.cuenta?.valor || '';
+  const cuentaCambiada = cuenta.trim() !== '' && cuenta.trim().toUpperCase().replace(/[\s-]/g, '') !== cuentaGuardada.replace(/[\s-]/g, '');
 
   useEffect(() => {
     if (user && !user.codigoReferido && user.rol !== 'admin') {
@@ -56,7 +84,7 @@ export default function ReferralCard() {
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
           style={{ background: 'rgba(0,232,123,0.08)', color: 'var(--accent)', border: '1px solid rgba(0,232,123,0.18)' }}>
-          $5.000 ARS por referido
+          $5.000 ARS cuando tu referido paga
         </span>
       </div>
 
@@ -87,31 +115,55 @@ export default function ReferralCard() {
         </button>
       )}
 
-      {(user?.creditoReferidos > 0 || user?.descuentoReferido > 0) && (
-        <div className="flex gap-3 mt-3">
-          {user?.creditoReferidos > 0 && (
-            <div className="flex-1 rounded-lg px-3 py-2 text-center"
-              style={{ background: 'rgba(0,232,123,0.06)', border: '1px solid rgba(0,232,123,0.15)' }}>
-              <p className="text-sm font-bold" style={{ color: 'var(--accent)' }}>
-                ${user.creditoReferidos.toLocaleString('es-AR')}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Crédito ganado</p>
-            </div>
-          )}
-          {user?.descuentoReferido > 0 && (
-            <div className="flex-1 rounded-lg px-3 py-2 text-center"
-              style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)' }}>
-              <p className="text-sm font-bold text-blue-400">
-                ${user.descuentoReferido.toLocaleString('es-AR')}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Tu descuento</p>
-            </div>
-          )}
+      {resumen && (
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
+            <p className="text-sm font-bold text-white">{resumen.registrados}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Se registraron</p>
+          </div>
+          <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'rgba(0,232,123,0.06)', border: '1px solid rgba(0,232,123,0.15)' }}>
+            <p className="text-sm font-bold" style={{ color: 'var(--accent)' }}>{resumen.pagaron}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Ya pagaron</p>
+          </div>
+          <div className="rounded-lg px-2 py-2 text-center" style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
+            <p className="text-sm font-bold text-white">${(resumen.porCobrar || 0).toLocaleString('es-AR')}</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Por cobrar</p>
+          </div>
+        </div>
+      )}
+      {resumen?.cobrado > 0 && (
+        <p className="text-xs mt-2" style={{ color: 'var(--text2)' }}>Ya te transferimos ${resumen.cobrado.toLocaleString('es-AR')}.</p>
+      )}
+
+      {user?.descuentoReferido > 0 && (
+        <div className="rounded-lg px-3 py-2 text-center mt-3"
+          style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)' }}>
+          <p className="text-sm font-bold text-blue-400">${user.descuentoReferido.toLocaleString('es-AR')}</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Tu descuento en el primer pago</p>
         </div>
       )}
 
+      <div className="mt-3">
+        <label className="text-xs font-semibold text-white" htmlFor="cuenta-cobro">¿Dónde te transferimos?</label>
+        <div className="flex gap-2 mt-1.5">
+          <input id="cuenta-cobro" value={cuenta} onChange={e => setCuenta(e.target.value)}
+            placeholder="Tu alias o CVU/CBU" autoComplete="off" spellCheck={false}
+            className="flex-1 min-w-0 rounded-lg px-3 py-2 text-sm font-mono"
+            style={{ background: 'var(--surface3)', border: '1px solid var(--border)', color: 'var(--text)' }}
+            onKeyDown={e => { if (e.key === 'Enter' && cuentaCambiada && !guardando) guardarCuenta(); }} />
+          <button onClick={guardarCuenta} disabled={guardando || !cuentaCambiada} className="btn-primary px-3 disabled:opacity-40">
+            {guardando ? '...' : 'Guardar'}
+          </button>
+        </div>
+        <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
+          {cuentaGuardada
+            ? `Guardado: ${resumen.cuenta.tipo === 'cvu' ? 'CVU/CBU ' : 'alias '}${resumen.cuenta.tipo === 'cvu' ? '••••' + cuentaGuardada.slice(-4) : cuentaGuardada}. Revisá que sea tuya: ahí va el dinero.`
+            : 'Cargala para que podamos pagarte. Es un alias (por ejemplo, tu.nombre.mp) o los 22 números del CVU/CBU.'}
+        </p>
+      </div>
+
       <p className="text-xs mt-2.5" style={{ color: 'var(--muted)' }}>
-        Compartí el código al registrarse. Cuando paguen, ambos ganan automáticamente.
+        Pasale tu código para que lo use al registrarse. Vos ganás recién cuando tu referido paga su suscripción; compartirlo solo no suma. Te transferimos a la cuenta de arriba.
       </p>
     </div>
   );

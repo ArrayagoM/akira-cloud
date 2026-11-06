@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   CreditCard, ArrowRight, MessageSquare, Monitor, Download, Smartphone, BookOpen, Lightbulb, LifeBuoy,
-  Sparkles, TrendingUp, TrendingDown, Calendar, HandCoins, Truck, Users, FileText, Power,
+  Sparkles, TrendingUp, TrendingDown, Calendar, HandCoins, Truck, Users, FileText, Power, Send,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
@@ -37,6 +37,50 @@ function Mosaico({ icono: I, titulo, valor, color = '#e5e7eb', detalle, children
       <p className="text-xl font-bold mt-1" style={{ color }}>{valor}</p>
       {detalle && <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>{detalle}</p>}
       {children}
+    </div>
+  );
+}
+
+// Para quien todavía no instaló nada: qué es cada pieza, en una mirada. Es lo que más se preguntaba
+// ("¿cómo se usa?", "¿se instala en el celular?"), así que va arriba de todo, antes de los números.
+const PIEZAS = [
+  { icono: Monitor, titulo: 'La app en tu PC', texto: 'Es Akira: ahí vive el bot, tu agenda, tus clientes y tu caja. Se instala en una PC con Windows que quede prendida y con internet.' },
+  { icono: MessageSquare, titulo: 'Tu WhatsApp', texto: 'El bot atiende desde tu mismo número. Lo vinculás una vez escaneando un QR, como en WhatsApp Web.' },
+  { icono: Smartphone, titulo: 'Tu celular y esta web', texto: 'Son para mirar y controlar: ver cómo va el día, pausar el bot y recibir avisos. No se instala Akira en el celular.' },
+];
+const LINK_DESCARGA = 'https://akiracloud.lat/descargar';
+
+function ComoSeUsa() {
+  const esCelular = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const aWhatsApp = `https://wa.me/?text=${encodeURIComponent(`Para instalar Akira en mi PC con Windows: ${LINK_DESCARGA}`)}`;
+  return (
+    <div className="card">
+      {esCelular && (
+        <div className="mb-4 rounded-xl p-3.5 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-semibold" style={{ color: '#fbbf24' }}>Estás entrando desde el celular</p>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text2)' }}>Akira se instala en la PC con Windows, no en el celular. Mandate el enlace para abrirlo desde tu PC.</p>
+          </div>
+          <a href={aWhatsApp} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm inline-flex items-center gap-2"><Send size={14} />Mandarme el enlace por WhatsApp</a>
+        </div>
+      )}
+      <p className="text-base font-bold text-white">Cómo se usa Akira</p>
+      <p className="text-sm mt-1" style={{ color: 'var(--text2)' }}>Son tres piezas. Lo único que tenés que hacer ahora es instalar la primera.</p>
+      <div className="grid sm:grid-cols-3 gap-3 mt-4">
+        {PIEZAS.map((p, i) => {
+          const I = p.icono;
+          return (
+            <div key={p.titulo} className="rounded-xl p-3.5" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: 'rgba(0,232,123,0.15)', color: '#00e87b' }}>{i + 1}</span>
+                <I size={15} style={{ color: '#00e87b' }} />
+              </div>
+              <p className="text-sm font-semibold text-white mt-2">{p.titulo}</p>
+              <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text2)' }}>{p.texto}</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -79,14 +123,21 @@ export default function CuentaPanel() {
   const pctUso = uso && uso.limite ? Math.min(100, Math.round((uso.usados / uso.limite) * 100)) : 0;
   const versionEquipo = devices.map((d) => d.version).filter(Boolean).sort().pop();
   const desactualizada = ultima?.version && versionEquipo && versionEquipo !== ultima.version;
+  const sinApp = !!equipos && devices.length === 0; // todavía no instaló Akira en ninguna PC
 
   return (
     <Layout>
       <div className="max-w-4xl mx-auto space-y-5 animate-page-in">
         <div>
           <h1 className="text-2xl font-bold text-white">{nombre ? `¡Hola, ${nombre}!` : '¡Hola!'}</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text2)' }}>Acá ves el estado de tu cuenta. Tu bot y tu gestión se manejan desde la app en tu PC.</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text2)' }}>
+            {sinApp ? 'Tu cuenta está lista. Falta instalar Akira en tu PC: abajo te explicamos cómo se usa y te llevamos paso a paso.' : 'Acá ves el estado de tu cuenta. Tu bot y tu gestión se manejan desde la app en tu PC.'}
+          </p>
         </div>
+
+        {/* Primer ingreso: primero qué es y cómo se instala; los números vienen después */}
+        {sinApp && <ComoSeUsa />}
+        {sinApp && <InstalarApp />}
 
         {sub && !esAdmin && (
           <div className="card flex items-center gap-4 flex-wrap">
@@ -174,8 +225,6 @@ export default function CuentaPanel() {
           </div>
         )}
 
-        {/* Instalar: solo si todavía no hay ningún equipo */}
-        {devices.length === 0 && <InstalarApp />}
         <AppCelularCard />
 
         {/* Novedades */}

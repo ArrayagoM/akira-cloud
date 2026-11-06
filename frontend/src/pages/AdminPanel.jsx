@@ -7,7 +7,7 @@ import {
   Ban, Unlock, Key, ChevronLeft, ChevronRight, RefreshCw,
   Square, Eye, X, Crown, FlaskConical, GitBranch, BadgeCheck,
   Lightbulb, TrendingUp, RotateCcw, Zap, WifiOff, Wifi,
-  Info, Filter, Mail, Wallet, Download
+  Info, Filter, Mail, Wallet, Download, Copy
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import AdminEmails from '../components/AdminEmails';
@@ -333,6 +333,7 @@ export default function AdminPanel() {
   const [referidos,      setReferidos]      = useState([]);
   const [totalPendiente, setTotalPendiente] = useState(0);
   const [pagandoRef,     setPagandoRef]     = useState(null);
+  const [referentes,     setReferentes]     = useState([]);
   const [tab,     setTab]     = useState('usuarios');
   const [search,  setSearch]  = useState('');
   const [filtro,  setFiltro]  = useState('');
@@ -388,7 +389,21 @@ export default function AdminPanel() {
     const r = await api.get('/admin/referidos');
     setReferidos(r.data.referidos);
     setTotalPendiente(r.data.totalPendiente || 0);
+    setReferentes(r.data.referentes || []);
   }, []);
+
+  // El admin ya hizo la transferencia al alias/CVU que figura: se marca todo lo pendiente de esa persona
+  const pagarReferente = async (g) => {
+    if (!window.confirm(`¿Ya transferiste $${g.porCobrar.toLocaleString('es-AR')} a ${g.nombre} (${g.cuenta?.valor || 'sin cuenta'})? Se marcan como pagadas ${g.pendientes.length} comisiones.`)) return;
+    setPagandoRef(g.referenteId);
+    try {
+      await api.post(`/admin/referidos/referente/${g.referenteId}/pagar`);
+      toast.success('Marcado como pagado');
+      cargarReferidos();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Error');
+    } finally { setPagandoRef(null); }
+  };
 
   const pagarComision = async (refId) => {
     setPagandoRef(refId);
@@ -827,36 +842,62 @@ export default function AdminPanel() {
               </div>
             </div>
 
-            {/* Comisiones pendientes */}
-            {totalPendiente > 0 && (
+            {/* Afiliados: a quién pagar, a qué alias/CVU y cuántos de sus referidos pagaron */}
+            {referentes.length > 0 && (
               <div className="card space-y-3" style={{ border: '1px solid rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.03)' }}>
-                <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide">💸 Comisiones pendientes</p>
-                {referidos.filter(r => !r.comisionPagada && r.estado !== 'pendiente').map(r => (
-                  <div key={r._id} className="rounded-lg px-3 py-3 space-y-2"
+                <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide">Afiliados</p>
+                {referentes.map(g => (
+                  <div key={g.referenteId} className="rounded-lg px-3 py-3 space-y-2"
                     style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm text-white font-medium truncate">{r.referente?.nombre}</p>
-                        <p className="text-xs text-gray-500 truncate">{r.referente?.email}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Referido: <span className="text-white">{r.referido?.nombre}</span>
-                          {' · '}<span className="font-mono text-indigo-400">{r.codigo}</span>
+                        <p className="text-sm text-white font-medium truncate">{g.nombre}</p>
+                        <p className="text-xs text-gray-500 truncate">{g.email}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {g.registrados} se registraron · <span className="text-green-400">{g.pagaron} pagaron</span>
+                          {g.pagaron > 0 && <> · {g.vigentes} con suscripción vigente</>}
                         </p>
                       </div>
-                      <span className="text-sm font-bold text-yellow-400 flex-shrink-0">
-                        ${(r.comisionPendiente || 0).toLocaleString('es-AR')}
-                      </span>
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-sm font-bold ${g.porCobrar > 0 ? 'text-yellow-400' : 'text-gray-500'}`}>${g.porCobrar.toLocaleString('es-AR')}</p>
+                        <p className="text-xs text-gray-500">a pagar</p>
+                        {g.cobrado > 0 && <p className="text-xs text-gray-600 mt-0.5">ya pagado ${g.cobrado.toLocaleString('es-AR')}</p>}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => pagarComision(r._id)}
-                      disabled={pagandoRef === r._id}
-                      className="w-full flex items-center justify-center gap-1.5 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {pagandoRef === r._id
-                        ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        : <BadgeCheck size={12} />}
-                      Marcar pagado
-                    </button>
+
+                    {g.cuenta ? (
+                      <div className="flex items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
+                        <span className="text-xs text-gray-500 uppercase">{g.cuenta.tipo === 'cvu' ? 'CVU/CBU' : 'Alias'}</span>
+                        <span className="font-mono text-xs text-white flex-1 min-w-0 truncate select-all">{g.cuenta.valor}</span>
+                        <button onClick={() => { navigator.clipboard.writeText(g.cuenta.valor); toast.success('Copiado'); }}
+                          className="text-gray-500 hover:text-white" title="Copiar"><Copy size={12} /></button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-yellow-400">Todavía no cargó su alias o CVU: no se le puede transferir.</p>
+                    )}
+                    {g.cuenta?.actualizadoEn && Date.now() - new Date(g.cuenta.actualizadoEn).getTime() < 7 * 864e5 && (
+                      <p className="text-xs text-red-400">Cuenta cargada o cambiada hace menos de 7 días: confirmá que sea de esa persona antes de transferir.</p>
+                    )}
+
+                    {g.pendientes.map(p => (
+                      <p key={p.id} className="text-xs text-gray-400 flex justify-between gap-2">
+                        <span className="truncate">{p.referido}{!p.vigente && <span className="text-red-400"> · su suscripción ya no está vigente</span>}</span>
+                        <span className="flex-shrink-0">${p.monto.toLocaleString('es-AR')}</span>
+                      </p>
+                    ))}
+
+                    {g.porCobrar > 0 && (
+                      <button
+                        onClick={() => pagarReferente(g)}
+                        disabled={pagandoRef === g.referenteId || !g.cuenta}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {pagandoRef === g.referenteId
+                          ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <BadgeCheck size={12} />}
+                        Ya transferí: marcar como pagado
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

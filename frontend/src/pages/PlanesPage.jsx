@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import InstalarApp from '../components/InstalarApp';
+import ReferralCard from '../components/ReferralCard';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CheckCircle, Zap, Star, AlertCircle, Crown, TrendingDown, MessageSquare, Calendar, CreditCard, Mic, Users, Copy, GitBranch } from 'lucide-react';
+import { CheckCircle, Zap, Star, AlertCircle, Crown, TrendingDown, MessageSquare, Calendar, CreditCard, Mic, Users } from 'lucide-react';
 
 const PLANES_INFO = [
   {
@@ -374,57 +375,12 @@ export default function PlanesPage() {
           </div>
         </div>
 
-        {/* Referidos */}
-        <div className="card animate-fade-up delay-250" style={{ borderColor: 'rgba(0,232,123,0.15)' }}>
-          <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
-            <GitBranch size={15} style={{ color: 'var(--accent)' }} /> Programa de referidos
-          </h3>
-          <p className="text-xs mb-4" style={{ color: 'var(--text2)' }}>
-            Compartí tu código y ambos ganan <strong className="text-white">$5.000 ARS</strong> de descuento cuando tu referido pague un plan.
+        {/* Referidos: tu código, cuántos pagaron y dónde cobrás (alias o CVU) */}
+        <div className="animate-fade-up delay-250">
+          <p className="text-xs mb-3" style={{ color: 'var(--text2)' }}>
+            Pasale tu código a quien quieras invitar. Cuando se registra con él y <strong className="text-white">paga su suscripción</strong>, esa persona tiene <strong className="text-white">$5.000 ARS</strong> de descuento en su primer pago y vos ganás <strong className="text-white">$5.000 ARS</strong>, que te transferimos a tu alias o CVU. Compartirlo no suma por sí solo: el beneficio llega cuando tu referido paga.
           </p>
-
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex-1">
-              <p className="text-xs mb-1" style={{ color: 'var(--text2)' }}>Tu código de referido</p>
-              <div className="flex items-center gap-2 rounded-lg px-3 py-2"
-                style={{ background: 'var(--surface3)', border: '1px solid var(--border)' }}>
-                <span className="font-mono text-sm tracking-widest flex-1 select-all" style={{ color: 'var(--accent)' }}>
-                  {user?.codigoReferido || '—'}
-                </span>
-                {user?.codigoReferido && (
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(user.codigoReferido); toast.success('Código copiado'); }}
-                    className="transition-colors" style={{ color: 'var(--muted)' }}
-                    onMouseEnter={e => e.currentTarget.style.color = 'var(--text2)'}
-                    onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
-                    <Copy size={13} />
-                  </button>
-                )}
-              </div>
-            </div>
-            {(user?.creditoReferidos > 0 || user?.descuentoReferido > 0) && (
-              <div className="space-y-2">
-                {user?.creditoReferidos > 0 && (
-                  <div className="rounded-lg px-3 py-2 text-center"
-                    style={{ background: 'rgba(0,232,123,0.06)', border: '1px solid rgba(0,232,123,0.15)' }}>
-                    <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>${user.creditoReferidos.toLocaleString('es-AR')}</p>
-                    <p className="text-xs" style={{ color: 'var(--text2)' }}>Crédito ganado</p>
-                  </div>
-                )}
-                {user?.descuentoReferido > 0 && (
-                  <div className="rounded-lg px-3 py-2 text-center"
-                    style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.15)' }}>
-                    <p className="text-lg font-bold text-blue-400">${user.descuentoReferido.toLocaleString('es-AR')}</p>
-                    <p className="text-xs" style={{ color: 'var(--text2)' }}>Tu descuento</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Compartí tu código al registrarse en Akira Cloud. Cuando paguen su primer plan, vos ganás crédito y ellos obtienen descuento automáticamente.
-          </p>
+          <ReferralCard />
         </div>
 
         {/* Info de pago */}

@@ -90,6 +90,7 @@ export const GUIA = [
           'Servicios: nombre, precio, duración, seña para reservar (porcentaje o monto fijo) y recordatorio para que el cliente vuelva cada cierta cantidad de días.',
           'Productos: precio, categoría, stock (vacío = sin control), foto que el bot manda cuando preguntan por el producto y código de barras.',
           'Importar desde un archivo: tu lista de precios en Excel, CSV, PDF o incluso una foto.',
+          'Desde el celular: con la cámara sacás la foto del producto, escaneás su código de barras, le ponés el precio y llega acá solo (requiere “Controlar desde la app del celular” en Inicio).',
           '“Generar códigos” les pone un código propio a los productos que no traen uno, y “Etiquetas” baja un PDF con códigos de barras para pegar.',
           'Cuando queda poco stock (3 o menos) te avisa, y el bot no vende lo que está agotado.',
         ],

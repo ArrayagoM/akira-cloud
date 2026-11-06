@@ -566,6 +566,7 @@ export default function Documentacion() {
             <Field nombre="Pausar y reanudar el bot" desc="Primero activá “Controlar desde la app del celular” en Akira (computadora) → Inicio. La orden tarda hasta 1 minuto en ejecutarse y, si la computadora no la retira en 10 minutos, vence sola y no se hace nada." />
             <Field nombre="Modo vacaciones" desc="El bot avisa a tus clientes que por ahora no toma reservas. Se activa y se apaga desde el mismo interruptor (también requiere “Controlar desde la app del celular”)." />
             <Field nombre="Resumen del negocio" desc="Solo números: mensajes y turnos de hoy, turnos del mes, ingresos, gastos, lo que te deben, clientes. Aparece si activaste “Ver tu negocio desde el celular” en Akira (computadora) → Inicio; es opcional y se apaga cuando quieras. Nunca se ven ni se envían nombres, chats ni documentos de tus clientes." />
+            <Field nombre="Productos (cámara y código de barras)" desc="Sacás una foto del producto, escaneás el código de barras con la cámara, completás nombre y precio y lo mandás: en menos de 1 minuto aparece en el Catálogo de tu computadora con su foto y el bot ya lo puede usar. Si el código es de un alimento o bebida conocido, el nombre se sugiere solo (de una base pública, Open Food Facts) y siempre lo podés editar; el precio lo ponés vos. Requiere “Controlar desde la app del celular” activado. La foto y los datos pasan por la nube solo hasta que tu computadora los recibe y la foto se borra en ese momento; si la computadora está apagada, esperan hasta 7 días. Si ya existía un producto con el mismo código o nombre, se actualiza en vez de duplicarse." />
             <Field nombre="Ajustes" desc="Instalar la app, activar o apagar los avisos de este celular, mandarte una notificación de prueba y cerrar sesión." />
 
             <Sub id="celular-avisos">Avisos si el bot se cae</Sub>
@@ -651,9 +652,10 @@ export default function Documentacion() {
             <Sub id="planes-referidos">Programa de referidos</Sub>
             <P>
               Compartí tu código de referido (lo encontrás en la sección Planes) — cuando alguien se registra con tu código y
-              paga su primer plan, vos ganás <strong style={{ color: 'var(--text)' }}>$5.000 ARS</strong> de crédito y esa
-              persona recibe un descuento automático. No hay límite de referidos: cada nuevo negocio que sumás te da crédito
-              nuevo.
+              paga su suscripción, vos ganás <strong style={{ color: 'var(--text)' }}>$5.000 ARS</strong> y esa persona
+              recibe $5.000 ARS de descuento en su primer pago. Cargá tu alias o tu CVU/CBU en la misma tarjeta de
+              referidos: ahí te transferimos. La tarjeta te muestra cuántas personas se registraron con tu código, cuántas ya
+              pagaron y cuánto tenés por cobrar. No hay límite de referidos.
             </P>
           </div>
 
