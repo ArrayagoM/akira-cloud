@@ -192,7 +192,7 @@ router.post('/resumen', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/comandos', requireAuth, async (req, res) => {
   try {
-    const { deviceId, celularActivo, hechos } = req.body || {};
+    const { deviceId, celularActivo, hechos, productosHechos } = req.body || {};
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
     const device = await Device.findOne({ userId: req.user._id, deviceId });
     if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
@@ -202,7 +202,14 @@ router.post('/comandos', requireAuth, async (req, res) => {
     const lista = device.celularActivo === true ? cm.pendientes(device) : [];
     device.ultimoHeartbeat = new Date();
     await device.save();
-    res.json({ comandos: lista });
+    // Productos cargados desde el celular: la PC confirma los que ya guardó y retira los que esperan (con su foto).
+    let productos = [];
+    try {
+      const pc = require('../lib/productos-celular'); const PP = require('../models/ProductoPendiente');
+      await pc.confirmar(PP, req.user._id, deviceId, productosHechos);
+      if (device.celularActivo === true) productos = await pc.retirar(PP, req.user._id, deviceId);
+    } catch (e) { logger.warn('[Licenses] productos del celular: ' + e.message); }
+    res.json({ comandos: lista, productos });
   } catch (err) {
     logger.error('[Licenses] comandos error: ' + err.message);
     res.status(500).json({ error: 'Error al consultar comandos' });

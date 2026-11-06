@@ -39,6 +39,12 @@ assert(!/factura electr|\$\s?\d{2}\.\d{3}/i.test(base4), 'no promete facturació
 assert(!base4.includes('Te devolvimos tu prueba') && reac4.includes('Te devolvimos tu prueba gratis'), 'el aviso de "te devolvimos tu prueba" aparece solo para quien fue reactivado');
 assert(!c4.html({ nombre: '<script>x</script>', userId: 'a'.repeat(24), version: '1', reactivado: true }).includes('<script>x'), 'escapa el nombre en la campaña vigente');
 
+// Campaña de seguimiento: ayuda, Ideas y referidos con la regla correcta (se gana cuando el referido PAGA, no por compartir).
+const seg = CAMPANAS['seguimiento-2026-11'].html({ nombre: 'Ana', userId: 'a'.repeat(24), version: '1.0.33' });
+for (const t of ['Microsoft Store', 'apps.microsoft.com/detail/9PM7BL2V6W22', 'Respondé este email', '/sugerencias', 'recibida, en desarrollo o implementada', '/planes', 'Dejar de recibir novedades']) assert(seg.includes(t), `seguimiento incluye: ${t}`);
+assert(/paga su primer plan/.test(seg) && /Compartir el código no suma por sí solo/.test(seg), 'seguimiento: el referido gana cuando paga, no por compartir');
+assert(!CAMPANAS['seguimiento-2026-11'].html({ nombre: '<script>x</script>', userId: 'u1' }).includes('<script>x'), 'seguimiento escapa el nombre');
+
 // Plantilla única: mismo marco y mismas reglas en TODOS los emails.
 const P = require('../services/email.plantilla');
 const A = require('../services/email.alertas');

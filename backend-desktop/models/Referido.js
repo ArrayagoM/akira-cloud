@@ -9,6 +9,8 @@ const ReferidoSchema = new mongoose.Schema({
   comisionPendiente: { type: Number, default: 5000 }, // comision para el referente
   comisionPagada:    { type: Boolean, default: false },
   pagoMpId:          { type: String, default: '' },   // MP payment ID que activó la comisión
+  pagadoEn:          { type: Date },                  // cuándo el admin transfirió la comisión
+  pagadoA:           { type: String, default: '' },   // alias o CVU al que se transfirió (queda asentado aunque después lo cambie)
   estado: {
     type: String,
     enum: ['pendiente', 'activo', 'pagado'],

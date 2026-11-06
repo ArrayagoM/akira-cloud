@@ -20,6 +20,8 @@ module.exports = (passport) => {
     },
     async (payload, done) => {
       try {
+        // Un token con "p" es de un solo propósito (p. ej. el enlace de baja de novedades de los emails): NO es una sesión.
+        if (payload && payload.p) return done(null, false, { message: 'Token no válido para iniciar sesión' });
         const user = await User.findById(payload.id).select('-password');
         if (!user) return done(null, false);
         if (user.status === 'bloqueado') {

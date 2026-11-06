@@ -100,8 +100,13 @@ app.use(
 // Aviso de entrega de emails (Resend): necesita el cuerpo SIN parsear para verificar la firma.
 app.use('/api/email/webhook', express.raw({ type: '*/*', limit: '200kb' }), require('./routes/email-webhook.routes'));
 
+// Productos cargados desde el celular (llevan una foto ya reducida): tope propio, solo para esta ruta. El resto sigue en 10 KB.
+app.use('/api/mobile/productos', express.json({ limit: '1800kb' }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// El primer mongoSanitize (arriba) corre antes de leer el cuerpo y no lo limpia: este segundo sí, ya con el body leído. allowDots: solo saca
+// las claves que empiezan con "$" (el truco de inyección); una clave con punto en un body legítimo no se toca.
+app.use(mongoSanitize({ allowDots: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
 

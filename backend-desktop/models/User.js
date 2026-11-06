@@ -129,6 +129,12 @@ const UserSchema = new mongoose.Schema(
     codigoReferidoUsado: { type: String, default: '' },                // código que usó al registrarse
     creditoReferidos:    { type: Number, default: 0 },                 // ARS acumulados por referidos
     descuentoReferido:   { type: Number, default: 0 },                 // descuento pendiente por haber sido referido (5000)
+    // Dónde cobra sus comisiones de afiliado: alias o CVU/CBU que carga él mismo (lib/referidos.js lo valida)
+    cuentaCobro: {
+      tipo:         { type: String, enum: ['alias', 'cvu', ''], default: '' },
+      valor:        { type: String, default: '' },
+      actualizadoEn: { type: Date },
+    },
 
     // Pagos de Mercado Pago ya aplicados a este usuario (los últimos 100): un mismo pago activa el plan una sola vez
     pagosMpProcesados:   { type: [String], default: [], select: false },

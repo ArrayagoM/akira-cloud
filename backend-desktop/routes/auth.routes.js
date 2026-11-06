@@ -19,6 +19,7 @@ const { expiracionSegunCliente, payloadDe, evaluarRenovacion } = require('../lib
 const S = require('../lib/seguridad-cuentas');
 const { consumir, consumirTodos, mensajeEspera } = require('../lib/limite');
 const { crearCuentas } = require('../services/cuentas.service');
+const R = require('../lib/referidos');
 
 // Alta con verificación de email (lógica en services/cuentas.service.js).
 // Interruptores de emergencia por variable de entorno: VERIFICACION_EMAIL=off (si el correo no funciona), REGISTRO_TOKEN=off.
@@ -212,6 +213,42 @@ router.post('/generar-codigo', requireAuth, async (req, res) => {
     res.json({ codigoReferido: codigo });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/auth/referidos/resumen — cuántos se registraron con su código, cuántos pagaron y cuánto lleva ganado
+// ─────────────────────────────────────────────────────────────
+router.get('/referidos/resumen', requireAuth, async (req, res) => {
+  try {
+    const filas = await Referido.find({ referente: req.user._id }).select('estado comisionPendiente comisionPagada').lean();
+    const c = req.user.cuentaCobro || {};
+    res.json({ ...R.resumirReferidos(filas), cuenta: c.valor ? { tipo: c.tipo, valor: c.valor, actualizadoEn: c.actualizadoEn || null } : null });
+  } catch (err) {
+    logger.error('[Auth] resumen de referidos: ' + err.message);
+    res.status(500).json({ error: 'No se pudo leer tu resumen de referidos' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PUT /api/auth/referidos/cuenta — alias o CVU/CBU donde cobra sus comisiones
+// ─────────────────────────────────────────────────────────────
+router.put('/referidos/cuenta', requireAuth, async (req, res) => {
+  try {
+    const lim = await consumir(`refcuenta:${req.user._id}`, { max: 10, ventanaMs: 3600e3 });
+    if (!lim.ok) return res.status(429).json({ error: mensajeEspera(lim.reintentarEnSeg) });
+    const v = R.validarCuentaCobro(req.body && req.body.cuenta);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const antes = req.user.cuentaCobro || {};
+    if (antes.valor === v.valor) return res.json({ ok: true, cuenta: { tipo: antes.tipo, valor: antes.valor, actualizadoEn: antes.actualizadoEn || null } });
+    const actualizadoEn = new Date();
+    await User.findByIdAndUpdate(req.user._id, { cuentaCobro: { tipo: v.tipo, valor: v.valor, actualizadoEn } });
+    // Queda asentado: es el dato que usa el admin para transferir. Se registra el tipo y los últimos caracteres, no el número completo.
+    await Log.registrar({ userId: req.user._id, tipo: 'config_update', nivel: 'info', mensaje: `Cuenta de cobro de referidos ${antes.valor ? 'cambiada' : 'cargada'} (${v.tipo} ${R.enmascarar({ tipo: v.tipo, valor: v.valor })})` }).catch(() => {});
+    res.json({ ok: true, cuenta: { tipo: v.tipo, valor: v.valor, actualizadoEn } });
+  } catch (err) {
+    logger.error('[Auth] cuenta de cobro de referidos: ' + err.message);
+    res.status(500).json({ error: 'No se pudo guardar la cuenta' });
   }
 });
 

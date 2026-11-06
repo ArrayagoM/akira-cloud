@@ -9,6 +9,11 @@ const Device = require('../models/Device');
 const MobileDevice = require('../models/MobileDevice');
 const { requireAuth } = require('../middleware/auth');
 const comandos = require('../lib/comandos');
+const productosCel = require('../lib/productos-celular');
+const { buscarCodigo } = require('../lib/codigo-lookup');
+const { analizarFoto, sinClaves } = require('../lib/ia-foto-producto');
+const { consumirTodos } = require('../lib/limite');
+const ProductoPendiente = require('../models/ProductoPendiente');
 const push = require('../services/push.service');
 const logger = require('../config/logger');
 const mirando = require('../lib/mirando');
@@ -89,6 +94,56 @@ router.get('/comandos/:id', requireAuth, async (req, res) => {
     const actual = d.comandos.find((x) => x.id === req.params.id) || c;
     res.json({ id: actual.id, tipo: actual.tipo, estado: actual.estado });
   } catch { res.status(500).json({ error: 'No se pudo leer el comando' }); }
+});
+
+// ── Productos cargados con la cámara del celular ──────────────────────────────────────────────
+// POST /api/mobile/productos { deviceId, producto:{nombre,precio,categoria,stock,descripcion,codigo}, foto? } — queda en la bandeja y la PC
+// lo retira en ~1 min (si el control desde el celular está activado). La foto se borra de la nube apenas la PC confirma.
+router.post('/productos', requireAuth, async (req, res) => {
+  try {
+    const { deviceId, producto, foto } = req.body || {};
+    const d = await Device.findOne({ userId: req.user._id, deviceId: String(deviceId || ''), activo: true, revocado: false });
+    if (!d) return res.status(404).json({ error: 'No encontré esa PC' });
+    if (d.celularActivo !== true) return res.status(409).json({ error: 'Para enviar productos, activá “Controlar desde la app del celular” en Akira (PC) → Inicio.', codigo: 'CELULAR_DESACTIVADO' });
+    const f = productosCel.validarFoto(foto); if (!f.ok) return res.status(400).json({ error: f.error });
+    const p = productosCel.limpiarProducto(producto, { sinNombreOk: !f.vacia }); if (!p.ok) return res.status(400).json({ error: p.error });
+    const r = await productosCel.encolar(ProductoPendiente, { userId: req.user._id, deviceId: d.deviceId, producto: p.producto, foto: f });
+    res.status(201).json({ ok: true, ...r });
+  } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo enviar el producto' }); }
+});
+
+// POST /api/mobile/productos/analizar { foto } — lee la foto con IA y devuelve nombre, categoría y descripción SUGERIDOS para que el dueño los
+// revise antes de enviar. Nunca devuelve precio ni stock. Tope por usuario (la IA es de la plataforma): 6 por minuto y 60 por día.
+// (Va bajo /productos para usar el mismo tope de tamaño de pedido que el envío con foto.)
+router.post('/productos/analizar', requireAuth, async (req, res) => {
+  try {
+    const f = productosCel.validarFoto(req.body && req.body.foto);
+    if (!f.ok) return res.status(400).json({ error: f.error });
+    if (f.vacia) return res.status(400).json({ error: 'Sacá primero la foto del producto.' });
+    const uid = String(req.user._id);
+    const lim = await consumirTodos([[`iafoto:min:${uid}`, { max: 6, ventanaMs: 60e3 }], [`iafoto:dia:${uid}`, { max: 60, ventanaMs: 24 * 3600e3 }]]);
+    if (!lim.ok) return res.status(429).json({ error: lim.clave.includes(':dia:') ? 'Llegaste al límite de lecturas con IA de hoy. Escribí el nombre a mano o probá mañana.' : 'Esperá un momento antes de leer otra foto.', codigo: 'LIMITE' });
+    const r = await analizarFoto({ base64: f.base64, mime: f.mime, apiKey: process.env.GROQ_PLATFORM_API_KEY || process.env.GROQ_API_KEY });
+    if (r.ok) return res.json({ ok: true, ...r.datos });
+    if (r.codigo === 'SIN_CLAVE' || r.codigo === 'CLAVE') logger.warn('[Mobile] lectura de foto: la clave de Groq de la plataforma no está o no sirve');
+    // Nunca es un error "grave" para el celular: el dueño puede escribir el nombre a mano.
+    res.json({ ok: false, codigo: r.codigo, motivo: r.motivo });
+  } catch (e) { logger.warn('[Mobile] lectura de foto: ' + sinClaves(e.message)); res.json({ ok: false, codigo: 'FALLO', motivo: 'No se pudo leer la foto. Escribí el nombre a mano.' }); }
+});
+
+// GET /api/mobile/productos?deviceId=... — los últimos productos enviados y si la PC ya los recibió
+router.get('/productos', requireAuth, async (req, res) => {
+  try {
+    const d = await Device.findOne({ userId: req.user._id, deviceId: String(req.query.deviceId || ''), activo: true, revocado: false });
+    if (!d) return res.status(404).json({ error: 'No encontré esa PC' });
+    res.json({ productos: await productosCel.listar(ProductoPendiente, req.user._id, d.deviceId) });
+  } catch { res.status(500).json({ error: 'No se pudo leer la lista' }); }
+});
+
+// GET /api/mobile/codigo/:codigo — nombre y marca sugeridos para un código de barras (base pública; solo se manda el código)
+router.get('/codigo/:codigo', requireAuth, async (req, res) => {
+  try { res.json(await buscarCodigo(String(req.params.codigo || '').slice(0, 20))); }
+  catch { res.json({ encontrado: false }); }
 });
 
 // POST /api/mobile/prueba — manda una notificación de prueba a los celulares del usuario

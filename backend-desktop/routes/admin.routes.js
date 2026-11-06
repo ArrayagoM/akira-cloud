@@ -10,6 +10,7 @@ const Device     = require('../models/Device');
 const botManager = require('../services/bot.manager');
 const { requireAuth, requireAdmin, generarJWT } = require('../middleware/auth');
 const logger     = require('../config/logger');
+const R          = require('../lib/referidos');
 
 // Todas las rutas requieren auth + admin
 router.use(requireAuth, requireAdmin);
@@ -428,7 +429,9 @@ router.post('/users/:id/block', [
 ], async (req, res) => {
   try {
     const motivo = req.body.motivo || 'Bloqueado por administrador';
+    if (String(req.params.id) === String(req.user._id)) return res.status(400).json({ ok: false, error: 'No podés bloquear tu propia cuenta.' });
     const result = await botManager.panicStop(req.params.id, motivo);
+    if (!result.ok) return res.status(400).json({ ...result, error: result.msg });
 
     await Log.registrar({
       userId: req.user._id,
@@ -449,10 +452,7 @@ router.post('/users/:id/block', [
 // ─────────────────────────────────────────────────────────────
 router.post('/users/:id/unblock', async (req, res) => {
   try {
-    await User.findByIdAndUpdate(req.params.id, {
-      status: 'activo',
-      bloqueadoPor: null,
-    });
+    await botManager.desbloquear(req.params.id);
 
     await Log.registrar({
       userId: req.user._id,
@@ -627,17 +627,49 @@ router.post('/users/:id/tester', async (req, res) => {
 router.get('/referidos', async (req, res) => {
   try {
     const referidos = await Referido.find()
-      .populate('referente', 'nombre email creditoReferidos')
-      .populate('referido',  'nombre email plan')
+      .populate('referente', 'nombre email creditoReferidos cuentaCobro')
+      .populate('referido',  'nombre email plan planExpira esTester')
       .sort({ createdAt: -1 })
-      .limit(200)
+      .limit(1000)
       .lean();
 
     const totalPendiente = referidos
       .filter(r => !r.comisionPagada && r.estado !== 'pendiente')
       .reduce((a, r) => a + (r.comisionPendiente || 0), 0);
 
-    res.json({ referidos, total: referidos.length, totalPendiente });
+    // Una fila por referente: su alias/CVU, cuántos pagaron (y cuántos siguen con suscripción paga) y cuánto se le debe
+    res.json({ referidos, total: referidos.length, totalPendiente, referentes: R.agruparPorReferente(referidos) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Marca como pagadas las comisiones indicadas y deja asentado a qué cuenta se transfirió
+async function marcarPagadas(filtro, adminId, cuenta) {
+  const filas = await Referido.find({ ...filtro, comisionPagada: false, estado: 'activo' });
+  let monto = 0;
+  for (const ref of filas) {
+    // Atómico: si dos clics llegan juntos, solo uno la marca (y solo uno descuenta el crédito)
+    const r = await Referido.updateOne({ _id: ref._id, comisionPagada: false }, { comisionPagada: true, estado: 'pagado', pagadoEn: new Date(), pagadoA: cuenta || '' });
+    if (!r.modifiedCount) continue;
+    await User.findByIdAndUpdate(ref.referente, { $inc: { creditoReferidos: -(ref.comisionPendiente || 0) } });
+    monto += ref.comisionPendiente || 0;
+  }
+  return { cantidad: filas.length, monto };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  POST /api/admin/referidos/referente/:id/pagar — marca como pagado TODO lo que se le debe a un referente
+//  (el admin ya hizo la transferencia al alias/CVU que figura en pantalla)
+// ─────────────────────────────────────────────────────────────
+router.post('/referidos/referente/:id/pagar', async (req, res) => {
+  try {
+    const u = await User.findById(req.params.id).select('email cuentaCobro');
+    if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const r = await marcarPagadas({ referente: u._id }, req.user._id, u.cuentaCobro && u.cuentaCobro.valor);
+    if (!r.cantidad) return res.status(400).json({ error: 'No hay comisiones pendientes para este usuario' });
+    await Log.registrar({ userId: req.user._id, tipo: 'admin_action', nivel: 'info', mensaje: `Admin marcó como pagadas ${r.cantidad} comisiones de referidos de ${u.email} ($${r.monto})` });
+    res.json({ ok: true, ...r });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -652,14 +684,12 @@ router.post('/referidos/:id/pagar', async (req, res) => {
     if (!ref) return res.status(404).json({ error: 'Referido no encontrado' });
     if (ref.comisionPagada) return res.status(400).json({ error: 'La comisión ya fue pagada' });
 
-    ref.comisionPagada = true;
-    ref.estado = 'pagado';
-    await ref.save();
+    // Solo se paga lo que ya cobró el afiliado: el referido tiene que haber pagado su suscripción
+    if (ref.estado !== 'activo') return res.status(400).json({ error: 'Todavía no se puede pagar: el referido no pagó su suscripción' });
 
-    // Descontar del crédito del referente (ya fue acreditado)
-    await User.findByIdAndUpdate(ref.referente, {
-      $inc: { creditoReferidos: -(ref.comisionPendiente || 0) },
-    });
+    const dueno = await User.findById(ref.referente).select('cuentaCobro');
+    const r = await marcarPagadas({ _id: ref._id }, req.user._id, dueno && dueno.cuentaCobro && dueno.cuentaCobro.valor);
+    if (!r.cantidad) return res.status(400).json({ error: 'La comisión ya fue pagada' });
 
     await Log.registrar({
       userId: req.user._id,

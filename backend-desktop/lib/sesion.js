@@ -29,6 +29,7 @@ function payloadDe(token) {
 // ¿Se puede renovar esta sesión? → { ok, oa } | { ok:false, motivo }
 function evaluarRenovacion(payload, ahoraS = Math.floor(Date.now() / 1000)) {
   if (!payload || !payload.id) return { ok: false, motivo: 'token_invalido' };
+  if (payload.p) return { ok: false, motivo: 'token_invalido' }; // los tokens de un solo propósito (baja de novedades) nunca se renuevan como sesión
   const oa = Number(payload.oa) || Number(payload.iat) || 0; // "oa" = cuándo se ingresó con contraseña; los tokens viejos no lo traen: cuenta su emisión
   if (!oa) return { ok: false, motivo: 'token_invalido' };
   if (ahoraS - oa > MAX_ANTIGUEDAD_DIAS * DIA_S) return { ok: false, motivo: 'sesion_muy_antigua' };

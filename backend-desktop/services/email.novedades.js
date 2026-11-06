@@ -141,6 +141,39 @@ function htmlActualizacion4(datos) {
     avisoReactivado: `${P.fuerte('Te devolvimos tu prueba gratis.')} Vimos que se te había vencido sin que llegaras a usar Akira. Ahora son 7 días de uso: solo se gastan los días en que el bot atiende mensajes. Abrí la app, conectá tu WhatsApp y empezá cuando quieras.` });
 }
 
+// ─────────────────────────────────────────────────────────────
+// Campaña "seguimiento": para quien creó la cuenta hace unos días y todavía no arrancó. Ofrece ayuda, el área de Ideas (/sugerencias)
+// y el programa de referidos. Regla del programa (ver routes/subscription.routes.js): el crédito de $5.000 se acredita al referente
+// recién cuando el referido PAGA su primer plan; compartir el código no suma por sí solo.
+// ─────────────────────────────────────────────────────────────
+const STORE_URL = 'https://apps.microsoft.com/detail/9PM7BL2V6W22';
+function asuntoSeguimiento() { return '¿Pudiste empezar con Akira? Te ayudamos'; }
+function htmlSeguimiento({ nombre, userId, urlDescarga }) {
+  const descarga = urlDescarga || P.enlaceDescarga('email-seguimiento');
+  const guia = `${P.front()}/descargar`;
+  const ideas = `${P.front()}/sugerencias`;
+  const planes = `${P.front()}/planes`;
+  const enlace = (url, texto) => `<a href="${url}" style="color:#00e87b">${texto}</a>`;
+  return P.marco({
+    titulo: '¿Pudiste empezar con Akira?', pie: PIE, enlaceBaja: userId ? urlBaja(userId) : '',
+    cuerpo: `${P.saludo(nombre)}
+      ${P.parrafo('Pasaron unos días desde que creaste tu cuenta y queríamos saber si pudiste arrancar. Si te trabaste en algún paso, es más común de lo que parece y se resuelve rápido.')}
+      ${P.titulo2('Si todavía no la instalaste')}
+      ${P.parrafo(`Akira ya está en ${P.fuerte('Microsoft Store')}: buscá “Akira Cloud”, tocá “Obtener” y listo. La versión de la tienda no muestra ningún aviso de Windows.`)}
+      ${P.boton(STORE_URL, 'Abrir en Microsoft Store', 'Windows 10 y 11 · 7 días de uso gratis, sin tarjeta')}
+      ${P.parrafo(`¿Preferís el instalador directo? ${enlace(descarga, 'Descargalo acá')}. ${NOTA_WINDOWS} Guía completa: ${enlace(guia, guia.replace(/^https?:\/\//, ''))}`, { color: '#7a7a7a', tam: 12.5 })}
+      ${P.titulo2('Si ya la instalaste y no sabés cómo seguir')}
+      ${P.pasos([['Ingresá con tu cuenta', 'Usá la misma cuenta con la que te registraste.'], ['Escaneá el QR', 'Tocá “Iniciar bot” y vinculá tu WhatsApp desde el celular.'], ['Cargá tu catálogo', 'Tus productos o servicios, a mano o importados. Con eso tu bot ya puede cotizar y agendar.']])}
+      ${P.titulo2('¿Necesitás ayuda?')}
+      ${P.parrafo(`Respondé este email contando en qué paso te trabaste y te ayudamos. También tenés el centro de ayuda dentro de la app, en el menú ${P.fuerte('Ayuda')}.`)}
+      ${P.titulo2('Ideas: contanos qué te falta')}
+      ${P.parrafo(`En ${enlace(ideas, 'Ideas')} escribís lo que te falta o lo que cambiarías y llega directo al equipo. Cada idea se lee y podés ver en qué estado está: recibida, en desarrollo o implementada.`)}
+      ${P.titulo2('Programa de referidos')}
+      ${P.parrafo(`Tu código está en ${enlace(planes, 'Planes')}. Cuando alguien se registra con tu código y ${P.fuerte('paga su primer plan')}, vos ganás $5.000 ARS y esa persona recibe $5.000 ARS de descuento en ese primer pago. Compartir el código no suma por sí solo: el beneficio llega cuando tu referido paga.`)}
+      ${P.parrafo('El equipo de Akira', { color: '#8a8a8a', tam: 13.5, margen: '22px 0 20px' })}`,
+  });
+}
+
 // Campañas de email disponibles. La clave se guarda en cada usuario (novedadesEnviadas)
 // para no repetir el envío. Para una campaña nueva: agregar una entrada acá.
 const CAMPANAS = {
@@ -148,6 +181,7 @@ const CAMPANAS = {
   'actualizacion-2026-10': { asunto: asuntoActualizacion, html: htmlActualizacion },
   'actualizacion-2026-10b': { asunto: asuntoActualizacion2, html: htmlActualizacion2 },
   'actualizacion-2026-10d': { asunto: asuntoActualizacion4, html: htmlActualizacion4 },
+  'seguimiento-2026-11': { asunto: asuntoSeguimiento, html: htmlSeguimiento },
 };
 
 // Encabezado para que Gmail y Outlook muestren su propio botón "Cancelar suscripción".

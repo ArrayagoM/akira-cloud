@@ -31,6 +31,8 @@ inyectar('models/MobileDevice.js', FakeMobile);
 inyectar('models/Log.js', { registrar: async () => {} });
 inyectar('middleware/auth.js', { requireAuth: (req, _res, next) => { req.user = usuarioActual; next(); }, requireAdmin: (_q, _r, n) => n(), generarJWT: () => 't' });
 inyectar('config/logger.js', { info() {}, warn() {}, error() {} });
+let limiteIA = { ok: true };
+inyectar('lib/limite.js', { consumir: async () => ({ ok: true }), consumirTodos: async () => limiteIA, mensajeEspera: (s) => String(s) });
 
 const comandos = require('../lib/comandos');
 const push = require('../services/push.service');
@@ -161,6 +163,34 @@ const slot = (o) => ({ slot: 0, deseado: true, activo: true, conectado: true, re
   const dev3 = { deviceId: 'pc3', nombre: 'PC', alertaBot: undefined };
   rr = await procesarEstadoBot({ ...opciones({ device: dev3, notificarPush: async () => { throw new Error('expo caído'); } }), estadoBot: caido });
   assert(rr.accion === 'caida' && dev3.alertaBot.abierta === true, 'si Expo falla, igual se registra el incidente y sale el email');
+
+  // ── lectura de la foto del producto con IA (antes de enviarlo) ──
+  const fotoOk = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('imagen-de-prueba')]).toString('base64');
+  const fetchOriginal = globalThis.fetch; let llamadasIA = 0;
+  process.env.GROQ_PLATFORM_API_KEY = 'gsk_plataforma123456';
+  globalThis.fetch = async () => { llamadasIA++; return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: '{"legible":true,"nombre":"Desodorante Axe 150 ml","categoria":"Perfumería","descripcion":"Desodorante en aerosol para hombre.","precio":9999}' } }] }) }; };
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: fotoOk });
+  assert(x.status === 200 && x.json.ok === true && x.json.nombre === 'Desodorante Axe 150 ml' && x.json.categoria === 'Perfumería', 'analizar: devuelve nombre, categoría y descripción sugeridos');
+  assert(x.json.precio === undefined && x.json.stock === undefined, 'analizar: nunca devuelve precio ni stock, aunque la IA lo invente');
+  x = await llamar(mobile, 'post', '/productos/analizar', U, {});
+  assert(x.status === 400 && llamadasIA === 1, 'analizar sin foto: 400 y no gasta una llamada de IA');
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: Buffer.from('no es una imagen').toString('base64') });
+  assert(x.status === 400 && llamadasIA === 1, 'analizar con un archivo que no es imagen: 400 y no gasta IA');
+  limiteIA = { ok: false, clave: 'iafoto:dia:u1', reintentarEnSeg: 3600 };
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: fotoOk });
+  assert(x.status === 429 && x.json.codigo === 'LIMITE' && /hoy/.test(x.json.error) && llamadasIA === 1, 'analizar: pasado el tope diario → 429 sin gastar IA');
+  limiteIA = { ok: false, clave: 'iafoto:min:u1', reintentarEnSeg: 20 };
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: fotoOk });
+  assert(x.status === 429 && /momento/.test(x.json.error), 'analizar: demasiado seguido → 429');
+  limiteIA = { ok: true };
+  delete process.env.GROQ_PLATFORM_API_KEY; delete process.env.GROQ_API_KEY;
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: fotoOk });
+  assert(x.status === 200 && x.json.ok === false && x.json.codigo === 'SIN_CLAVE' && llamadasIA === 1, 'analizar sin clave de la plataforma: responde "no disponible" (el dueño escribe a mano), sin error 500');
+  process.env.GROQ_PLATFORM_API_KEY = 'gsk_plataforma123456';
+  globalThis.fetch = async () => { throw new Error('sin internet'); };
+  x = await llamar(mobile, 'post', '/productos/analizar', U, { foto: fotoOk });
+  assert(x.status === 200 && x.json.ok === false, 'analizar con la IA caída: no rompe el envío');
+  globalThis.fetch = fetchOriginal; delete process.env.GROQ_PLATFORM_API_KEY;
 
   console.log('\n✅ mobile OK\n');
 })().catch((e) => { console.error(e.message, e.stack); process.exit(1); });
