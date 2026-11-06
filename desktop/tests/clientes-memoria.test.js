@@ -42,6 +42,29 @@ require('../main/db/store').abrir(path.join(fs.mkdtempSync(path.join(os.tmpdir()
 
   const otro = crear('user2', log); await otro.inicializar();
   assert(otro.cargarMemoria(jid) === null, 'otro negocio no ve la memoria de este (aislamiento por userId)');
+  // silencios al reiniciar: la pausa MANUAL del dueño se conserva; la automática (derivación) y los registros viejos se levantan
+  const BotCliente = require('../main/bot-engine/models/BotCliente');
+  const jidM = '5492241000001@s.whatsapp.net'; const jidA = '5492241000002@s.whatsapp.net'; const jidV = '5492241000003@s.whatsapp.net';
+  const d = crear('user3', log); await d.inicializar();
+  for (const j of [jidM, jidA, jidV]) d.guardarMemoria(j, { nombre: 'C' + j.slice(-3), telefono: j, historial: [], turnosConfirmados: [] });
+  await new Promise((r) => setTimeout(r, 300));
+  await BotCliente.findOneAndUpdate({ userId: 'user3', jid: jidM }, { $set: { silenciado: true, silenciadoManual: true } });
+  await BotCliente.findOneAndUpdate({ userId: 'user3', jid: jidA }, { $set: { silenciado: true, silenciadoManual: false } });
+  await BotCliente.findOneAndUpdate({ userId: 'user3', jid: jidV }, { $set: { silenciado: true } });
+  const e = crear('user3', log); await e.inicializar();
+  assert(e.cargarMemoria(jidM).silenciado === true && e.cargarMemoria(jidM).silenciadoManual === true, 'tras reiniciar, el chat que el dueño pausó sigue pausado');
+  assert(e.cargarMemoria(jidA).silenciado === false && e.cargarMemoria(jidV).silenciado === false, 'tras reiniciar, el silencio automático y el de registros viejos se levantan (como antes)');
+  await new Promise((r) => setTimeout(r, 300));
+  const f = crear('user3', log);
+  assert((await f.cargarMemoriaAsync(jidM)).silenciado === true && (await f.cargarMemoriaAsync(jidA)).silenciado === false, 'cargarMemoriaAsync aplica la misma regla');
+  const m1 = e.cargarMemoria(jidM); e.guardarMemoria(jidM, { ...m1, historial: [{ role: 'user', content: 'hola' }] });
+  await new Promise((r) => setTimeout(r, 300));
+  assert((await BotCliente.findOne({ userId: 'user3', jid: jidM })).silenciadoManual === true, 'seguir charlando con un chat pausado no le quita la pausa');
+  e.guardarMemoria(jidM, { ...e.cargarMemoria(jidM), silenciado: false });
+  await new Promise((r) => setTimeout(r, 300));
+  const rM = await BotCliente.findOne({ userId: 'user3', jid: jidM });
+  assert(rM.silenciado === false && rM.silenciadoManual === false, 'al reactivar el chat la marca de pausa manual se borra');
+
 
   console.log('\n✅ Todos los tests de clientes-memoria pasaron.\n');
   process.exit(0);

@@ -17,14 +17,28 @@ const activo = (userDataDir) => leerConfig(userDataDir).activo === true;
 function guardarActivo(userDataDir, valor) { fs.writeFileSync(archivo(userDataDir), JSON.stringify({ activo: valor === true, cambiadoEn: new Date().toISOString() })); }
 
 // acciones: { pausarBot(): Promise<number[]>, reanudarBot(slots): Promise, vacaciones(bool): Promise }
-function crearServicio({ userDataDir, llamar, acciones, log = () => {}, setI = setInterval, cadaMs = 60 * 1000 }) {
-  let timer = null; let enCurso = false; let hechos = []; let avisadoApagado = false; let sondeos = 0;
+const AVISO_FALLO_CADA_MS = 30 * 60 * 1000; // un fallo repetido de conexión se anota a lo sumo cada 30 min (que el registro no se llene)
+
+function crearServicio({ userDataDir, llamar, acciones, log = () => {}, setI = setInterval, cadaMs = 60 * 1000, ahoraMs = () => Date.now() }) {
+  let timer = null; let enCurso = false; let hechos = []; let productosHechos = []; let avisadoApagado = false; let sondeos = 0; let ultimoAvisoFallo = 0;
+
+  // Producto cargado desde el celular (con foto): lo guarda en el Catálogo de esta PC. Si no hay importador, lo informa como fallido.
+  async function ejecutarProducto(p) {
+    try {
+      if (!p || typeof p.id !== 'string') return { id: '', ok: false, detalle: 'producto inválido' };
+      if (typeof acciones.importarProducto !== 'function') return { id: p.id, ok: false, detalle: 'esta versión no recibe productos' };
+      const detalle = await acciones.importarProducto(p);
+      return { id: p.id, ok: true, detalle: String(detalle || 'guardado').slice(0, 100) };
+    } catch (e) { return { id: p && p.id, ok: false, detalle: String(e.message).slice(0, 100) }; }
+  }
 
   async function ejecutar(c) {
     try {
       if (!TIPOS.includes(c.tipo)) return { id: c.id, ok: false, detalle: 'comando desconocido' };
       if (c.tipo === 'bot-pausar') {
         const slots = await acciones.pausarBot();
+        // Si no había ningún bot activo no se detuvo nada: se informa como fallo (antes la app del celular decía "Listo" igual).
+        if (!slots.length) return { id: c.id, ok: false, detalle: 'no había ningún bot activo para pausar' };
         fs.writeFileSync(archivoPausa(userDataDir), JSON.stringify({ slots }));
         return { id: c.id, ok: true, detalle: `${slots.length} cuenta(s) pausada(s)` };
       }
@@ -46,18 +60,27 @@ function crearServicio({ userDataDir, llamar, acciones, log = () => {}, setI = s
     if (!on && avisadoApagado) return null;
     enCurso = true;
     try {
-      const r = await llamar({ celularActivo: on, hechos });
-      hechos = [];
+      const r = await llamar({ celularActivo: on, hechos, productosHechos });
+      hechos = []; productosHechos = [];
       if (!on) { avisadoApagado = true; return []; }
       avisadoApagado = false; sondeos++;
       const lista = Array.isArray(r?.comandos) ? r.comandos.slice(0, 5) : [];
       const nuevos = [];
       for (const c of lista) { const h = await ejecutar(c); nuevos.push(h); log('[celular] comando', c.tipo, h.ok ? 'OK' : 'FALLÓ ' + h.detalle); }
       hechos = nuevos;
+      const productos = Array.isArray(r?.productos) ? r.productos.slice(0, 4) : [];
+      const nuevosProductos = [];
+      for (const p of productos) { const h = await ejecutarProducto(p); nuevosProductos.push(h); log('[celular] producto', h.ok ? 'OK' : 'FALLÓ ' + h.detalle); }
+      productosHechos = nuevosProductos.filter((h) => h.id);
       enCurso = false;
-      if (nuevos.length) await sondear(); // confirma enseguida a la nube (que la app vea "hecho" sin esperar un minuto)
+      if (nuevos.length || productosHechos.length) await sondear(); // confirma enseguida a la nube (que la app vea "hecho" sin esperar un minuto)
       return nuevos;
-    } catch (e) { return null; /* sin internet / servidor: reintenta en el próximo ciclo (las órdenes vencen solas) */ } finally { enCurso = false; }
+    } catch (e) {
+      // sin internet / servidor: reintenta en el próximo ciclo (las órdenes vencen solas). Pero se deja anotado: antes fallaba en silencio y
+      // nadie podía saber por qué una orden del celular no llegaba a la PC.
+      if (ahoraMs() - ultimoAvisoFallo >= AVISO_FALLO_CADA_MS) { ultimoAvisoFallo = ahoraMs(); log('[celular] no se pudo consultar órdenes a la nube: ' + String(e && e.message).slice(0, 120)); }
+      return null;
+    } finally { enCurso = false; }
   }
 
   function configurar(valor) {

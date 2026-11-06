@@ -184,7 +184,7 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
       const num = extraerNum(jid);
       const { silenciado, bloqueado } = req.body;
       const dbUpdate = {};
-      if (silenciado !== undefined) dbUpdate.silenciado = !!silenciado;
+      if (silenciado !== undefined) { dbUpdate.silenciado = !!silenciado; dbUpdate.silenciadoManual = !!silenciado; } // pausa a propósito del dueño: se conserva al reiniciar (ver bot/silencio.js)
 
       const cliente = await BotCliente.findOneAndUpdate({ userId: req.user._id, jid }, dbUpdate, { new: true, select: '-historial' });
       if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });

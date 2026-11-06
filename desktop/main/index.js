@@ -249,6 +249,11 @@ if (!bloqueo) {
       },
       log,
     });
+    // Lee la foto de los productos cargados desde el celular con la clave de Groq del propio cliente (ver ia-producto.js)
+    const reconocerProducto = require('./ia-producto').crearReconocedor({
+      obtenerClave: async () => (await ConfigModelo.findOne({ userId: uidActual() }))?.getKey?.('keyGroq'),
+      log,
+    });
     appHooks.servicioCelular = require('./comandos-remotos').crearServicio({
       userDataDir, log,
       llamar: (cuerpo) => licenseClient.request('/api/licenses/comandos', 'POST', { ...cuerpo, deviceId: require('./device').obtenerDeviceId(userDataDir) }),
@@ -259,6 +264,12 @@ if (!bloqueo) {
           await ConfigModelo.findOneAndUpdate({ userId: uidActual() }, { modoPausa: !!on }, { upsert: true });
           for (const sl of botService.slotsActivos()) botService.recargarConfig(sl);
           guardianMod.pedirLatido();
+        },
+        // Producto cargado con la cámara del celular: va al Catálogo con su foto y el bot ya lo puede usar (ver productos-celular.js)
+        importarProducto: async (p) => {
+          const r = await require('./productos-celular').importar({ userDataDir, uid: uidActual(), Config: ConfigModelo, fotos: require('./catalogo-fotos'), producto: p.producto, foto: p.foto, reconocer: reconocerProducto });
+          for (const sl of botService.slotsActivos()) botService.recargarConfig(sl);
+          return r.detalle;
         },
       },
     });

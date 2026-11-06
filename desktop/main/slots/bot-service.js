@@ -297,7 +297,8 @@ function responderComoDueno(jid, texto) {
   }
   return Promise.resolve(false);
 }
-const silenciarCliente = (jid, silenciado) => sobreBot(0, 'cliente:silenciar', { jid, silenciado });
+// A todas las cuentas de WhatsApp activas (antes solo a la 0: con dos cuentas, el chat de la segunda seguía respondiendo).
+const silenciarCliente = (jid, silenciado) => require('../bot-engine/services/bot/silencio').emitirATodas(instancias, 'cliente:silenciar', { jid, silenciado }) > 0;
 
 async function procesarWebhookMP(payload) {
   for (const bot of instancias.values()) {

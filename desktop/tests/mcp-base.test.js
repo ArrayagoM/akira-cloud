@@ -35,7 +35,8 @@ require('../main/db/store').abrir(path.join(dir, 'akira.db'));
   const r2 = await H.llamar('listar_turnos', {}, 'u1');
   assert(r2.total === 2 && r2.turnos.every((t) => t.telefono.startsWith('***')) && !JSON.stringify(r2).includes('AJENO'), 'turnos reales: enmascarados y solo los de este usuario');
   const r3 = await H.llamar('resumen_de_caja', {}, 'u1');
-  assert(r3.ingresos >= 8000 && r3.gastos === 1500, 'caja del mes con turnos cobrados + movimientos');
+  const enElMes = dia(-3).getMonth() === hoy.getMonth(); // en los primeros 3 días del mes, el turno de hace 3 días cae en el mes anterior
+  assert(r3.ingresos >= (enElMes ? 8000 : 4000) && r3.gastos === 1500, 'caja del mes con turnos cobrados + movimientos');
   const r4 = await H.llamar('ver_catalogo', { tipo: 'productos' }, 'u1');
   assert(r4.items.length === 1 && r4.items[0].stock === 4 && (await H.llamar('ver_catalogo', { tipo: 'servicios' }, 'u1')).items[0].duracionMinutos === 45, 'catálogo real');
   const r5 = await H.llamar('buscar_clientes', { texto: 'ana' }, 'u1');

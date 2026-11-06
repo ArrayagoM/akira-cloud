@@ -336,6 +336,8 @@ function crearAkiraBot(config, dataDir, sessionDir, userId, options = {}) {
   let esNegocioWA = null; // null=desconocido, false=no es Business, true=es Business
   let reconectarIntentos = 0; // contador de reconexiones sin éxito
   let tsUltimaConexion = 0; // timestamp del último 'open' exitoso
+  let badSessionSeguidas = 0; // códigos 500 seguidos sin una conexión estable en el medio (ver bot/sesion-wa.js)
+  let abrioDesdeUltimo500 = false; // ¿hubo un 'open' desde el último 500?
   let botDetenidoIntencional = false; // true solo cuando el manager llama a detener()
   let reconnectTimer = null; // 🔥 Timer de reconexión — se cancela para evitar timers cascading
   const seenMsgIds = new Set(); // Dedup: IDs de mensajes ya procesados (evita duplicados de Baileys)
@@ -2694,6 +2696,7 @@ Revisalo en Akira → Documentos.`);
     if (bodyLower.includes('akira stop')) {
       if (usuario) {
         usuario.silenciado = true;
+        usuario.silenciadoManual = false; // este silencio es temporal (el otro tipo lo pone la pantalla Clientes; ver bot/silencio.js)
         clientesSvc.guardarMemoria(jid, usuario);
       }
       await enviarMensaje(
@@ -2705,6 +2708,7 @@ Revisalo en Akira → Documentos.`);
     if (bodyLower.includes('akira reactivate')) {
       if (usuario) {
         usuario.silenciado = false;
+        usuario.silenciadoManual = false;
         clientesSvc.guardarMemoria(jid, usuario);
       }
       await enviarMensaje(jid, '*(Akira reactivada ✅ — vuelvo a responder)*');
@@ -2978,8 +2982,9 @@ Revisalo en Akira → Documentos.`);
         await manejarComando(texto, jid, clientesSvc.cargarMemoria(jid));
       // Si el dueño responde manualmente en un chat silenciado → reactivar el bot automáticamente
       // El dueño ya atendió al cliente, el bot puede retomar cuando el cliente vuelva a escribir
+      // (Si el dueño pausó el chat a propósito desde Clientes —silencio manual— NO se reactiva solo: sigue pausado hasta que él lo reactive.)
       const uclient = clientesSvc.cargarMemoria(jid);
-      if (uclient?.silenciado && !texto.startsWith('akira')) {
+      if (uclient?.silenciado && !texto.startsWith('akira') && require('./bot/silencio').puedeAutoReactivar(uclient)) {
         uclient.silenciado = false;
         clientesSvc.guardarMemoria(jid, uclient);
         log(`✅ [Auto-reactivar] Bot reactivado en ${jid} — el dueño respondió manualmente`);
@@ -3028,6 +3033,11 @@ Revisalo en Akira → Documentos.`);
     let fueAudio = false;
 
     if (esAudio) {
+      // Chat silenciado: ni se descarga ni se transcribe el audio, y no se contesta (antes igual respondía "no pude entender el audio").
+      if (require('./bot/silencio').debeCallar(clientesSvc.cargarMemoria(jid))) {
+        log(`🔇 [${jid}] Audio ignorado — cliente silenciado`);
+        return;
+      }
       if (!audioSvc) {
         await enviarMensaje(
           jid,
@@ -3068,7 +3078,8 @@ Revisalo en Akira → Documentos.`);
     if (!usuario) {
       usuario = await clientesSvc.cargarMemoriaAsync(jid);
     }
-    if (usuario?.silenciado && !bodyLower.includes('akira')) {
+    // Un mensaje del cliente nunca saltea el silencio (antes bastaba con escribir "akira"; los comandos "akira ..." son solo del dueño, arriba en fromMe).
+    if (require('./bot/silencio').debeCallar(usuario)) {
       log(
         `🔇 [${jid}] Mensaje ignorado — cliente silenciado (el dueño debe responder manualmente o esperá 30min para auto-reactivación)`,
       );
@@ -3197,13 +3208,14 @@ Revisalo en Akira → Documentos.`);
         const u = clientesSvc.cargarMemoria(jid);
         if (u) {
           u.silenciado = true;
+          u.silenciadoManual = false; // derivación automática: temporal
           clientesSvc.guardarMemoria(jid, u);
           // Auto-reactivar después de 30 minutos si el dueño no respondió
           // Evita que el bot quede muerto permanentemente para ese cliente
           setTimeout(
             () => {
               const uf = clientesSvc.cargarMemoria(jid);
-              if (uf?.silenciado) {
+              if (uf?.silenciado && require('./bot/silencio').puedeAutoReactivar(uf)) {
                 uf.silenciado = false;
                 clientesSvc.guardarMemoria(jid, uf);
                 log(`⏱️ [Auto-reactivar] Bot reactivado en ${jid} — 30min sin respuesta del dueño`);
@@ -3729,7 +3741,14 @@ Revisalo en Akira → Documentos.`);
           `⚠️ Desconectado (código: ${code ?? 'undefined'})${loggedOut ? ' — sesión cerrada' : replaced ? ' — reemplazado' : badSession ? ' — sesión corrupta' : ''}`,
         );
 
-        if (loggedOut || replaced || badSession) {
+        // El 500 ("sesión corrupta") ya NO borra la vinculación de entrada: se reintenta con la sesión guardada y solo se borra si se repite
+        // sin que la conexión llegue a estabilizarse (antes obligaba a escanear el QR de nuevo cada vez; ver bot/sesion-wa.js).
+        const decision = require('./bot/sesion-wa').decidirDesconexion({
+          code, previoSeguidos: badSessionSeguidas, abrioDesdeElUltimo: abrioDesdeUltimo500, msAbierta: tsUltimaConexion ? Date.now() - tsUltimaConexion : 0,
+        });
+        badSessionSeguidas = decision.seguidos;
+        if (badSession) abrioDesdeUltimo500 = false;
+        if (decision.accion === 'borrar' && (loggedOut || replaced || badSession)) {
           // Sesión inválida/corrupta — limpiar y detener para que el usuario escanee QR nuevo
           emitter.emit('disconnected', `código: ${code ?? 'undefined'}`);
           await clearAuth().catch(() => {});
@@ -3737,6 +3756,7 @@ Revisalo en Akira → Documentos.`);
           await detener('session-cleared');
           return;
         }
+        if (badSession) log(`⚠️ WhatsApp devolvió "sesión corrupta" (500), intento ${badSessionSeguidas} de ${require('./bot/sesion-wa').MAX_500 - 1}: NO se borra la vinculación, se reconecta con la sesión guardada.`);
 
         // POLÍTICA: la sesión NUNCA se borra automáticamente por desconexiones
         // sin código (cortes de internet/luz, watchdog ping fail, Render
@@ -3790,6 +3810,7 @@ Revisalo en Akira → Documentos.`);
       }
       if (connection === 'open') {
         reconectarIntentos = 0; // reset — conexión exitosa
+        abrioDesdeUltimo500 = true; // la próxima vez que cierre con 500 se evalúa cuánto duró esta conexión
         _macErrorCount = 0; // reset — sesión válida
         _sessionClearScheduled = false;
         tsUltimaConexion = Date.now();
@@ -4324,12 +4345,16 @@ Revisalo en Akira → Documentos.`);
     // Clientes importados desde una planilla: el bot los reconoce enseguida (sin reiniciar)
     emitter.on('clientes:importados', (jids) => { clientesSvc.cargarNuevos(Array.isArray(jids) ? jids : []).then((n) => log(`[Clientes] ${n} cliente(s) importado(s) cargado(s) en el bot`)).catch((e) => log('⚠️ clientes:importados: ' + e.message)); });
 
-    emitter.on('cliente:silenciar', ({ jid, silenciado }) => {
-      const u = clientesSvc.cargarMemoria(jid);
+    emitter.on('cliente:silenciar', async ({ jid, silenciado }) => {
+      // Si el chat todavía no está en la memoria del bot se lo busca en la base (antes la orden se perdía sin avisar).
+      const u = clientesSvc.cargarMemoria(jid) || (await clientesSvc.cargarMemoriaAsync(jid).catch(() => null));
       if (u) {
         u.silenciado = !!silenciado;
+        u.silenciadoManual = !!silenciado; // viene de la pantalla Clientes: es una pausa a propósito del dueño (ver bot/silencio.js)
         clientesSvc.guardarMemoria(jid, u);
         log(`🔇 Cliente ${jid} silenciado=${silenciado} (actualizado en caliente)`);
+      } else {
+        log(`⚠️ No se pudo ${silenciado ? 'silenciar' : 'reactivar'} ${jid}: el bot no lo tiene en memoria`);
       }
     });
 

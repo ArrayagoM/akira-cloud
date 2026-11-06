@@ -66,8 +66,10 @@ function crearMongoClientesService(userId, log) {
         // Los silencios son temporales (30 min máx) y se manejan en RAM.
         // Si el servidor se reinició, los timers de auto-reactivación se perdieron
         // y los clientes quedarían bloqueados para siempre sin este reset.
-        const silenciado = false;
-        if (c.silenciado) silenciadosALimpiar.push(c.jid);
+        // Excepción: el silencio MANUAL (el dueño pausó ese chat) se conserva; ver bot/silencio.js.
+        const conserva = require('./silencio').debeConservarAlArrancar(c);
+        const silenciado = conserva;
+        if (c.silenciado && !conserva) silenciadosALimpiar.push(c.jid);
 
         const datos = {
           jid:              c.jid,
@@ -76,6 +78,7 @@ function crearMongoClientesService(userId, log) {
           numeroReal:       c.numeroReal   || '',
           email:            c.email        || null,
           silenciado,
+          silenciadoManual: conserva,
           historial:        normalizarHistorial(c.historial || []),
           turnosConfirmados:c.turnosConfirmados || [],
           // Memoria de largo plazo — NUNCA se resetea (a diferencia del historial).
@@ -149,7 +152,8 @@ function crearMongoClientesService(userId, log) {
           telefono:         doc.telefono     || '',
           numeroReal:       doc.numeroReal   || '',
           email:            doc.email        || null,
-          silenciado:       false,
+          silenciado:       require('./silencio').debeConservarAlArrancar(doc),
+          silenciadoManual: require('./silencio').debeConservarAlArrancar(doc),
           historial:        normalizarHistorial(doc.historial || []),
           turnosConfirmados:doc.turnosConfirmados || [],
           perfilResumen:    doc.perfilResumen || '',
@@ -194,6 +198,7 @@ function crearMongoClientesService(userId, log) {
       numeroReal:        datos.numeroReal        || '',
       email:             datos.email             || null,
       silenciado:        datos.silenciado        || false,
+      silenciadoManual:  datos.silenciado === true && datos.silenciadoManual === true, // el silencio manual solo existe mientras haya silencio
       historial:         historialReducido,
       turnosConfirmados: datos.turnosConfirmados || [],
       // Memoria de largo plazo — se pasa tal cual venga en `datos` (nunca se
