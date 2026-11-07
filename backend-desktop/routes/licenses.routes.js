@@ -194,14 +194,17 @@ router.post('/comandos', requireAuth, async (req, res) => {
   try {
     const { deviceId, celularActivo, hechos, productosHechos } = req.body || {};
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
-    const device = await Device.findOne({ userId: req.user._id, deviceId });
-    if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
     const cm = require('../lib/comandos');
-    if (typeof celularActivo === 'boolean') device.celularActivo = celularActivo;
-    cm.confirmar(device, hechos);
-    const lista = device.celularActivo === true ? cm.pendientes(device) : [];
-    device.ultimoHeartbeat = new Date();
-    await device.save();
+    // Guardado por versión: si el celular mandó una orden justo ahora, no se pisa (ver lib/comandos-guardar.js).
+    const g = await require('../lib/comandos-guardar').mutarComandos(Device, { userId: req.user._id, deviceId }, (d) => {
+      if (d.revocado || !d.activo) return { omitir: true };
+      if (typeof celularActivo === 'boolean') d.celularActivo = celularActivo;
+      cm.confirmar(d, hechos);
+      return { lista: d.celularActivo === true ? cm.pendientes(d) : [] };
+    }, (d) => ({ celularActivo: d.celularActivo === true, ultimoHeartbeat: new Date() }));
+    const device = g.device;
+    if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
+    const lista = g.resultado.lista;
     // Productos cargados desde el celular: la PC confirma los que ya guardó y retira los que esperan (con su foto).
     let productos = [];
     try {

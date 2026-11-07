@@ -145,3 +145,52 @@ Corrige AUD-001 #1, #3 y #6. **Backend de producción: sin publicar hasta que el
 **Quedó afuera de los commits a propósito:** `scripts/migrar-atlas-a-local.js` (contiene la contraseña de Mongo), `backend/services/akira.bot.tmp` (temporal) y todo el material de marketing (videos y capturas).
 **Límite.** El paquete MSIX no se instaló ni se probó abriéndolo; solo se verificó que `makeappx` lo creó sin errores y que el contenido es el del instalador ya verificado.
 **Falta (acción del dueño):** subir `AkiraCloud-1.0.36.msix` en Partner Center → Paquetes (envío nuevo) y esperar la certificación; publicar el instalador y el backend (`publicar-version.ps1`); desplegar la web.
+
+---
+
+## CAM-007 — Órdenes del celular: el celular y la PC ya no se pisan al guardar (6/11/2026)
+
+**Problema (verificado en el código).** `POST /api/mobile/comandos` (celular manda una orden) y `POST /api/licenses/comandos` (la PC consulta cada ~1 min) leían el equipo entero, cambiaban la lista `Device.comandos` y la guardaban entera. El último en guardar borraba lo del otro: una orden "pausar" podía perderse si la PC consultaba en el mismo instante, sin ningún aviso.
+**Qué se cambió.** Guardado condicional por versión (`comandosV`): si alguien cambió la lista mientras tanto, se vuelve a leer y se reintenta (máx. 4 veces; si no se logra, 503 y la app puede reintentar, nunca se pierde en silencio). Si la lista no cambia (consulta de rutina de la PC) NO se reescribe: solo se actualiza el latido y el control remoto. Equipos viejos sin `comandosV` cuentan como versión 0.
+
+| Archivo | Cambio |
+|---|---|
+| `backend-desktop/lib/comandos-guardar.js` (nuevo) | `mutarComandos`: lee, aplica la lógica pura de `comandos.js` y guarda con la condición de versión. |
+| `backend-desktop/routes/mobile.routes.js` | `POST /comandos` usa `mutarComandos` (mismas respuestas 200/404/409/429/400 que antes). |
+| `backend-desktop/routes/licenses.routes.js` | `POST /comandos` (consulta de la PC) usa `mutarComandos`; equipo revocado sigue dando 403 sin registrar latido. |
+| `backend-desktop/models/Device.js` | Campo nuevo `comandosV` (Number, default 0). Compatible con datos existentes. |
+| `backend-desktop/tests/comandos-concurrencia.test.js` (nuevo, 19 comprobaciones) y `package.json` | Casos: celular + consulta de la PC a la vez, dos órdenes a la vez, confirmación + orden nueva, equipos sin versión, consulta sin cambios, cambio ajeno en medio, 503 tras agotar reintentos. |
+| `backend-desktop/tests/mobile.test.js` | El modelo simulado acepta `updateOne` (no cambia lo que verifica). |
+
+**Qué NO se tocó.** `lib/comandos.js` (lógica pura), la PC (`desktop/`), las demás rutas que escriben el equipo (latido, resumen, estado del bot): solo escriben sus propios campos, no la lista.
+**Pruebas.** `npm test` del backend completo: todo verde. Incluye una comprobación "de contraste" que reproduce el guardado anterior y muestra que la orden se perdía.
+**Límites.** (1) La carrera real tenía una ventana de milisegundos (la consulta de la PC es 1 por minuto), así que **probablemente no explica por sí sola** que nunca llegara un `bot-pausar`; la causa de fondo sigue sin confirmar (ver CAM-005). (2) Probado con una base simulada, no con MongoDB real. (3) Al intentar demostrar que el test falla con las rutas viejas, lo hizo por un motivo mecánico (el modelo simulado no tiene `save`), así que esa prueba no sirve como evidencia; la evidencia es la comprobación de contraste.
+**Riesgo.** Bajo-medio (backend de producción). Agrega un campo nuevo con valor por defecto; no cambia datos existentes. Estado: **sin publicar** (próximo `publicar-version.ps1`).
+
+---
+
+## CAM-008 — Cobro con Mercado Pago: pago atómico, webhook que reintenta, firma e ids validados (6/11/2026)
+
+**Cierra los hallazgos 4, 8 y 9 de AUD-001** (análisis de un agente de solo lectura; los puntos clave los verifiqué yo en el código de `subscription.routes.js`).
+
+**Problemas verificados.**
+1. *(#4)* Reclamar el pago (`pagosMpProcesados`) y activar el plan eran **dos escrituras**: un corte en el medio dejaba el pago "ya procesado" y al cliente **sin plan**. Además el webhook respondía 200 **antes** de procesar: si algo fallaba, Mercado Pago nunca reintentaba (y en Vercel la función puede congelarse al responder).
+2. *(#8)* La firma del aviso era opcional en tres sentidos: sin secreto, sin cabecera, o con una firma de otro largo (pasaba). Un error al verificar también dejaba pasar.
+3. *(#9)* El id de pago que llega por la URL (`/return`), el cuerpo (`/verificar-pago`, webhook) se pegaba tal cual en la ruta que se consulta a Mercado Pago. El host es fijo (no hay SSRF a otros sitios), pero un id como `../x` armaba consultas no previstas con el token de la plataforma. Un `userId` inválido en la referencia tiraba un error de conversión.
+
+**Qué se cambió.**
+- Reclamo + activación = **una sola escritura** (`findOneAndUpdate` con `$push` + `$set`), condicionada a que el vencimiento siga siendo el leído (dos pagos distintos a la vez suman sus meses, no se pisan; hasta 3 relecturas).
+- El webhook **procesa y recién responde**: falla pasajera (MP no contesta, 404 por demora, base cortada) → **500** y Mercado Pago reintenta; lo que no se arregla reintentando (no aprobado, plan desconocido, monto corto, ya procesado, referencia inválida) → 200.
+- Firma: función pura. Con secreto, una firma presente y mala (incluida truncada) → 401. **Sin secreto o sin cabecera sigue pasando, con un aviso en el log** (el manifiesto nunca se probó en producción: endurecer de golpe podría rechazar cobros reales). Con `MP_WEBHOOK_FIRMA_ESTRICTA=1` un aviso sin firma válida se rechaza.
+- Ids: solo numéricos (`^\d{1,20}$`); `userId` solo 24 hexadecimales; el helper `mpRequest` solo acepta `/v1/payments/<id>` y `/checkout/preferences`, y corta a los 8 s.
+
+| Archivo | Cambio |
+|---|---|
+| `backend-desktop/lib/mp-seguridad.js` (nuevo) | `idPagoValido`, `userIdValido`, `rutaMpPermitida`, `verificarFirmaMp` (puras). |
+| `backend-desktop/routes/subscription.routes.js` | Lo anterior: `mpRequest`, `activarPlanYProcesarReferido`, `/return`, `/verificar-pago`, `/webhook`, `/webhook/:userId`. |
+| `backend-desktop/tests/mp-seguridad.test.js` (nuevo, 17), `tests/cobro-webhook.test.js` (nuevo, 29), `tests/cobro.test.js` (+7, modelo simulado adaptado) y `package.json` | Pruebas. |
+
+**Qué NO se tocó.** Precios, reglas de monto, vencimientos y créditos de referidos (`lib/cobro.js` y la lógica de referidos quedan igual); `backend/` (copia vieja, no es la que está en producción); el flujo de creación de la preferencia.
+**Pruebas.** `npm test` del backend completo: verde. Comprobé que el caso "corte entre dos escrituras" **falla con el código anterior** (queda cobrado sin plan) y pasa con el nuevo.
+**Límites / no verificado.** (1) Probado con Mercado Pago y base simulados, no con un pago real: antes de publicar conviene un pago real mínimo o el simulador de avisos del panel de MP. (2) No sé si `MP_PLATFORM_WEBHOOK_SECRET` está cargado en Vercel ni si MP firma los avisos que salen de `notification_url`; por eso la firma queda en modo "avisar". (3) No hay protección contra repetición de avisos viejos (solo advertencia por `ts` > 5 min), aunque un aviso repetido no puede cobrar dos veces. (4) Si hay hoy algún cliente con pago "reclamado" y plan sin activar (el defecto anterior), esto no lo repara: se detecta comparando `pagosMpProcesados` de los usuarios contra la colección `Pago`.
+**Riesgo.** **Medio** (es el camino del dinero). Mitigación: tests, cambio acotado a una función y al webhook, mismos campos y reglas. Un aviso de prueba de MP con un id inexistente ahora devuelve 500 (antes 200): es esperable y MP lo reintenta unas veces. Estado: **sin publicar**.

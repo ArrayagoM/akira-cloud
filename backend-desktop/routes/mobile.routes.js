@@ -9,6 +9,7 @@ const Device = require('../models/Device');
 const MobileDevice = require('../models/MobileDevice');
 const { requireAuth } = require('../middleware/auth');
 const comandos = require('../lib/comandos');
+const { mutarComandos } = require('../lib/comandos-guardar');
 const productosCel = require('../lib/productos-celular');
 const { buscarCodigo } = require('../lib/codigo-lookup');
 const { analizarFoto, sinClaves } = require('../lib/ia-foto-producto');
@@ -76,10 +77,10 @@ router.get('/estado', requireAuth, async (req, res) => {
 router.post('/comandos', requireAuth, async (req, res) => {
   try {
     const { deviceId, tipo } = req.body || {};
-    const d = await Device.findOne({ userId: req.user._id, deviceId, activo: true, revocado: false });
-    if (!d) return res.status(404).json({ error: 'No encontré esa PC' });
-    const c = comandos.encolar(d, String(tipo));
-    await d.save();
+    // Guardado por versión: si la PC consulta en este mismo instante, la orden no se pierde (lib/comandos-guardar.js).
+    const g = await mutarComandos(Device, { userId: req.user._id, deviceId, activo: true, revocado: false }, (d) => ({ c: comandos.encolar(d, String(tipo)) }));
+    if (!g.device) return res.status(404).json({ error: 'No encontré esa PC' });
+    const c = g.resultado.c;
     res.json({ ok: true, comando: { id: c.id, tipo: c.tipo, estado: c.estado, venceEn: c.venceEn } });
   } catch (e) { res.status(e.status || 500).json({ error: e.status ? e.message : 'No se pudo enviar el comando', codigo: e.codigo }); }
 });

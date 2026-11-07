@@ -49,13 +49,20 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  �
   // ── activación con base de datos simulada ──
   const usuarios = new Map(); const logs = []; let referidoPendiente = null;
   const cadena = (valor) => ({ select() { return { lean: async () => valor, then: (r, j) => Promise.resolve(valor).then(r, j) }; }, lean: async () => valor, then: (r, j) => Promise.resolve(valor).then(r, j) });
+  let escriturasRestantes = Infinity; // simula que la base se corta después de N escrituras (cuenta findOneAndUpdate y findByIdAndUpdate)
+  const cortarSiToca = () => { if (--escriturasRestantes < 0) { escriturasRestantes = Infinity; throw new Error('la base se cortó'); } };
   const UserFalso = {
     findOneAndUpdate(filtro, upd) {
+      cortarSiToca();
       const u = usuarios.get(String(filtro._id)); const id = filtro.pagosMpProcesados && filtro.pagosMpProcesados.$ne;
       if (!u || (id && u.pagosMpProcesados.includes(id))) return cadena(null);
-      const antes = { plan: u.plan, planExpira: u.planExpira }; if (upd.$push) u.pagosMpProcesados.push(...upd.$push.pagosMpProcesados.$each); return cadena(antes);
+      if ('planExpira' in filtro) { // el guardado solo vale si el vencimiento sigue siendo el que se leyó
+        const a = u.planExpira ? new Date(u.planExpira).getTime() : null; const b = filtro.planExpira ? new Date(filtro.planExpira).getTime() : null;
+        if (a !== b) return cadena(null);
+      }
+      const antes = { plan: u.plan, planExpira: u.planExpira }; if (upd.$push) u.pagosMpProcesados.push(...upd.$push.pagosMpProcesados.$each); if (upd.$set) Object.assign(u, upd.$set); return cadena(antes);
     },
-    async findByIdAndUpdate(id, set) { const u = usuarios.get(String(id)); if (u && set) Object.assign(u, set); return u; },
+    async findByIdAndUpdate(id, set) { cortarSiToca(); const u = usuarios.get(String(id)); if (u && set) Object.assign(u, set); return u; },
     findById(id) { return cadena(usuarios.get(String(id)) || null); },
   };
   const inyectar = (rel, ex) => { const f2 = path.join(__dirname, '..', rel); Module._cache[f2] = { id: f2, filename: f2, loaded: true, exports: ex, children: [], paths: [] }; };
@@ -98,6 +105,34 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  �
   // cada cobro que activa un plan queda asentado UNA vez para el panel de ingresos (lo que MP cobró de verdad)
   assert(pagosAsentados.map((x) => x.mpPagoId).join() === '111,222,555', `se asientan los 3 cobros que activaron un plan (${pagosAsentados.map((x) => x.mpPagoId)}) y no los repetidos, rechazados ni de usuario inexistente`);
   assert(pagosAsentados[0].monto === 49000 && pagosAsentados[0].plan === 'pro' && pagosAsentados[0].periodo === 'mensual' && pagosAsentados[2].monto === 1075200 && pagosAsentados[2].periodo === 'anual', 'el cobro asentado guarda monto, plan y período');
+
+  // ── reclamar el pago y activar el plan es UNA sola escritura ──
+  // Antes eran dos (reclamar, después activar): un corte en el medio dejaba el pago "ya procesado" y al cliente sin plan.
+  const act4 = () => activar({ userId: 'u4', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(666, 49000) });
+  usuarios.set('u4', { plan: 'trial', planExpira: null, pagosMpProcesados: [] });
+  escriturasRestantes = 0; // se corta en la primera escritura
+  let cayo = null; try { await act4(); } catch (e) { cayo = e; }
+  assert(cayo && usuarios.get('u4').plan === 'trial' && !usuarios.get('u4').pagosMpProcesados.includes('666'), 'si la base se corta al guardar, el pago NO queda reclamado ni el plan a medias (el error sube para que se reintente)');
+  r = await act4();
+  assert(r.activado && usuarios.get('u4').plan === 'pro' && usuarios.get('u4').pagosMpProcesados.includes('666'), 'el reintento (Mercado Pago vuelve a avisar) activa el plan');
+  assert(usuarios.get('u4').pagosMpProcesados.length === 1 && usuarios.get('u4').planPeriodo === 'mensual' && usuarios.get('u4').status === 'activo', 'queda reclamado una vez, con período y estado activo');
+  // corte entre la primera y la segunda escritura: antes dejaba el pago reclamado y el plan sin activar. Ahora, pase lo que pase, o están las dos cosas o ninguna.
+  usuarios.set('u4b', { plan: 'trial', planExpira: null, pagosMpProcesados: [] });
+  escriturasRestantes = 1;
+  try { await activar({ userId: 'u4b', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(667, 49000) }); } catch { /* el corte puede subir como error */ }
+  const u4b = usuarios.get('u4b');
+  assert(u4b.pagosMpProcesados.includes('667') === (u4b.plan === 'pro'), 'corte entre dos escrituras: el pago está reclamado SI Y SOLO SI el plan quedó activo (nunca "cobrado sin plan")');
+  escriturasRestantes = Infinity;
+  await activar({ userId: 'u4b', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(667, 49000) });
+  assert(usuarios.get('u4b').plan === 'pro', 'y después del reintento el cliente tiene su plan');
+
+  usuarios.set('u5', { plan: 'trial', planExpira: null, pagosMpProcesados: [] });
+  const [ra, rb, rc] = await Promise.all([1, 2, 3].map(() => activar({ userId: 'u5', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(777, 49000) })));
+  assert([ra, rb, rc].filter((x) => x.activado).length === 1 && usuarios.get('u5').pagosMpProcesados.length === 1, 'tres confirmaciones simultáneas del MISMO pago (return, verificar y webhook): se activa una sola vez');
+  const exp5 = usuarios.get('u5').planExpira.getTime();
+  const [rd, re] = await Promise.all([activar({ userId: 'u5', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(881, 49000) }), activar({ userId: 'u5', planKey: 'pro', periodo: 'mensual', planInfo: PL.pro_mensual, descuentoAplicado: 0, pago: pago(882, 49000) })]);
+  const meses5 = (usuarios.get('u5').planExpira.getTime() - exp5) / 86400000;
+  assert(rd.activado && re.activado && meses5 >= 56 && meses5 <= 62, `dos pagos DISTINTOS a la vez suman dos meses (+${Math.round(meses5)} días): el segundo relee el vencimiento en vez de pisar al primero`);
 
   // el endpoint público de planes devuelve los precios nuevos
   assert(rutas.PLANES.pro_anual.precio === 470400, 'la ruta usa los mismos precios que lib/cobro.js');

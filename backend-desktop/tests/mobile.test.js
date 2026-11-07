@@ -10,9 +10,18 @@ const Module = require('module');
 const path = require('path');
 
 const dispositivos = []; const celulares = [];
+let idDevice = 0;
 class FakeDevice {
-  constructor(d) { Object.assign(this, { activo: true, revocado: false, celularActivo: false, comandos: [], ultimoHeartbeat: new Date(), ...d }); }
+  constructor(d) { Object.assign(this, { _id: 'dev' + (++idDevice), activo: true, revocado: false, celularActivo: false, comandos: [], ultimoHeartbeat: new Date(), ...d }); }
   async save() { return this; }
+  // updateOne mínimo para el guardado por versión de las órdenes (lib/comandos-guardar.js)
+  static async updateOne(f, u) {
+    const d = dispositivos.find((x) => x._id === f._id);
+    const v = Number(d && d.comandosV) || 0;
+    const ok = !!d && (f.comandosV === undefined || (typeof f.comandosV === 'number' ? f.comandosV === v : v === 0));
+    if (ok) Object.assign(d, u.$set);
+    return { matchedCount: ok ? 1 : 0, modifiedCount: ok ? 1 : 0 };
+  }
   static findOne(q) { return Promise.resolve(dispositivos.find((d) => String(d.userId) === String(q.userId) && d.deviceId === q.deviceId && (q.activo === undefined || d.activo === q.activo) && (q.revocado === undefined || d.revocado === q.revocado)) || null); }
   static find(q) { return Promise.resolve(dispositivos.filter((d) => String(d.userId) === String(q.userId) && d.activo === q.activo && d.revocado === q.revocado)); }
 }

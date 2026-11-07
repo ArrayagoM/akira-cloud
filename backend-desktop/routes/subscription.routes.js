@@ -25,9 +25,14 @@ const LIMITES = {
 };
 
 // ── Helper MP ─────────────────────────────────────────────────
+const seg = require('../lib/mp-seguridad');
+const MP_TIMEOUT_MS = 8000; // sin tope, una respuesta colgada de MP dejaba la función esperando hasta que Vercel la corta
+
 function mpRequest(path, method='GET', body=null){
   const token = process.env.MP_PLATFORM_ACCESS_TOKEN;
   if(!token) throw new Error('MP_PLATFORM_ACCESS_TOKEN no configurado en .env');
+  // Solo las dos rutas que usa Akira (consultar un pago y crear la preferencia): un id raro nunca arma otra consulta.
+  if(!seg.rutaMpPermitida(path)) throw new Error('Ruta de Mercado Pago no permitida');
   return new Promise((resolve, reject)=>{
     const req = https.request({
       hostname:'api.mercadopago.com', path, method,
@@ -47,6 +52,7 @@ function mpRequest(path, method='GET', body=null){
       });
     });
     req.on('error',reject);
+    req.setTimeout(MP_TIMEOUT_MS, ()=>req.destroy(new Error('Mercado Pago no respondió a tiempo')));
     if(body) req.write(JSON.stringify(body));
     req.end();
   });
@@ -141,23 +147,33 @@ async function activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo
   }
 
   // 2) Un pago activa el plan UNA sola vez: antes, repetir el mismo payment_id (el /return, /verificar-pago o el webhook) renovaba
-  //    el plan gratis cada vez. Se "reclama" el pago de forma atómica; si ya estaba reclamado, no se hace nada.
-  const previo = await User.findOneAndUpdate(
-    { _id: userId, pagosMpProcesados: { $ne: String(pago.id) } },
-    { $push: { pagosMpProcesados: { $each: [String(pago.id)], $slice: -100 } } },
-    { new: false },
-  ).select('plan planExpira email');
-  if (!previo) {
-    logger.info(`[SUB] Pago ${pago.id} ya estaba procesado (o el usuario ${userId} no existe): no se vuelve a activar`);
-    return { activado: false, motivo: 'ya_procesado' };
+  //    el plan gratis cada vez. Reclamar el pago y activar el plan es UNA sola escritura: si falla, no queda reclamado sin plan
+  //    (antes eran dos escrituras y un corte en el medio dejaba al cliente con el pago "ya procesado" y sin plan).
+  //    Renovar antes de que venza suma meses al tiempo que le quedaba (antes se perdían los días restantes).
+  //    La escritura solo vale si el vencimiento sigue siendo el que se leyó (dos pagos distintos a la vez no se pisan: el segundo relee).
+  const idPago = String(pago.id);
+  let previo = null; let expira = null;
+  for (let intento = 0; intento < 3 && !previo; intento++) {
+    const leido = await User.findById(userId).select('plan planExpira email +pagosMpProcesados').lean();
+    if (!leido || (leido.pagosMpProcesados || []).includes(idPago)) {
+      logger.info(`[SUB] Pago ${pago.id} ya estaba procesado (o el usuario ${userId} no existe): no se vuelve a activar`);
+      return { activado: false, motivo: 'ya_procesado' };
+    }
+    const vence = cobro.nuevaExpiracion({ planExpiraActual: leido.planExpira, planActual: leido.plan, planKey, meses: planInfo.meses });
+    const hecho = await User.findOneAndUpdate(
+      { _id: userId, pagosMpProcesados: { $ne: idPago }, planExpira: leido.planExpira || null },
+      {
+        $push: { pagosMpProcesados: { $each: [idPago], $slice: -100 } },
+        $set: { plan: planKey, planPeriodo: periodo, planExpira: vence, status: 'activo' },
+      },
+      { new: false },
+    ).select('plan planExpira email');
+    if (hecho) { previo = hecho; expira = vence; }
   }
-
-  // 3) Renovar antes de que venza suma meses al tiempo que le quedaba (antes se perdían los días restantes)
-  const expira = cobro.nuevaExpiracion({ planExpiraActual: previo.planExpira, planActual: previo.plan, planKey, meses: planInfo.meses });
-
-  await User.findByIdAndUpdate(userId, {
-    plan: planKey, planPeriodo: periodo, planExpira: expira, status: 'activo',
-  });
+  if (!previo) {
+    // Otro cobro del mismo usuario cambió el vencimiento tres veces seguidas: no se descarta el pago en silencio, se reintenta después.
+    throw new Error(`No se pudo activar el pago ${pago.id} por cambios simultáneos en la cuenta ${userId}`);
+  }
 
   // Queda asentado para el panel de ingresos del administrador (si falla, el plan ya está activo: no se corta nada)
   await Pago.create({ userId, email: previo.email || '', mpPagoId: String(pago.id), plan: planKey, periodo, monto: Number(pago.transaction_amount) || 0, descuentoReferido: descuentoAplicado || 0 })
@@ -344,7 +360,7 @@ router.get('/return', async (req, res) => {
 
   // Si el pago fue aprobado, verificar y activar el plan inmediatamente
   // (el webhook puede llegar tarde o fallar; esto garantiza la activación)
-  if ((status === 'approved' || status === 'ok') && paymentId && extRef) {
+  if ((status === 'approved' || status === 'ok') && paymentId && extRef && seg.idPagoValido(paymentId)) {
     try {
       const pago = await mpRequest(`/v1/payments/${paymentId}`);
       logger.info(`[SUB Return] Pago ${pago.id} | status:${pago.status} | monto:$${pago.transaction_amount}`);
@@ -354,7 +370,7 @@ router.get('/return', async (req, res) => {
         const fullId   = `${planKey}_${periodo}`;
         const planInfo = PLANES[fullId] || PLANES[`${planKey}_mensual`];
 
-        if (userId && planKey && planInfo) {
+        if (seg.userIdValido(userId) && planKey && planInfo) {
           await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
           logger.info(`[SUB Return] ✅ Plan ${planKey} activado para ${userId}`);
         }
@@ -387,6 +403,7 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
   try {
     const paymentId = req.body.payment_id || req.body.collection_id || '';
     if (!paymentId) return res.status(400).json({ error: 'Falta payment_id' });
+    if (!seg.idPagoValido(paymentId)) return res.status(400).json({ error: 'payment_id no válido' });
 
     const pago = await mpRequest(`/v1/payments/${paymentId}`);
     if (pago.status !== 'approved') {
@@ -428,8 +445,9 @@ router.post('/webhook/:userId', async(req,res)=>{
   // pero en las notificaciones de bot-client el external_reference ya incluye el userId.
   // Respondemos 200 inmediatamente (requisito de MP) y procesamos en background.
   res.sendStatus(200);
-  const payload = req.body;
+  const payload = req.body || {};
   const ownerId = req.params.userId; // userId del negocio dueño del bot
+  if (!seg.userIdValido(ownerId)) return; // un id cualquiera de la URL nunca arma una sala de eventos
   logger.info(`[SUB Webhook/:userId] ownerId=${ownerId} type:${payload.type} | data:${JSON.stringify(payload.data)}`);
   // Por ahora, forward al flujo estándar — el bot-engine de ese usuario
   // puede suscribirse en el futuro para procesar pagos de sus clientes.
@@ -444,50 +462,46 @@ router.post('/webhook/:userId', async(req,res)=>{
 // ─────────────────────────────────────────────────────────────
 //  POST /api/subscriptions/webhook — notificaciones de MP (plataforma Akira)
 // ─────────────────────────────────────────────────────────────
+let avisoFirmaDado = false; // el aviso de "avisos sin firma" se deja una vez por arranque, no en cada pago
 router.post('/webhook', async(req,res)=>{
-  // Verificar firma
-  if(process.env.MP_PLATFORM_WEBHOOK_SECRET){
-    try{
-      const xSig=req.headers['x-signature']||'';
-      const xId=req.headers['x-request-id']||'';
-      const dId=req.query?.['data.id']||req.body?.data?.id||'';
-      const p=Object.fromEntries(xSig.split(',').map(x=>x.split('=')));
-      const ts=p['ts']||'',v1r=p['v1']||'';
-      if(v1r){
-        const m=`id:${dId};request-id:${xId};ts:${ts};`;
-        const v1c=crypto.createHmac('sha256',process.env.MP_PLATFORM_WEBHOOK_SECRET).update(m).digest('hex');
-        if(v1c.length===v1r.length&&!crypto.timingSafeEqual(Buffer.from(v1c),Buffer.from(v1r))){
-          logger.warn('[SUB Webhook] Firma inválida');
-          return res.sendStatus(401);
-        }
-      }
-    }catch(e){ logger.warn('[SUB Webhook] Error firma:',e.message); }
-  }
+  const payload=req.body||{};
+  const dataId=req.query?.['data.id']||payload.data?.id||'';
 
-  res.sendStatus(200);
-  const payload=req.body;
+  // Firma: sin secreto o sin cabecera pasa con aviso (el manifiesto nunca se probó en producción: no se rechazan cobros reales);
+  // una firma presente y mala se rechaza. MP_WEBHOOK_FIRMA_ESTRICTA=1 exige firma válida.
+  const firma=seg.verificarFirmaMp({
+    secreto:process.env.MP_PLATFORM_WEBHOOK_SECRET, xSignature:req.headers['x-signature'], xRequestId:req.headers['x-request-id'],
+    dataId:String(dataId), estricta:process.env.MP_WEBHOOK_FIRMA_ESTRICTA==='1',
+  });
+  if(!firma.ok){ logger.warn(`[SUB Webhook] Aviso rechazado: ${firma.motivo}`); return res.sendStatus(401); }
+  if(firma.advertencia && !avisoFirmaDado){ avisoFirmaDado=true; logger.warn(`[SUB Webhook] Aviso sin verificar a fondo (${firma.motivo}). Configurá MP_PLATFORM_WEBHOOK_SECRET y MP_WEBHOOK_FIRMA_ESTRICTA=1 cuando se compruebe con un aviso real.`); }
+
   logger.info(`[SUB Webhook] type:${payload.type} | data:${JSON.stringify(payload.data)}`);
+  if(payload.type!=='payment'||!payload.data?.id) return res.sendStatus(200);
+  if(!seg.idPagoValido(payload.data.id)){ logger.warn('[SUB Webhook] id de pago no válido: se ignora'); return res.sendStatus(200); }
 
-  if(payload.type!=='payment'||!payload.data?.id) return;
-
+  // Se procesa ANTES de responder: si algo falla (MP no contesta, la base se corta) se responde 500 y Mercado Pago reintenta.
+  // Antes se respondía 200 primero y el trabajo quedaba a medias sin que nadie se enterara (en Vercel la función puede congelarse al responder).
+  // Lo que no tiene arreglo reintentando (no aprobado, plan desconocido, monto corto, ya procesado) se responde 200.
   try{
     const pago=await mpRequest(`/v1/payments/${payload.data.id}`);
     logger.info(`[SUB Webhook] Pago ${pago.id} | status:${pago.status} | ref:${pago.external_reference} | monto:$${pago.transaction_amount}`);
 
-    if(pago.status!=='approved') return;
+    if(pago.status!=='approved') return res.sendStatus(200);
 
     const { userId, planKey, periodo, descuentoAplicado } = parsearExternalReference(pago.external_reference);
-    if(!userId||!planKey) return;
+    if(!seg.userIdValido(userId)||!planKey) return res.sendStatus(200);
 
     const fullPlanId=`${planKey}_${periodo}`;
     const planInfo=PLANES[fullPlanId]||PLANES[`${planKey}_mensual`];
-    if(!planInfo){ logger.warn('[SUB Webhook] Plan no encontrado:',fullPlanId); return; }
+    if(!planInfo){ logger.warn('[SUB Webhook] Plan no encontrado:',fullPlanId); return res.sendStatus(200); }
 
-    await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
-
-    logger.info(`[SUB] ✅ Plan ${fullPlanId} activado para ${userId}`);
+    const r=await activarPlanYProcesarReferido({ userId, planKey, periodo, planInfo, descuentoAplicado, pago });
+    if(r.activado) logger.info(`[SUB] ✅ Plan ${fullPlanId} activado para ${userId}`);
+    res.sendStatus(200);
   }catch(err){
-    logger.error('[SUB Webhook] Error:',err.message);
+    logger.error('[SUB Webhook] Error (se responde 500 para que Mercado Pago reintente):',err.message);
+    res.sendStatus(500);
   }
 });
 

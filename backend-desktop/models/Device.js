@@ -53,6 +53,8 @@ const DeviceSchema = new mongoose.Schema(
     // Control remoto mínimo desde el celular (ver lib/comandos.js). celularActivo = el usuario lo habilitó en la PC.
     celularActivo: { type: Boolean, default: false },
     comandos:      { type: [mongoose.Schema.Types.Mixed], default: [] },
+    // Versión de la lista de órdenes: permite guardarla sin pisar cambios simultáneos (lib/comandos-guardar.js).
+    comandosV:     { type: Number, default: 0 },
 
     revocado:       { type: Boolean, default: false },
     revocadoMotivo: { type: String, default: '' },
