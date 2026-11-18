@@ -29,6 +29,22 @@ function enmascarar(cuenta) {
   return cuenta.valor;
 }
 
+// Email "de fondo": minúsculas y, para Gmail (gmail.com / googlemail.com), sin puntos ni "+etiqueta" en la parte local (a.na+x@gmail.com
+// y ana@googlemail.com son la MISMA casilla). Sirve para detectar que alguien se refiere a sí mismo con un alias de su propio email.
+function emailBase(email) {
+  const e = String(email == null ? '' : email).trim().toLowerCase();
+  const arroba = e.lastIndexOf('@');
+  if (arroba < 1) return e;
+  let local = e.slice(0, arroba); let dominio = e.slice(arroba + 1);
+  if (dominio === 'gmail.com' || dominio === 'googlemail.com') {
+    dominio = 'gmail.com';
+    local = local.split('+')[0].replace(/\./g, '');
+  }
+  return `${local}@${dominio}`;
+}
+// ¿El referido y el referente son la misma persona (mismo email de fondo)? Sin email de alguno de los dos no se puede afirmar: false.
+const esAutorreferido = (emailReferido, emailReferente) => !!emailReferido && !!emailReferente && emailBase(emailReferido) === emailBase(emailReferente);
+
 const pago = (r) => r.estado === 'activo' || r.estado === 'pagado'; // el referido ya pagó su primer plan
 
 // Lo que ve cada usuario: cuántas personas se registraron con su código, cuántas pagaron y cuánto lleva ganado.
@@ -85,4 +101,4 @@ function agruparPorReferente(referidos, ahora = new Date()) {
   return [...grupos.values()].sort((a, b) => b.porCobrar - a.porCobrar || b.pagaron - a.pagaron);
 }
 
-module.exports = { COMISION, validarCuentaCobro, enmascarar, resumirReferidos, suscripcionPagaVigente, agruparPorReferente };
+module.exports = { COMISION, emailBase, esAutorreferido, validarCuentaCobro, enmascarar, resumirReferidos, suscripcionPagaVigente, agruparPorReferente };

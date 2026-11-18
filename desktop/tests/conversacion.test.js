@@ -76,16 +76,23 @@ Module._load = function (request, ...resto) {
   // quota.service local pega contra el servidor: se simula "permitido"
   require('../main/license/license-client').quotaCheck = async () => ({ permitido: true, usados: 1, limite: null });
 
-  const bot = crearAkiraBot(config, dataDir, sessionDir, USER, { externalSock: sockFalso, descargarMedia: async () => Buffer.from('89504e470d0a1a0a', 'hex') });
+  // Hermético: en vez de probar contra el puerto 3100 de esta PC (que puede estar ocupado por otro programa), se espía net.Server.listen
+  // (http/express heredan de ahí) durante la carga y el arranque del bot. La propiedad que importa: el bot no abre ningún puerto por su cuenta.
+  const listensDelBot = []; const listenOriginal = net.Server.prototype.listen;
+  net.Server.prototype.listen = function (...args) { listensDelBot.push(args[0]); return listenOriginal.apply(this, args); };
+  const stats = { in: 0, out: 0 };
+  let bot;
+  try {
+  bot = crearAkiraBot(config, dataDir, sessionDir, USER, { externalSock: sockFalso, descargarMedia: async () => Buffer.from('89504e470d0a1a0a', 'hex') });
   bot.on('log', (m) => logs.push(m));
-  const stats = { in: 0, out: 0 }; bot.on('stat', (k) => { stats[k]++; });
+  bot.on('stat', (k) => { stats[k]++; });
   await bot.iniciar();
   ev.emit('connection.update', { connection: 'open' });
   await esperar(300);
+  } finally { net.Server.prototype.listen = listenOriginal; }
 
-  // El puerto del webhook propio no se abre (sobraba y quedaba expuesto en la red local)
-  const abierto = await new Promise((res) => { const s = net.connect(3100, '127.0.0.1'); s.on('connect', () => { s.destroy(); res(true); }); s.on('error', () => res(false)); });
-  assert(!abierto, 'el bot no abre un puerto propio (3100) en la red del cliente');
+  // El puerto del webhook propio no se abre (sobraba y quedaba expuesto en la red local). Se prueba la propiedad (ningún listen), no un puerto fijo.
+  assert(listensDelBot.length === 0, 'el bot no abre un puerto propio (ningún listen durante la carga y el arranque; no depende de que el 3100 esté libre)');
 
   const jid = '5492241497226@s.whatsapp.net';
   const mensaje = (texto, id) => ({ key: { remoteJid: jid, fromMe: false, id }, message: { conversation: texto }, pushName: 'Ana', messageTimestamp: Math.floor(Date.now() / 1000) });

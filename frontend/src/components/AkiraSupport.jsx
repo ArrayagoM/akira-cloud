@@ -3,20 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, Trash2, Loader2, Bot, ChevronDown } from 'lucide-react';
 import api from '../services/api';
+import { renderMensaje } from '../lib/formatoMensaje'; // escapa el HTML antes de dar formato (ver ese archivo)
 
 const MENSAJE_BIENVENIDA = {
   role: 'assistant',
   content: '¡Hola! 👋 Soy **Akira**, tu asistente de soporte técnico. Estoy acá para ayudarte con cualquier duda sobre la plataforma.\n\n¿En qué te puedo ayudar hoy?',
   timestamp: new Date().toISOString(),
 };
-
-function renderMensaje(texto) {
-  return texto
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code style="background:rgba(0,232,123,0.1);padding:1px 5px;border-radius:4px;font-size:0.75rem;color:#00e87b;">$1</code>')
-    .replace(/\n/g, '<br/>');
-}
 
 export default function AkiraSupport() {
   const [abierto, setAbierto]           = useState(false);

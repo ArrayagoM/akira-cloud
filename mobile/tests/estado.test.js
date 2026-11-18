@@ -1,6 +1,7 @@
 // mobile/tests/estado.test.js — lo que ve el usuario según el estado de su PC (lógica pura, corre con Node).
 'use strict';
-const { describirBot, hace, pesos, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS } = require('../src/estado');
+const E = require('../src/estado');
+const { describirBot, hace, pesos, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS } = E;
 
 function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  ✅ ' + m); }
 console.log('\n[mobile/estado] Tests:');
@@ -50,6 +51,59 @@ assert(vigenciaResumen(R, '2026-10-14T02:30:00Z', new Date('2026-10-14T03:10:00Z
 assert(vigenciaResumen(R, '2026-10-14T02:50:00Z', new Date('2026-10-14T02:55:00Z')).esDeHoy === true, 'a las 23:55 en Argentina todavía es el mismo día');
 assert(vigenciaResumen(null, null, AHORA).conocido === false && avisoResumen(vigenciaResumen(null, null, AHORA), null, AHORA) === null && lineasResumen(R, vigenciaResumen(null, null, AHORA)).length === 8, 'sin fecha de resumen no se inventa nada ni se oculta nada');
 
+// ── Órdenes al bot: lo que ve el usuario del resultado final (pestaña Estado de la app del celular) ──
+const AHORA_O = new Date('2026-11-17T15:00:00Z');
+const orden = (id, tipo, estado, min) => ({ id, tipo, estado, creadoEn: new Date(AHORA_O.getTime() - min * 60000).toISOString() });
+assert(E.estadoEfectivoOrden(orden('a', 'bot-pausar', 'pendiente', 2), AHORA_O) === 'pendiente', 'una orden pendiente de hace 2 min sigue pendiente');
+assert(E.estadoEfectivoOrden(orden('a', 'bot-pausar', 'pendiente', 11), AHORA_O) === 'vencido', 'una pendiente de hace 11 min se ve vencida (el servidor no la marca en /estado)');
+assert(['hecho', 'fallo', 'cancelado', 'vencido'].every((s) => E.estadoEfectivoOrden(orden('a', 'bot-pausar', s, 30), AHORA_O) === s), 'hecho, fallo, cancelado y vencido se respetan');
+assert(E.estadoEfectivoOrden({ estado: 'rarisimo' }, AHORA_O) === 'desconocido' && E.estadoEfectivoOrden(null, AHORA_O) === 'desconocido', 'estados raros o ausentes no rompen');
+const d0 = new Date(2026, 10, 17, 9, 5); const hoyDespues = new Date(2026, 10, 17, 20, 0);
+assert(E.horaCorta(d0.toISOString(), hoyDespues) === '09:05' && E.horaCorta(d0.toISOString(), new Date(2026, 10, 18, 8, 0)) === '17/11 09:05', 'hora: "09:05" si es de hoy, "17/11 09:05" si es de otro día');
+assert(E.horaCorta('', hoyDespues) === '' && E.horaCorta('no-es-fecha', hoyDespues) === '' && E.horaCorta(null) === '', 'hora: fecha inválida da texto vacío');
+const pcO = { comandos: [orden('1', 'bot-reanudar', 'hecho', 300), orden('2', 'vacaciones-on', 'fallo', 60), orden('3', 'bot-pausar', 'pendiente', 20), orden('4', 'bot-pausar', 'pendiente', 1)] };
+const rec = E.ordenesRecientes(pcO, AHORA_O);
+assert(rec.map((o) => o.id).join() === '4,3,2,1', 'las órdenes se muestran de la más nueva a la más vieja');
+assert(rec[0].estado === 'pendiente' && rec[0].etiqueta === 'Pendiente' && rec[1].estado === 'vencido' && rec[1].etiqueta === 'Vencido' && rec[1].tono === 'error', 'una pendiente vieja aparece como vencida, en rojo');
+assert(rec[2].etiqueta === 'Falló' && rec[3].etiqueta === 'Hecho' && rec[3].texto === 'Reanudar el bot' && /^\d{2}:\d{2}$|^\d{2}\/\d{2} \d{2}:\d{2}$/.test(rec[3].hora), 'fallo y hecho con su rótulo y la hora');
+assert(E.ordenesRecientes({}, AHORA_O).length === 0 && E.ordenesRecientes(null, AHORA_O).length === 0 && E.ordenesRecientes({ comandos: 'x' }, AHORA_O).length === 0, 'un servidor sin lista de órdenes da lista vacía');
+assert(E.ordenesRecientes({ comandos: Array.from({ length: 8 }, (_, i) => orden('x' + i, 'bot-pausar', 'hecho', i)) }, AHORA_O).length === 5, 'como mucho 5 órdenes');
+const pend = E.ordenesPendientes([pcO, { comandos: [orden('9', 'vacaciones-off', 'pendiente', 3)] }, null], AHORA_O);
+assert(pend.map((o) => o.id).join() === '4,9' && pend[0].edadMs === 60000 && pend[1].edadMs === 180000, 'órdenes pendientes con su edad (la vencida no cuenta)');
+assert(E.mensajeOrden('bot-pausar', 'hecho').tipo === 'ok' && /apagado/.test(E.mensajeOrden('bot-pausar', 'hecho').texto) && /volvió a atender/.test(E.mensajeOrden('bot-reanudar', 'hecho').texto), 'hecho: mensaje claro para apagar y reanudar');
+assert(/activado/.test(E.mensajeOrden('vacaciones-on', 'hecho').texto) && /desactivado/.test(E.mensajeOrden('vacaciones-off', 'hecho').texto), 'hecho: vacaciones activadas / desactivadas');
+const mv = E.mensajeOrden('bot-pausar', 'vencido'); const mf = E.mensajeOrden('bot-pausar', 'fallo');
+assert(mv.tipo === 'error' && /NO se hizo/.test(mv.texto) && /a tiempo/.test(mv.texto) && mf.tipo === 'error' && /NO se hizo/.test(mf.texto) && mv.texto !== mf.texto, 'vencido y fallo son errores claros y distintos, y dicen que no se hizo');
+assert(E.mensajeOrden('bot-pausar', 'pendiente', 10000).tipo === 'info' && /Esperando a tu PC/.test(E.mensajeOrden('bot-pausar', 'pendiente', 10000).texto), 'pendiente reciente: esperando a la PC');
+assert(/todavía no respondió/.test(E.mensajeOrden('bot-pausar', 'pendiente', 95000).texto) && /10 minutos/.test(E.mensajeOrden('bot-pausar', 'pendiente', 95000).texto), 'pendiente de más de 90 s: avisa que la PC tarda y cuándo vence');
+assert(E.mensajeOrden('bot-pausar', 'cancelado').tipo === 'info' && E.mensajeOrden('bot-pausar', 'desconocido').tipo === 'error', 'cancelado informa; desconocido avisa que no se sabe qué pasó');
+
+// orden guardada en sessionStorage para reanudar el seguimiento si se recarga la página
+const ENM = AHORA_O.getTime();
+const ok1 = E.leerOrdenGuardada(JSON.stringify({ id: 'abc', tipo: 'bot-pausar', en: ENM - 120000 }), AHORA_O);
+assert(ok1 && ok1.id === 'abc' && ok1.tipo === 'bot-pausar', 'orden guardada de hace 2 min: se retoma');
+assert(E.leerOrdenGuardada(JSON.stringify({ id: 'abc', tipo: 'bot-pausar', en: ENM - 12 * 60000 }), AHORA_O) === null, 'orden guardada de hace 12 min: ya venció, no se retoma');
+assert(E.leerOrdenGuardada('{no es json', AHORA_O) === null && E.leerOrdenGuardada(null, AHORA_O) === null && E.leerOrdenGuardada(JSON.stringify({ tipo: 'x', en: ENM }), AHORA_O) === null && E.leerOrdenGuardada(JSON.stringify({ id: 'a', tipo: 'x', en: 'ayer' }), AHORA_O) === null, 'orden guardada rota o incompleta: se ignora');
+
+// ritmo de consulta: rápido solo si hace falta, lento en reposo, más lento con errores, quieto con la pestaña oculta
+const I = E.intervaloSondeo;
+assert(I({ visible: false }) === null && I({ visible: false, pendiente: true }) === null, 'pestaña oculta: no se consulta (null)');
+assert(I({ mirando: false }) === 30000 && I({ mirando: true }) === 10000 && I() === 10000, 'reposo 30 s, mirando 10 s');
+assert(I({ pendiente: true, edadPendienteMs: 0 }) === 4000 && I({ pendiente: true, edadPendienteMs: 59999 }) === 4000, 'orden pendiente, primer minuto: 4 s');
+assert(I({ pendiente: true, edadPendienteMs: 60000 }) === 8000 && I({ pendiente: true, edadPendienteMs: 179999 }) === 8000 && I({ pendiente: true, edadPendienteMs: 180000 }) === 15000 && I({ pendiente: true, edadPendienteMs: 9e6 }) === 15000, 'orden pendiente: 8 s hasta los 3 min y 15 s después');
+assert(I({ pendiente: true, mirando: false, edadPendienteMs: 0 }) === 4000, 'con una orden pendiente se consulta rápido aunque no toque la pantalla');
+assert([0, 1, 2, 3].map((e) => I({ mirando: true, errores: e })).join() === '10000,20000,40000,80000', 'cada error seguido duplica la espera');
+assert(I({ mirando: true, errores: 4 }) === 120000 && I({ mirando: false, errores: 3 }) === 120000 && I({ mirando: false, errores: 99 }) === 120000, 'la espera por errores nunca pasa de 2 minutos');
+assert(I({ errores: -3 }) === 10000 && I({ errores: 'x' }) === 10000 && I({ pendiente: true, edadPendienteMs: 'x' }) === 4000, 'valores raros no rompen el cálculo');
+// en reposo son 120 consultas por hora (2 por minuto), muy lejos del tope de 300 cada 15 min que comparte con la PC
+assert(3600000 / I({ mirando: false }) === 120, 'en reposo: 120 consultas por hora');
+
+// último estado conocido para la pantalla sin conexión: solo lo mínimo
+const snap = E.instantaneaOffline({ pcs: [{ nombre: 'Caja', bot: 'conectado', ultimoHeartbeat: '2026-11-17T14:59:00Z', resumen: { ingresosMes: 842500, clientes: 3 }, comandos: [orden('1', 'bot-pausar', 'hecho', 1)], deviceId: 'secreto' }] }, 123);
+assert(snap.v === 1 && snap.en === 123 && snap.pcs.length === 1 && snap.pcs[0].nombre === 'Caja' && snap.pcs[0].titulo === 'Atendiendo' && snap.pcs[0].tono === 'ok', 'el estado guardado tiene el nombre y cómo está el bot');
+assert(!/842500|ingresosMes|clientes|deviceId|secreto|comandos/.test(JSON.stringify(snap)), 'el estado guardado NO lleva números del negocio, ids ni órdenes');
+assert(E.instantaneaOffline(null, 1).pcs.length === 0 && E.CLAVE_ULTIMO_ESTADO === 'akira.celular.ultimoEstado', 'sin estado: lista vacía; la clave es la que lee offline.js');
+
 // la app web del celular usa la misma lógica (copia en frontend/src/lib/estadoMovil.js): tienen que dar lo mismo
 (async () => {
   const W = await import('file:///' + require('path').resolve(__dirname, '../../frontend/src/lib/estadoMovil.js').split('\\').join('/'));
@@ -57,5 +111,15 @@ assert(vigenciaResumen(null, null, AHORA).conocido === false && avisoResumen(vig
     const a = vigenciaResumen(r, en, AHORA); const b = W.vigenciaResumen(r, en, AHORA);
     assert(JSON.stringify(a) === JSON.stringify(b) && avisoResumen(a, en, AHORA) === W.avisoResumen(b, en, AHORA) && JSON.stringify(lineasResumen(r, a)) === JSON.stringify(W.lineasResumen(r, b)), `la app nativa y la web del celular muestran lo mismo (${en || 'sin datos'})`);
   }
+  // lo nuevo también tiene que dar lo mismo en las dos copias
+  const casos = [
+    ['ordenesRecientes', [pcO, AHORA_O]], ['ordenesPendientes', [[pcO], AHORA_O]], ['mensajeOrden', ['bot-pausar', 'pendiente', 95000]], ['mensajeOrden', ['vacaciones-on', 'hecho']],
+    ['mensajeOrden', ['bot-pausar', 'vencido']], ['estadoEfectivoOrden', [orden('a', 'bot-pausar', 'pendiente', 11), AHORA_O]], ['horaCorta', [d0.toISOString(), hoyDespues]],
+    ['leerOrdenGuardada', [JSON.stringify({ id: 'abc', tipo: 'bot-pausar', en: ENM - 120000 }), AHORA_O]], ['instantaneaOffline', [{ pcs: [{ nombre: 'Caja', bot: 'caido', motivo: 'sesion' }] }, 5]],
+  ];
+  for (const [f, args] of casos) assert(JSON.stringify(E[f](...args)) === JSON.stringify(W[f](...args)), `la app nativa y la web dan lo mismo en ${f}`);
+  for (const o of [{}, { visible: false }, { mirando: false }, { pendiente: true, edadPendienteMs: 70000 }, { errores: 3 }, { pendiente: true, errores: 9, edadPendienteMs: 1e7 }]) assert(E.intervaloSondeo(o) === W.intervaloSondeo(o), `la app nativa y la web dan el mismo intervalo (${JSON.stringify(o)})`);
+  assert(JSON.stringify(E.SONDEO) === JSON.stringify(W.SONDEO) && E.VENCE_ORDEN_MS === W.VENCE_ORDEN_MS && E.AVISO_ORDEN_LENTA_MS === W.AVISO_ORDEN_LENTA_MS && E.CLAVE_ULTIMO_ESTADO === W.CLAVE_ULTIMO_ESTADO, 'las constantes nuevas son iguales en las dos copias');
   console.log('\n✅ mobile/estado OK\n');
+  require('./producto-celular.test.js'); // pantalla Productos (cámara, linterna, borrador): mismo comando `npm test`
 })().catch((e) => { console.error(e.message); process.exit(1); });

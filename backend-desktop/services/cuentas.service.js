@@ -12,6 +12,7 @@
 const validator = require('validator');
 const S = require('../lib/seguridad-cuentas');
 const { mensajeEspera } = require('../lib/limite');
+const { esAutorreferido } = require('../lib/referidos');
 
 const HORA = 3600e3, DIA = 24 * HORA;
 const GENERICO_REENVIO = 'Si ese email tiene una cuenta pendiente de confirmar, te enviamos un código nuevo.';
@@ -87,7 +88,13 @@ function crearCuentas({ User, Referido, Log, enviarCodigo, limitar, secreto, log
     } else {
       if (!process.env.JWT_SECRET || String(process.env.JWT_SECRET).startsWith('cambia_esto')) return err(500, 'El servidor no está configurado correctamente.');
       const codigoUsado = String(b.codigoReferidoUsado || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 20);
-      const referente = codigoUsado ? await User.findOne({ codigoReferido: codigoUsado }).lean() : null;
+      let referente = codigoUsado ? await User.findOne({ codigoReferido: codigoUsado }).lean() : null;
+      // Autorreferido (el mismo email con otro alias, p. ej. a.na+1@gmail.com refiriéndose a ana@gmail.com): simplemente no se aplica el referido,
+      // sin ningún error visible; la cuenta se crea igual, sin descuento ni comisión.
+      if (referente && esAutorreferido(email, referente.email)) {
+        logger.warn && logger.warn('[Cuentas] autorreferido ignorado: ' + String(referente._id));
+        referente = null;
+      }
       user = await User.create({
         nombre: n.valor, apellido: a.valor, email, password: p.valor, celular: c.valor, pais, auth_provider: 'local',
         codigoReferido: await User.generarCodigoUnico(n.valor), codigoReferidoUsado: referente ? codigoUsado : '', descuentoReferido: referente ? 5000 : 0,

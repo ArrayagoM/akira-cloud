@@ -67,7 +67,7 @@ function generarLicenseToken({ userId, deviceId, plan, features, slotsMax }) {
 function verificarLicenseToken(token) {
   const secret = (process.env.LICENSE_JWT_SECRET || '').trim();
   if (!secret) throw new Error('LICENSE_JWT_SECRET no configurado');
-  return jwt.verify(token, secret); // lanza si expiró o es inválido
+  return jwt.verify(token, secret, { algorithms: ['HS256'] }); // lanza si expiró o es inválido (solo HS256, que es como se firma: ver generarLicenseToken)
 }
 
 module.exports = {

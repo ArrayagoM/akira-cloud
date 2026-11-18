@@ -7,13 +7,13 @@ import toast from 'react-hot-toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, WifiOff,
          Clock, AlertCircle, PauseCircle, PlayCircle, Plus, Trash2, Phone, Edit3, Check, X } from 'lucide-react';
-import OnboardingChecklist from '../components/OnboardingChecklist';
 import InstalarApp from '../components/InstalarApp';
 import ReferralCard from '../components/ReferralCard';
 import ResumenWebCard from '../components/ResumenWebCard';
 import AlertasCard from '../components/AlertasCard';
 import ResumenDiarioCard from '../components/ResumenDiarioCard';
 import PrimerosPasos from '../components/PrimerosPasos';
+import AvisoRespaldo from '../components/AvisoRespaldo';
 import { usePerfil } from '../services/perfil';
 import CelularCard from '../components/CelularCard';
 import { vigenciaTrial } from '../lib/pruebaGratis';
@@ -419,8 +419,8 @@ export default function Dashboard() {
         {/* Guía de instalación de la app (solo web; se oculta cuando ya está instalada) */}
         {!import.meta.env.VITE_DESKTOP && <InstalarApp compacto />}
 
-        {/* Checklist de onboarding */}
-        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <OnboardingChecklist user={user} botStatus={botStatus} />}
+        {/* Primeros pasos (una sola guía) */}
+        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <PrimerosPasos botConectado={botStatus.conectado} />}
 
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 animate-fade-up">
@@ -449,6 +449,9 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Aviso de respaldo (solo escritorio y solo el propietario; no escribe nada, solo avisa) */}
+        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <AvisoRespaldo />}
 
         {/* Alertas */}
         {user?.plan === 'trial' && user?.rol !== 'admin' && (
@@ -482,7 +485,6 @@ export default function Dashboard() {
             accentBg={botStatus.conectado ? 'rgba(0,232,123,0.08)' : 'rgba(74,98,120,0.15)'} />
         </div>
 
-        {(!perfilEquipo || perfilEquipo.rol === 'propietario') && <PrimerosPasos botConectado={botStatus.conectado} />}
         <ResumenDiarioCard />
         <AlertasCard />
         <CelularCard />

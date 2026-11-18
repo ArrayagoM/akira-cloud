@@ -15,6 +15,7 @@ import AdminUso from '../components/AdminUso';
 import AdminIngresos from '../components/AdminIngresos';
 import AdminDescargas from '../components/AdminDescargas';
 import AdminCuentasSospechosas from '../components/AdminCuentasSospechosas';
+import AdminEquipos from '../components/AdminEquipos';
 
 // ── Tarjeta de stat admin ────────────────────────────────────
 function AdminStat({ icon, label, value, color = 'text-white' }) {
@@ -104,6 +105,9 @@ function UserModal({ user, onClose, onAction }) {
               <span className="text-gray-500 text-xs">{new Date(user.createdAt).toLocaleDateString('es-AR')}</span>
             </div>
           </div>
+
+          {/* Equipos (solo lectura): PC, versión, canal, último latido, estado del bot y último error de licencia */}
+          <AdminEquipos userId={user._id} />
 
           <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
             {/* Cambiar contraseña */}

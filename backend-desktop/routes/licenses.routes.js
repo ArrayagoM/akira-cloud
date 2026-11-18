@@ -10,6 +10,7 @@ const User = require('../models/User');
 const Device = require('../models/Device');
 const Log = require('../models/Log');
 const { requireAuth } = require('../middleware/auth');
+const { versionesDeEntorno } = require('../lib/version-app');
 const { featuresDePlan } = require('../config/planes');
 const {
   planEfectivo,
@@ -96,7 +97,7 @@ router.post('/activate', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/heartbeat', requireAuth, async (req, res) => {
   try {
-    const { deviceId, version, resumen, estadoBot, uso } = req.body;
+    const { deviceId, version, resumen, estadoBot, uso, ultimoError } = req.body;
     if (!deviceId) return res.status(400).json({ error: 'Falta deviceId' });
 
     const user = req.user;
@@ -113,6 +114,15 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
     device.ultimoHeartbeat = new Date();
     const { sanearResumen, sanearVersion } = require('../lib/resumen-negocio');
     const ver = sanearVersion(version); if (ver) device.version = ver;
+    // Datos opcionales del escritorio (cabeceras x-akira-version / x-akira-canal y `ultimoError`; ver lib/version-app.js).
+    // Si faltan o vienen mal formados se ignoran: jamás deben hacer fallar el latido ni cambiar el control de licencia.
+    try {
+      const va = require('../lib/version-app');
+      const cab = va.leerCabeceras(req.headers);
+      if (!ver && cab.version) device.version = cab.version;   // la versión del cuerpo manda; la cabecera es el respaldo
+      if (cab.canal) device.canal = cab.canal;
+      if (ultimoError !== undefined) { const ue = va.sanearUltimoError(ultimoError); if (ue) device.ultimoErrorLicencia = ue; }
+    } catch (e) { logger.warn('[Licenses] datos opcionales del latido: ' + e.message); }
     // resumen === null → el usuario lo desactivó en la app: se borra lo que hubiera en el servidor.
     if (resumen === null) { device.resumen = null; device.resumenEn = null; }
     else if (resumen !== undefined) { const r = sanearResumen(resumen); if (r) { device.resumen = r; device.resumenEn = new Date(); } }
@@ -139,7 +149,8 @@ router.post('/heartbeat', requireAuth, async (req, res) => {
     const slotsMax = slotsMaxDePlan(planE);
     const licenseToken = generarLicenseToken({ userId: user._id, deviceId, plan: planE, features, slotsMax });
 
-    res.json({ licenseToken, plan: planE, features, slotsMax, expira, vigente: true });
+    // versionMinima / versionRecomendada: informativas (variables de entorno opcionales), null si no están definidas. No bloquean a nadie.
+    res.json({ licenseToken, plan: planE, features, slotsMax, expira, vigente: true, ...versionesDeEntorno() });
   } catch (err) {
     logger.error('[Licenses] heartbeat error: ' + err.message);
     res.status(500).json({ error: 'Error al renovar la licencia' });

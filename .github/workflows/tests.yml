@@ -1,0 +1,111 @@
+# Corre las pruebas de Akira en cada push y en cada pull request. NO publica nada, NO usa secretos ni variables del repositorio
+# y ninguna prueba necesita internet ni una base de datos real (las URI de Mongo que aparecen en las pruebas apuntan a localhost
+# y no se conectan). Si una prueba empieza a necesitar red o un secreto, hay que sacarla de acá o hacerla hermética.
+# Los tres armados que ya existían (android.yml, mac.yml, windows-store.yml) siguen siendo manuales y no se tocan.
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+
+# Permisos mínimos: este flujo solo lee el código.
+permissions:
+  contents: read
+
+# Si llega un push nuevo a la misma rama, se cancela la corrida anterior.
+concurrency:
+  group: pruebas-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Servidor de licencias/cuentas (el que se despliega en Vercel) y backend del bot: Linux, igual que producción.
+  servidores:
+    name: Pruebas de ${{ matrix.paquete }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        paquete: [backend-desktop, backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.paquete }}/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: ${{ matrix.paquete }}
+        run: npm ci
+
+      - name: Correr las pruebas
+        working-directory: ${{ matrix.paquete }}
+        run: npm test
+
+  # Programa de Windows: las pruebas corren bajo Electron (como Node, sin ventana), por eso va en Windows, igual que el armado de la Store.
+  desktop:
+    name: Pruebas de desktop (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: desktop
+        run: npm ci
+
+      # better-sqlite3 viene compilado para Node y las pruebas corren con el Electron de la app: hay que recompilarlo
+      # (en el armado real lo hace electron-builder al empaquetar).
+      - name: Preparar los módulos nativos para Electron
+        working-directory: desktop
+        run: npx electron-builder install-app-deps
+
+      - name: Correr las pruebas
+        working-directory: desktop
+        run: npm test
+
+  # App del celular: la prueba es de lógica pura y corre con Node solo, sin instalar Expo.
+  mobile:
+    name: Pruebas de mobile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Correr las pruebas
+        working-directory: mobile
+        run: node tests/estado.test.js
+
+  # Web: no tiene pruebas, pero tiene que compilar.
+  frontend:
+    name: Compilar la web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Compilar
+        working-directory: frontend
+        run: npm run build

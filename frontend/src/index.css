@@ -15,7 +15,7 @@
   --accent-glow:rgba(0,232,123,0.22);
   --text:      #e8f0f8;
   --text2:     #8fa5bc;
-  --muted:     #4a6278;
+  --muted:     #7a90a7; /* antes #4a6278 (contraste 2.4:1 a 3.1:1). Ahora 4.6:1 a 6.0:1 sobre --bg/--surface/--surface2/--surface3 (AA). Probado en desktop/tests/contraste.test.js */
   --red:       #f43f5e;
   --yellow:    #f59e0b;
   --blue:      #3b82f6;

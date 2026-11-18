@@ -13,22 +13,38 @@ const { slotsMaxDePlan, calcularVigencia, planEfectivo } = require('../services/
 const { registrarMensajeYVerificarCupo, registrarDiaDeUsoTrial } = require('../services/quota.service');
 const logger = require('../config/logger');
 const MpEvento = require('../models/MpEvento');
+const { consumir } = require('../lib/limite');
+
+// Topes del webhook público de Mercado Pago (no lleva firma): sin esto cualquiera podía mandar eventos falsos a nombre de un userId
+// y llenar la cola de ese cliente. Valen para todas las instancias (contadores en la base, lib/limite.js).
+//  · Por IP: Mercado Pago avisa desde pocas IPs por TODOS los clientes, así que el tope es holgado; frena a quien inunda varios userId desde una IP.
+//  · Por userId: un negocio real recibe pocos avisos por minuto (cada pago manda 2-3); frena a quien inunda un solo cliente desde muchas IP.
+// Pasado el tope el evento se descarta en silencio (la respuesta es la misma 200) y se avisa UNA vez por ventana en el log.
+const TOPE_WEBHOOK_IP = { max: 3000, ventanaMs: 10 * 60e3 }; // MP avisa desde pocas IPs por todos los clientes: el tope fino es por userId (abajo); este solo frena una inundación masiva
+const TOPE_WEBHOOK_USUARIO = { max: 100, ventanaMs: 10 * 60e3 };
 
 // POST /api/bot/webhook-mp/:userId — PÚBLICO (lo llama MercadoPago, sin JWT).
 // Solo encola el evento; el pago se verifica contra la API de MP en la PC
 // del cliente. Respuesta 200 inmediata (requisito de MP).
 router.post('/webhook-mp/:userId', async (req, res) => {
-  res.sendStatus(200);
+  // Se procesa ANTES de responder (en Vercel la función puede congelarse al responder y el evento se perdería); siempre se contesta 200,
+  // con o sin evento guardado, para no darle pistas a quien prueba la ruta.
   try {
     const { userId } = req.params;
     const p = req.body;
     if (!/^[a-f0-9]{24}$/i.test(userId)) return;
     if (p?.type !== 'payment' || !p?.data?.id) return;
+    const porIp = await consumir(`wh:ip:${req.ip || 'desconocida'}`, TOPE_WEBHOOK_IP);
+    if (!porIp.ok) { if (porIp.n === TOPE_WEBHOOK_IP.max + 1) logger.warn('[BotGate] webhook-mp: tope por IP superado, se descartan eventos'); return; }
+    const porUsuario = await consumir(`wh:u:${userId.toLowerCase()}`, TOPE_WEBHOOK_USUARIO);
+    if (!porUsuario.ok) { if (porUsuario.n === TOPE_WEBHOOK_USUARIO.max + 1) logger.warn(`[BotGate] webhook-mp: tope por usuario superado (${userId}), se descartan eventos`); return; }
     const pendientes = await MpEvento.countDocuments({ userId });
     if (pendientes > 200) return; // tope anti-abuso
     await MpEvento.create({ userId, payload: { type: p.type, action: p.action, data: { id: String(p.data.id) } } });
   } catch (err) {
     logger.error('[BotGate] webhook-mp error: ' + err.message);
+  } finally {
+    res.sendStatus(200);
   }
 });
 

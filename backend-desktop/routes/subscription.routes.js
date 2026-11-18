@@ -10,6 +10,7 @@ const Log     = require('../models/Log');
 const Pago    = require('../models/Pago');
 const { requireAuth } = require('../middleware/auth');
 const logger  = require('../config/logger');
+const { responderError } = require('../lib/errores');
 
 // ── Planes ────────────────────────────────────────────────────
 // Precios en lib/cobro.js (una sola fuente). El anual es 12 meses con 20 % de descuento sobre el mensual.
@@ -95,7 +96,7 @@ router.get('/mi-suscripcion', requireAuth, async(req,res)=>{
         return Math.max(0,Math.ceil((exp-new Date())/86400000));
       })(),
     });
-  }catch(err){ res.status(500).json({ error:err.message }); }
+  }catch(err){ responderError(res, 'SUB GET /mi-suscripcion', err); }
 });
 
 // ── Funciones puras del sistema de referidos — separadas para poder
@@ -235,11 +236,14 @@ router.post('/checkout', requireAuth, async(req,res)=>{
     // ── Log de diagnóstico ─────────────────────────────────────
     logger.info(`[SUB] Checkout request | user:${req.user.email} | planId:${planId}`);
     logger.info(`[SUB] ENV | BACKEND_URL="${process.env.BACKEND_URL}" | FRONTEND_URL="${process.env.FRONTEND_URL}"`);
-    logger.info(`[SUB] ENV | MP_TOKEN=${process.env.MP_PLATFORM_ACCESS_TOKEN ? 'OK ('+process.env.MP_PLATFORM_ACCESS_TOKEN.slice(0,20)+'...)' : 'FALTA'}`);
+    logger.info(`[SUB] ENV | MP_TOKEN=${process.env.MP_PLATFORM_ACCESS_TOKEN ? 'OK' : 'FALTA'}`);   // nunca se loguea ni un pedazo del token
 
     if(!planId)          return res.status(400).json({ error:'Falta el campo plan' });
     if(!PLANES[planId])  return res.status(400).json({ error:`Plan inválido. Opciones: ${Object.keys(PLANES).join(', ')}` });
-    if(!process.env.MP_PLATFORM_ACCESS_TOKEN) return res.status(503).json({ error:'Credenciales de MercadoPago no configuradas. Agregá MP_PLATFORM_ACCESS_TOKEN en .env' });
+    if(!process.env.MP_PLATFORM_ACCESS_TOKEN){
+      logger.error('[SUB] Falta MP_PLATFORM_ACCESS_TOKEN: no se puede crear el pago');
+      return res.status(503).json({ error:'El cobro no está disponible en este momento. Intentá de nuevo más tarde.' });
+    }
 
     const plan = PLANES[planId];
 
@@ -265,11 +269,8 @@ router.post('/checkout', requireAuth, async(req,res)=>{
 
     if(!backendOk){
       logger.error(`[SUB] BACKEND_URL inválida: "${backendUrl}"`);
-      return res.status(503).json({
-        error: `BACKEND_URL inválida ("${backendUrl}"). ` +
-               'Debe ser una URL pública HTTPS de ngrok. ' +
-               'Ejemplo: BACKEND_URL=https://abc123.ngrok-free.app',
-      });
+      // El detalle (qué URL está mal) va solo al log: al cliente no se le cuenta cómo está configurado el servidor.
+      return res.status(503).json({ error:'El cobro no está disponible en este momento. Intentá de nuevo más tarde.' });
     }
 
     // SIEMPRE usamos el endpoint /return del backend como intermediario.
@@ -291,7 +292,7 @@ router.post('/checkout', requireAuth, async(req,res)=>{
       try{ new URL(url); }
       catch(e){
         logger.error(`[SUB] URL inválida para ${nombre}: "${url}"`);
-        return res.status(500).json({ error:`URL inválida para ${nombre}: "${url}". Verificá BACKEND_URL en .env` });
+        return res.status(500).json({ error:'No se pudo preparar el pago. Intentá de nuevo en un momento.' });
       }
     }
 
@@ -336,11 +337,7 @@ router.post('/checkout', requireAuth, async(req,res)=>{
   }catch(err){
     logger.error(`[SUB] ❌ Error checkout: ${err.message}`);
     if(err.mpResponse) logger.error('[SUB] MP Response:', JSON.stringify(err.mpResponse));
-    res.status(500).json({
-      error: process.env.NODE_ENV==='production'
-        ? 'Error al generar el pago. Intentá de nuevo.'
-        : err.message,
-    });
+    res.status(500).json({ error:'Error al generar el pago. Intentá de nuevo.' });   // el detalle ya quedó en el log (antes, fuera de producción, se devolvía err.message)
   }
 });
 
@@ -430,8 +427,7 @@ router.post('/verificar-pago', requireAuth, async(req,res)=>{
     logger.info(`[SUB Verificar] ✅ Plan ${planKey} activado para ${userId}`);
     res.json({ ok: true, plan: planKey, expira: r.expira, msg: `Plan ${planInfo.nombre} activado` });
   } catch(err) {
-    logger.error('[SUB Verificar] Error:', err.message);
-    res.status(500).json({ error: err.message });
+    responderError(res, 'SUB Verificar', err, { mensaje: 'No se pudo verificar el pago. Intentá de nuevo en un momento.' });
   }
 });
 

@@ -8,6 +8,7 @@
 const router = require('express').Router();
 const logger = require('../config/logger');
 const descargas = require('../lib/descargas');
+const { versionesDeEntorno } = require('../lib/version-app');
 
 // Anota la descarga para el contador del panel de administración. Nunca demora ni rompe la descarga: si algo falla, se descarga igual.
 // (En Vercel hay que esperar el guardado antes de responder, por eso lleva un tope de tiempo corto.)
@@ -55,6 +56,8 @@ router.get('/latest', (_req, res) => {
     url: urlInstalador() ? `${base}/api/desktop/download` : null,
     sizeMB: parseInt(process.env.DESKTOP_SIZE_MB, 10) || null,
     plataforma: 'windows',
+    // Informativos (DESKTOP_VERSION_MINIMA / DESKTOP_VERSION_RECOMENDADA): null si no están definidas. No bloquean nada.
+    ...versionesDeEntorno(),
     // Mac: solo se ofrece lo que ya está subido (cada enlace sale de una variable de entorno).
     android: {
       disponible: !!urlAndroid(),

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, Fragment } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, Fragment } from 'react';
+import { guardarScrollMenu, leerScrollMenu, scrollParaVerItem } from '../lib/menuScroll';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -61,6 +62,16 @@ export default function Layout({ children }) {
   const navigate          = useNavigate();
   const [dropOpen, setDropOpen] = useState(false);
   const dropRef = useRef(null);
+  const navRef = useRef(null);
+  // Menú lateral: al montarse (por ejemplo después de cambiar de perfil, que desmonta toda la app) vuelve a donde estaba, y la pantalla
+  // actual siempre queda a la vista. Antes el menú volvía arriba del todo y había que bajar hasta Caja de nuevo.
+  useLayoutEffect(() => {
+    const nav = navRef.current; if (!nav) return;
+    nav.scrollTop = leerScrollMenu();
+    const act = nav.querySelector('[data-activo="true"]'); if (!act) return;
+    const navRect = nav.getBoundingClientRect(); const itemRect = act.getBoundingClientRect();
+    nav.scrollTop = scrollParaVerItem({ actual: nav.scrollTop, altoVisible: nav.clientHeight, itemTop: itemRect.top - navRect.top + nav.scrollTop, itemAlto: itemRect.height });
+  }, [location.pathname]);
 
   // Documentos por revisar (solo escritorio): se consulta cada 30 s y al navegar.
   const perfil = usePerfil();
@@ -120,7 +131,7 @@ export default function Layout({ children }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
+        <nav ref={navRef} onScroll={(e) => guardarScrollMenu(e.currentTarget.scrollTop)} className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
           {navItems.map((item, i) => {
             const Icon  = item.icon;
             const active = isActive(item.to);
@@ -128,7 +139,7 @@ export default function Layout({ children }) {
             return (
               <Fragment key={item.to}>
               {titulo && <p className={`px-3 text-[10px] uppercase tracking-widest text-gray-600 ${i === 0 ? 'mt-0' : 'mt-3'} mb-0.5`}>{titulo}</p>}
-              <Link to={item.to}
+              <Link to={item.to} data-activo={active ? 'true' : undefined}
                 className="relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
                 style={{
                   color: active ? 'var(--accent)' : 'var(--text2)',

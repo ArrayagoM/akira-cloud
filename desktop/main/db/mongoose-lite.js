@@ -64,7 +64,9 @@ function aplicarOperador(actual, op, val) {
     case '$exists': return val ? actual !== undefined : actual === undefined;
     case '$regex': return typeof actual === 'string' && new RegExp(val instanceof RegExp ? val.source : String(val), val instanceof RegExp ? val.flags : (arguments[3] || '')).test(actual);
     case '$options': return true; // se consume junto con $regex
-    default: return true; // operador no contemplado: no filtra (preferible a romper la query entera)
+    // Operador no soportado: antes devolvía true y la query matcheaba TODO sin avisar (un filtro mal armado listaba/borraba/actualizaba de más).
+    // Ahora falla fuerte. Inventario al 17/11/2026: todo el código de desktop/main solo usa los operadores de arriba y ningún test llega acá.
+    default: throw new Error(`mongoose-lite: operador de consulta no soportado: ${op}`);
   }
 }
 
@@ -82,6 +84,7 @@ function coincide(doc, query) {
       if (!v.every((sub) => coincide(doc, sub))) return false;
       continue;
     }
+    if (k.startsWith('$')) throw new Error(`mongoose-lite: operador de consulta no soportado: ${k}`); // ningún campo real empieza con "$" ($or y $and ya se resolvieron arriba)
     const actual = k === '_id' ? doc._id : getPath(doc, k);
     if (v instanceof RegExp) {
       if (typeof actual !== 'string' || !v.test(actual)) return false;

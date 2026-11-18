@@ -1,58 +1,67 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+import { conReintentoDeCarga } from './lib/cargaPerezosa';
+import SinConexion from './components/SinConexion';
 
-// Pages
+// Pages (paquete inicial)
 import Landing           from './pages/Landing';
 import Login             from './pages/Login';
 import Register          from './pages/Register';
 import OAuthCallback     from './pages/OAuthCallback';
-import Dashboard         from './pages/Dashboard';
-import ConfigPage        from './pages/ConfigPage';
-import AgendaPage        from './pages/AgendaPage';
-import AdminPanel        from './pages/AdminPanel';
 import PlanesPage        from './pages/PlanesPage';
 import NotFound          from './pages/NotFound';
 import Privacidad        from './pages/Privacidad';
 import Terminos          from './pages/Terminos';
-import Documentacion     from './pages/Documentacion';
 import ForgotPassword    from './pages/ForgotPassword';
 import ResetPassword     from './pages/ResetPassword';
-import SugerenciasPage   from './pages/SugerenciasPage';
-import ChatsPage         from './pages/ChatsPage';
-import ClientesPage      from './pages/ClientesPage';
-import DocumentosPage    from './pages/DocumentosPage';
-import CatalogoPage      from './pages/CatalogoPage';
-import CajaPage          from './pages/CajaPage';
-import DeudoresPage      from './pages/DeudoresPage';
-import RespaldoPage      from './pages/RespaldoPage';
-import ConocimientoPage  from './pages/ConocimientoPage';
-import PedidosPage       from './pages/PedidosPage';
-import ReportesPage      from './pages/ReportesPage';
-import ComprobantesPage  from './pages/ComprobantesPage';
-import EquipoPage        from './pages/EquipoPage';
-import ProfesionalesPage from './pages/ProfesionalesPage';
-import SucursalesPage    from './pages/SucursalesPage';
-import IntegracionesPage from './pages/IntegracionesPage';
-import MarketingPage from './pages/MarketingPage';
-import AyudaPage         from './pages/AyudaPage';
-import VenderPage        from './pages/VenderPage';
 import PerfilGate        from './components/PerfilGate';
-import AnalisisPage      from './pages/AnalisisPage';
-import ProveedoresPage   from './pages/ProveedoresPage';
-import Descargar         from './pages/Descargar';
-import CelularPage       from './pages/CelularPage';
-import CuentaPanel       from './pages/CuentaPanel';
 import PreLanzamiento, { LAUNCH_DATE } from './pages/PreLanzamiento';
+
+// Carga diferida: cada pantalla de la app (ya con sesión) se descarga recién al entrar. La landing, el ingreso, el registro,
+// el retorno de OAuth, los planes y las páginas legales siguen en el paquete inicial.
+const perezosa = (importador) => lazy(() => conReintentoDeCarga(importador));
+
+// Pages (carga diferida)
+const Dashboard         = perezosa(() => import('./pages/Dashboard'));
+const ConfigPage        = perezosa(() => import('./pages/ConfigPage'));
+const AgendaPage        = perezosa(() => import('./pages/AgendaPage'));
+const AdminPanel        = perezosa(() => import('./pages/AdminPanel'));
+const Documentacion     = perezosa(() => import('./pages/Documentacion'));
+const SugerenciasPage   = perezosa(() => import('./pages/SugerenciasPage'));
+const ChatsPage         = perezosa(() => import('./pages/ChatsPage'));
+const ClientesPage      = perezosa(() => import('./pages/ClientesPage'));
+const DocumentosPage    = perezosa(() => import('./pages/DocumentosPage'));
+const CatalogoPage      = perezosa(() => import('./pages/CatalogoPage'));
+const CajaPage          = perezosa(() => import('./pages/CajaPage'));
+const DeudoresPage      = perezosa(() => import('./pages/DeudoresPage'));
+const RespaldoPage      = perezosa(() => import('./pages/RespaldoPage'));
+const ConocimientoPage  = perezosa(() => import('./pages/ConocimientoPage'));
+const PedidosPage       = perezosa(() => import('./pages/PedidosPage'));
+const ReportesPage      = perezosa(() => import('./pages/ReportesPage'));
+const ComprobantesPage  = perezosa(() => import('./pages/ComprobantesPage'));
+const EquipoPage        = perezosa(() => import('./pages/EquipoPage'));
+const ProfesionalesPage = perezosa(() => import('./pages/ProfesionalesPage'));
+const SucursalesPage    = perezosa(() => import('./pages/SucursalesPage'));
+const IntegracionesPage = perezosa(() => import('./pages/IntegracionesPage'));
+const MarketingPage     = perezosa(() => import('./pages/MarketingPage'));
+const AyudaPage         = perezosa(() => import('./pages/AyudaPage'));
+const VenderPage        = perezosa(() => import('./pages/VenderPage'));
+const AnalisisPage      = perezosa(() => import('./pages/AnalisisPage'));
+const ProveedoresPage   = perezosa(() => import('./pages/ProveedoresPage'));
+const Descargar         = perezosa(() => import('./pages/Descargar'));
+const CelularPage       = perezosa(() => import('./pages/CelularPage'));
+const CuentaPanel       = perezosa(() => import('./pages/CuentaPanel'));
 // ── Páginas verticales por nicho (SEO) ─────────────────────
-import Peluquerias       from './pages/Peluquerias';
-import Consultorios      from './pages/Consultorios';
-import Gimnasios         from './pages/Gimnasios';
-import Alquileres        from './pages/Alquileres';
-import Restaurantes      from './pages/Restaurantes';
+const Peluquerias       = perezosa(() => import('./pages/Peluquerias'));
+const Consultorios      = perezosa(() => import('./pages/Consultorios'));
+const Gimnasios         = perezosa(() => import('./pages/Gimnasios'));
+const Alquileres        = perezosa(() => import('./pages/Alquileres'));
+const Restaurantes      = perezosa(() => import('./pages/Restaurantes'));
 // ── Blog ───────────────────────────────────────────────────
-import Blog              from './pages/Blog';
+const Blog              = perezosa(() => import('./pages/Blog'));
 
 // Versión de escritorio (build con VITE_DESKTOP=1)
 const DESKTOP = !!import.meta.env.VITE_DESKTOP;
@@ -88,8 +97,9 @@ function estaEnPreLanzamiento(user) {
 
 // ── Route guards ───────────────────────────────────────────
 function ProtectedRoute({ children, adminOnly = false }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sinConexion } = useAuth();
   if (loading) return <GlobalLoader />;
+  if (!user && sinConexion) return <SinConexion />; // hay sesión guardada pero no hay conexión: no se manda al login
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && user.rol !== 'admin') return <Navigate to="/dashboard" replace />;
   // Usuarios normales en pre-lanzamiento → pantalla de cuenta regresiva
@@ -98,8 +108,9 @@ function ProtectedRoute({ children, adminOnly = false }) {
 }
 
 function PublicRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sinConexion } = useAuth();
   if (loading) return null;
+  if (!user && sinConexion) return <SinConexion />;
   if (user) return <Navigate to="/dashboard" replace />;
   return children;
 }
@@ -109,6 +120,7 @@ export default function App() {
   return (
     <AuthProvider>
       <PerfilGate>
+      <Suspense fallback={<GlobalLoader />}>
       <Routes>
         {/* Públicas */}
         <Route path="/"               element={DESKTOP ? <Navigate to="/dashboard" replace /> : <Landing />} />
@@ -171,6 +183,7 @@ export default function App() {
 
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
       </PerfilGate>
       {/* Vercel Analytics & Speed Insights — solo registran en producción.
           En dev son no-op, no contaminan datos. */}

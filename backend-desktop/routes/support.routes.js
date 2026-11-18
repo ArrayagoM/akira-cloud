@@ -10,6 +10,7 @@ const SupportChat    = require('../models/SupportChat');
 const Config         = require('../models/Config');
 const supportService = require('../services/support.service');
 const logger         = require('../config/logger');
+const { consumirTopeDia, TOPES_IA, mensajeTope } = require('../lib/topes-ia');
 
 const auth = passport.authenticate('jwt', { session: false });
 
@@ -45,6 +46,13 @@ router.post(
 
       if (!groqApiKey) {
         return res.status(503).json({ error: 'Servicio de IA temporalmente no disponible' });
+      }
+
+      // Tope diario por usuario cuando se responde con la clave de la plataforma (quien usa la suya no nos cuesta nada).
+      // Si el limitador falla deja pasar y lo avisa en el log (lib/limite.js).
+      if (groqApiKey === (process.env.GROQ_PLATFORM_API_KEY || process.env.GROQ_API_KEY)) {
+        const tope = await consumirTopeDia('ia:soporte:u', String(usuario._id), TOPES_IA.soporteUsuarioDia);
+        if (!tope.ok) return res.status(429).json({ error: mensajeTope('consultas al soporte') });
       }
 
       // Generar respuesta

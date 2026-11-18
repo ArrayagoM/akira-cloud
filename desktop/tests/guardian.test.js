@@ -25,8 +25,9 @@ const ESTADO_OK = { plan: 'pro', features: {}, slotsMax: 1, vigente: true, expir
 // el heartbeat real también deja el estado vigente en memoria (guardarEstadoLicencia)
 const heartbeatOk = async () => { licenseClient.restaurarEstado(ESTADO_OK); return ESTADO_OK; };
 let heartbeat = heartbeatOk;
-licenseClient.heartbeat = () => heartbeat();
-const falla = (status, body) => async () => { const e = new Error('x'); e.status = status; e.body = body; throw e; };
+let ultimoCuerpo = null; // lo que el guardian le manda al servidor en el latido
+licenseClient.heartbeat = (extra) => { ultimoCuerpo = extra; return heartbeat(extra); };
+const falla = (status, body, extra = {}) => async () => { const e = new Error('detalle-interno-123'); e.status = status; e.body = body; Object.assign(e, extra); throw e; };
 
 (async () => {
   console.log('\n[guardian] Tests:');
@@ -78,6 +79,67 @@ const falla = (status, body) => async () => { const e = new Error('x'); e.status
   heartbeat = falla(401);
   await guardian._tick();
   assert(!guardian.estado().bloqueada && guardian.estado().aviso === 'sesion_expirada', '401 dentro de la gracia: avisa que hay que volver a ingresar, sin cortar el bot');
+
+  // ── 403 sin motivo conocido (firewall, error de despliegue): no frena los bots a la primera ──
+  const lineas = [];
+  heartbeat = heartbeatOk;
+  await guardian.iniciar({ userDataDir: dir, botService, emitir: () => {}, log: (...a) => lineas.push(a.join(' ')) });
+  guardian.detener();
+  assert(!guardian.estado().bloqueada && guardian.diagnostico().seguidos403 === 0, 'arranca limpio: sin bloqueo ni 403 seguidos');
+  const detenerAntes = llamadas.detener;
+  heartbeat = falla(403, { error: 'Respuesta inválida del servidor' });
+  await guardian._tick(); await guardian._tick();
+  assert(!guardian.estado().bloqueada && guardian.estado().aviso === 'sin_conexion' && llamadas.detener === detenerAntes, '403 sin motivo (1.º y 2.º): NO frena los bots y el aviso sigue siendo "sin_conexion" (la ventana no cambia)');
+  assert(guardian.diagnostico().seguidos403 === 2, 'cuenta los 403 seguidos');
+  await guardian._tick();
+  assert(guardian.estado().bloqueada && guardian.estado().motivo === 'suscripcion_vencida' && llamadas.detener === detenerAntes + 1, 'al 3.er 403 seguido sin motivo sí bloquea (mismo motivo que antes) y frena los bots');
+  heartbeat = heartbeatOk; await guardian._tick();
+  assert(!guardian.estado().bloqueada && guardian.diagnostico().seguidos403 === 0, 'una respuesta buena desbloquea y pone el contador en cero');
+
+  heartbeat = falla(403, {}); await guardian._tick(); await guardian._tick();
+  heartbeat = heartbeatOk; await guardian._tick();
+  heartbeat = falla(403); await guardian._tick(); await guardian._tick();
+  assert(!guardian.estado().bloqueada, 'una respuesta buena en el medio reinicia la cuenta: 2 + bien + 2 no bloquea');
+  heartbeat = heartbeatOk; await guardian._tick();
+
+  // los 403 reales del servidor siguen bloqueando YA (sin esperar 3), aunque haya 403 dudosos antes
+  heartbeat = falla(403, {}); await guardian._tick();
+  heartbeat = falla(403, { revocado: true }); await guardian._tick();
+  assert(guardian.estado().bloqueada && guardian.estado().motivo === 'equipo_revocado', '403 con revocado:true bloquea al instante, sin esperar 3');
+  heartbeat = heartbeatOk; await guardian._tick();
+  heartbeat = falla(403, { vigente: false }); await guardian._tick();
+  assert(guardian.estado().bloqueada && guardian.estado().motivo === 'suscripcion_vencida', '403 con vigente:false bloquea al instante');
+  heartbeat = heartbeatOk; await guardian._tick();
+  heartbeat = falla(403, { motivo: 'equipo_revocado' }); await guardian._tick();
+  assert(guardian.estado().motivo === 'equipo_revocado', '403 con motivo conocido (equipo_revocado) bloquea al instante');
+  heartbeat = heartbeatOk; await guardian._tick();
+  heartbeat = falla(403, { error: 'Cuenta bloqueada. Contactá al administrador.' }); await guardian._tick();
+  assert(guardian.estado().bloqueada, '403 de cuenta bloqueada (middleware de auth) también bloquea al instante, como antes');
+  heartbeat = heartbeatOk; await guardian._tick();
+  assert(!guardian.estado().bloqueada, 'y se recupera al volver a validar');
+
+  // ── motivo normalizado del fallo: queda en memoria, viaja en el SIGUIENTE latido bueno y se limpia ──
+  const motivoDe = async (fn) => { heartbeat = fn; await guardian._tick(); const u = guardian.diagnostico().ultimoError; heartbeat = heartbeatOk; await guardian._tick(); return u; };
+  const cInternet = await motivoDe(falla(undefined, undefined, { code: 'ENOTFOUND' }));
+  assert(cInternet.motivo === 'sin_internet' && cInternet.status === null && !isNaN(Date.parse(cInternet.en)), 'ENOTFOUND -> sin_internet {motivo, status, en ISO}');
+  assert((await motivoDe(falla(undefined, undefined, { code: 'ECONNREFUSED' }))).motivo === 'sin_internet', 'ECONNREFUSED -> sin_internet');
+  assert((await motivoDe(async () => { throw new Error('Timeout contactando el servidor de licencias'); })).motivo === 'timeout', 'timeout del cliente -> timeout');
+  const c502 = await motivoDe(falla(502, { error: 'Bad gateway' }));
+  assert(c502.motivo === 'servidor' && c502.status === 502, '5xx -> servidor (con su status)');
+  assert((await motivoDe(falla(401))).motivo === 'sesion', '401 -> sesion');
+  assert((await motivoDe(falla(403, {}))).motivo === 'bloqueo', '403 -> bloqueo');
+
+  heartbeat = falla(undefined, undefined, { code: 'ENOTFOUND' }); await guardian._tick();
+  assert(guardian.diagnostico().ultimoError.motivo === 'sin_internet', 'queda guardado en memoria el último error');
+  heartbeat = heartbeatOk; await guardian._tick();
+  assert(ultimoCuerpo.ultimoError && ultimoCuerpo.ultimoError.motivo === 'sin_internet' && ultimoCuerpo.ultimoError.status === null && !isNaN(Date.parse(ultimoCuerpo.ultimoError.en)), 'el siguiente latido bueno lo manda en el cuerpo bajo "ultimoError"');
+  assert(guardian.diagnostico().ultimoError === null, 'después de mandarlo lo limpia');
+  await guardian._tick();
+  assert(!('ultimoError' in ultimoCuerpo), 'el latido siguiente ya no lo repite');
+
+  // ── registro: status y motivo, sin datos sensibles ──
+  assert(lineas.some((l) => /status=403 motivo=bloqueo/.test(l)) && lineas.some((l) => /status=502 motivo=servidor/.test(l)) && lineas.some((l) => /motivo=sin_internet code=ENOTFOUND/.test(l)) && lineas.some((l) => /motivo=timeout/.test(l)), 'cada fallo queda en el registro con su status y su motivo normalizado');
+  assert(!lineas.some((l) => /detalle-interno-123|Bearer|Bad gateway|\btok\b/.test(l)), 'el registro no incluye mensajes del servidor ni el token');
 
   console.log('\n✅ Todos los tests de guardian pasaron.\n');
   process.exit(0);

@@ -338,7 +338,7 @@ if (!bloqueo) {
     // Revalida la licencia y reactiva los bots activos aunque nadie abra la ventana.
     require('./license/guardian')
       .iniciar({
-        userDataDir, botService, emitir: localApi.emitirAlUsuario,
+        userDataDir, botService, emitir: localApi.emitirAlUsuario, log, // log: que los fallos del latido queden en akira.log
         datosHeartbeat: async (userId) => ({
           ...(await require('./resumen-web').datosHeartbeat({ userDataDir, userId, botService, version: app.getVersion() })),
           ...(require('./uso-estadisticas').paraEnviar(userDataDir) !== undefined ? { uso: require('./uso-estadisticas').paraEnviar(userDataDir) } : {}), // estadísticas anónimas, solo si el usuario las activó

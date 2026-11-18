@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, ScanLine, X, Loader2, Sparkles } from 'lucide-react';
+import { Camera, ScanLine, X, Loader2, Sparkles, Flashlight, FlashlightOff } from 'lucide-react';
 import api from '../../services/api';
-import { reducirFoto, iniciarEscaner, ESTADOS_PRODUCTO } from '../../lib/productoCelular';
+import { reducirFoto, iniciarEscaner, ESTADOS_PRODUCTO, armarBorrador, leerBorrador, CLAVE_BORRADOR } from '../../lib/productoCelular';
+import { horaCorta } from '../../lib/estadoMovil';
+import useDialogo from './useDialogo';
+import useSondeo from './useSondeo';
 import { versionAlcanza, VERSION_MIN_PRODUCTOS } from '../../lib/versionPc';
 
 // Pestaña "Productos" de la app del celular: foto del producto + código de barras con la cámara + nombre, precio y datos para editar.
@@ -11,27 +14,51 @@ import { versionAlcanza, VERSION_MIN_PRODUCTOS } from '../../lib/versionPc';
 const VACIO = { nombre: '', precio: '', categoria: '', stock: '', descripcion: '', codigo: '' };
 const SUB = { color: 'var(--text2, #9aa8b8)' };
 
+// Borrador en el celular: nombre, precio, código y demás textos (nunca la foto). Se guarda solo y se recupera al volver a abrir la pantalla.
+const leerBorradorLocal = () => { try { return leerBorrador(localStorage.getItem(CLAVE_BORRADOR)); } catch { return null; } };
+const guardarBorradorLocal = (form) => { try { const b = armarBorrador(form); if (b) localStorage.setItem(CLAVE_BORRADOR, JSON.stringify(b)); else localStorage.removeItem(CLAVE_BORRADOR); } catch { /* sin almacenamiento: no hay borrador y listo */ } };
+const borrarBorradorLocal = () => { try { localStorage.removeItem(CLAVE_BORRADOR); } catch { /* idem */ } };
+
+// Ventana de la cámara: es un diálogo (role=dialog, aria-modal), el foco entra solo, Tab queda adentro y Escape lo cierra.
 function Escaner({ alLeer, alCerrar }) {
   const video = useRef(null);
-  const [error, setError] = useState('');
+  const ref = useDialogo(alCerrar);
+  const idTitulo = useId();
+  const [error, setError] = useState(null); // { texto, motivo }
+  const [intento, setIntento] = useState(0);
+  const [linterna, setLinterna] = useState({ disponible: false, encendida: false, alternar: null, aviso: '' });
   useEffect(() => {
     let detener = null; let vivo = true;
-    iniciarEscaner(video.current, (c) => { if (vivo) alLeer(c); }, (m) => { if (vivo) setError(m); }).then((d) => { detener = d; if (!vivo && d) d(); });
+    setError(null); setLinterna({ disponible: false, encendida: false, alternar: null, aviso: '' });
+    iniciarEscaner(video.current, (c) => { if (vivo) alLeer(c); }, (m, motivo) => { if (vivo) setError({ texto: m, motivo }); }, (l) => { if (vivo) setLinterna({ disponible: !!l.linterna, encendida: false, alternar: l.alternarLinterna, aviso: '' }); })
+      .then((d) => { detener = d; if (!vivo && d) d(); });
     return () => { vivo = false; if (detener) detener(); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [intento]); // eslint-disable-line react-hooks/exhaustive-deps
+  const alternarLinterna = async () => {
+    const quiere = !linterna.encendida;
+    try { await linterna.alternar(quiere); setLinterna((l) => ({ ...l, encendida: quiere, aviso: '' })); }
+    catch { setLinterna((l) => ({ ...l, aviso: 'No se pudo manejar la linterna en este celular.' })); }
+  };
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={idTitulo} tabIndex={-1} className="fixed inset-0 z-50 flex flex-col" style={{ background: '#000' }}>
       <div className="flex items-center justify-between px-5 py-3" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
-        <p className="font-bold text-white">Apuntá al código de barras</p>
-        <button onClick={alCerrar} aria-label="Cerrar la cámara" className="p-2 -mr-2 text-white"><X size={22} /></button>
+        <p id={idTitulo} className="font-bold text-white">Apuntá al código de barras</p>
+        <button type="button" onClick={alCerrar} aria-label="Cerrar la cámara" className="w-11 h-11 -mr-3 flex items-center justify-center text-white"><X size={22} /></button>
       </div>
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         <video ref={video} playsInline muted className="w-full h-full object-cover" />
         <div className="absolute rounded-xl pointer-events-none" style={{ width: '78%', height: 130, border: '3px solid #00e87b', boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }} />
       </div>
       <div className="px-5 py-4 text-center" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
-        {error ? <p className="text-sm" style={{ color: '#f87171' }} role="alert">{error}</p> : <p className="text-sm text-white/80">Se lee solo: no hace falta tocar nada. Con poca luz cuesta más.</p>}
-        <button className="btn-secondary mt-3 w-full justify-center" onClick={alCerrar}>Escribir el código a mano</button>
+        {error ? <p className="text-sm" style={{ color: '#f87171' }} role="alert">{error.texto}</p> : <p className="text-sm text-white/80" role="status">Se lee solo: no hace falta tocar nada. Con poca luz cuesta más.</p>}
+        {!!linterna.aviso && <p className="text-xs mt-2" style={{ color: '#fbbf24' }} role="status">{linterna.aviso}</p>}
+        {linterna.disponible && !error && (
+          <button type="button" className="btn-secondary mt-3 w-full justify-center" style={{ minHeight: 44 }} aria-pressed={linterna.encendida} onClick={alternarLinterna}>
+            {linterna.encendida ? <FlashlightOff size={16} /> : <Flashlight size={16} />}{linterna.encendida ? 'Apagar la linterna' : 'Encender la linterna'}
+          </button>
+        )}
+        {!!error && error.motivo !== 'sin-camara' && <button type="button" className="btn-primary mt-3 w-full justify-center" style={{ minHeight: 44 }} onClick={() => setIntento((n) => n + 1)}>Probar de nuevo</button>}
+        <button type="button" data-foco-inicial className="btn-secondary mt-3 w-full justify-center" style={{ minHeight: 44 }} onClick={alCerrar}>Escribir el código a mano</button>
       </div>
     </div>
   );
@@ -41,7 +68,11 @@ export default function CargarProducto({ estado }) {
   const pcs = (estado && estado.pcs) || [];
   const usables = pcs.filter((p) => p.controlRemoto);
   const [deviceId, setDeviceId] = useState('');
-  const [form, setForm] = useState(VACIO);
+  const [borradorInicial] = useState(leerBorradorLocal); // lo que había escrito y no llegó a enviar (sin la foto)
+  const [form, setForm] = useState(() => (borradorInicial ? { ...VACIO, ...borradorInicial.form } : VACIO));
+  const [recuperado, setRecuperado] = useState(borradorInicial ? borradorInicial.en : null);
+  const formRef = useRef(form); formRef.current = form;
+  const formInicial = useRef(form); // sin tocar nada no se reescribe el borrador (conserva su hora original)
   const [foto, setFoto] = useState(null);
   const [escaneando, setEscaneando] = useState(false);
   const [buscando, setBuscando] = useState(false);
@@ -58,17 +89,17 @@ export default function CargarProducto({ estado }) {
   useEffect(() => { if (!usables.some((p) => p.deviceId === deviceId)) setDeviceId(usables[0] ? usables[0].deviceId : ''); }, [pcs.length, usables.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const pc = usables.find((p) => p.deviceId === deviceId) || null;
 
+  // Devuelve false si falló (sin conexión): el sondeo espera más antes de reintentar.
   const cargarLista = useCallback(async () => {
-    if (!deviceId) return;
-    try { const { data } = await api.get('/mobile/productos', { params: { deviceId } }); setLista(data.productos || []); hayPendientes.current = (data.productos || []).some((x) => x.estado === 'pendiente'); } catch { /* sin conexión: reintenta */ }
+    if (!deviceId) return true;
+    try { const { data } = await api.get('/mobile/productos', { params: { deviceId } }); setLista(data.productos || []); hayPendientes.current = (data.productos || []).some((x) => x.estado === 'pendiente'); return true; } catch { return false; }
   }, [deviceId]);
-  useEffect(() => {
-    if (!deviceId) return undefined;
-    let t; let vivo = true;
-    const ciclo = async () => { if (!vivo) return; if (document.visibilityState !== 'hidden') await cargarLista(); if (vivo) t = setTimeout(ciclo, hayPendientes.current ? 5000 : 20000); };
-    ciclo();
-    return () => { vivo = false; clearTimeout(t); };
-  }, [deviceId, cargarLista]);
+  // Rápido solo mientras hay productos esperando a la PC; en reposo cada 30 s; quieto con la pestaña oculta y al volver consulta de inmediato (ver useSondeo).
+  const refrescarLista = useSondeo(cargarLista, { activo: !!deviceId, clave: deviceId, opciones: () => ({ pendiente: hayPendientes.current, mirando: false }) });
+
+  // El borrador se guarda solo (con una pausa de 0,4 s al escribir) y también al salir de la pantalla.
+  useEffect(() => { if (form === formInicial.current) return undefined; const t = setTimeout(() => guardarBorradorLocal(form), 400); return () => clearTimeout(t); }, [form]);
+  useEffect(() => () => { if (formRef.current !== formInicial.current) guardarBorradorLocal(formRef.current); }, []);
 
   const poner = (campo) => (e) => setForm((f) => ({ ...f, [campo]: e.target.value }));
   const esSug = (campo) => !!sugeridos[campo] && form[campo] === sugeridos[campo]; // sigue tal cual lo sugirió la IA (si lo edita, se saca la marca)
@@ -130,7 +161,8 @@ export default function CargarProducto({ estado }) {
     try {
       await api.post('/mobile/productos', { deviceId, producto: form, foto: foto ? foto.base64 : '' });
       avisar(sinNombre ? 'Enviado sin nombre. Tu PC va a intentar leer la foto (con tu clave de Groq); si no puede, queda como “Producto sin nombre” para que lo nombres en el Catálogo.' : 'Enviado. Tu PC lo guarda en el Catálogo en menos de 1 minuto.', 'ok');
-      setForm((f) => ({ ...VACIO, categoria: f.categoria })); quitarFoto(); sugeridosRef.current = {}; setSugeridos({}); hayPendientes.current = true; cargarLista();
+      borrarBorradorLocal(); setRecuperado(null); // ya se envió: que no vuelva como borrador (aunque se haya salido de la pantalla mientras tanto)
+      setForm((f) => ({ ...VACIO, categoria: f.categoria })); quitarFoto(); sugeridosRef.current = {}; setSugeridos({}); hayPendientes.current = true; refrescarLista();
     } catch (err) {
       avisar(err.response?.data?.codigo === 'CELULAR_DESACTIVADO' ? 'Primero activalo en Akira (PC) → Inicio → “Controlar desde la app del celular”.' : (err.response?.data?.error || 'No se pudo enviar. Revisá tu internet y probá de nuevo.'), 'error');
     } finally { setEnviando(false); }
@@ -165,6 +197,13 @@ export default function CargarProducto({ estado }) {
       {!versionAlcanza(pc.version, VERSION_MIN_PRODUCTOS) && <p className="text-xs mb-3" style={{ color: '#f59e0b' }}>Tu Akira de la PC es la v{pc.version}: todavía no recibe productos del celular (necesita la {VERSION_MIN_PRODUCTOS} o más nueva). Actualizala en <Link to="/descargar" style={{ color: '#00e87b' }}>akiracloud.lat/descargar</Link>.</p>}
       {!pc.online && <p className="text-xs mb-3" style={{ color: '#f59e0b' }}>Tu PC está sin señal. Podés cargar igual: los productos esperan (hasta 7 días) a que se prenda.</p>}
 
+      {recuperado !== null && (
+        <p className="text-xs mb-3" style={{ color: '#fbbf24' }} role="status">
+          Recuperé lo que habías escrito y no enviaste ({horaCorta(new Date(recuperado).toISOString())}). La foto no se guarda: si la necesitás, sacala de nuevo.{' '}
+          <button type="button" className="underline font-semibold py-3" onClick={() => { borrarBorradorLocal(); setForm(VACIO); setRecuperado(null); }}>Borrar lo escrito</button>
+        </p>
+      )}
+
       <form onSubmit={enviar} className="card space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <button type="button" className="btn-secondary justify-center" onClick={() => inputFoto.current && inputFoto.current.click()}><Camera size={16} />{foto ? 'Cambiar foto' : 'Sacar foto'}</button>
@@ -174,7 +213,7 @@ export default function CargarProducto({ estado }) {
         {foto && (
           <div className="relative">
             <img src={foto.url} alt="Foto del producto" className="w-full rounded-xl object-cover" style={{ maxHeight: 220 }} />
-            <button type="button" onClick={quitarFoto} aria-label="Quitar la foto" className="absolute top-2 right-2 rounded-full p-1.5" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><X size={16} /></button>
+            <button type="button" onClick={quitarFoto} aria-label="Quitar la foto" className="absolute top-0 right-0 w-11 h-11 flex items-center justify-center"><span className="rounded-full p-1.5" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><X size={16} /></span></button>
           </div>
         )}
         {foto && (

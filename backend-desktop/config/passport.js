@@ -17,6 +17,8 @@ module.exports = (passport) => {
     {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: process.env.JWT_SECRET,
+      // Todos los tokens de sesión se firman con jwt.sign sin opción de algoritmo = HS256 (middleware/auth.js generarJWT): solo ese se acepta.
+      algorithms: ['HS256'],
     },
     async (payload, done) => {
       try {

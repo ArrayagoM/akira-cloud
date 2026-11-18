@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Bot, Eye, EyeOff, AlertCircle, ArrowRight, Lock, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import VerificarEmail from '../components/VerificarEmail';
+import { MENSAJE_OAUTH_FALLIDO } from '../lib/textosSesion';
 
 export default function Login() {
   const [form, setForm]       = useState({ email: '', password: '' });
@@ -86,10 +87,10 @@ export default function Login() {
 
           {/* OAuth error */}
           {oauthError && (
-            <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 mb-4 text-sm animate-fade-in"
+            <div className="flex items-start gap-2.5 rounded-lg px-4 py-3 mb-4 text-sm animate-fade-in" role="alert"
               style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', color: '#f43f5e' }}>
-              <AlertCircle size={15} className="flex-shrink-0" />
-              Error con OAuth. Intentá de nuevo.
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              {MENSAJE_OAUTH_FALLIDO}
             </div>
           )}
 

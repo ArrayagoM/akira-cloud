@@ -9,6 +9,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const crearGroqService = require('../services/bot/groq.service');
 const logger = require('../config/logger');
+const { consumirTopeDia, TOPES_IA } = require('../lib/topes-ia');
 
 const router = express.Router();
 
@@ -129,6 +130,11 @@ router.post('/chat', demoLimiter, async (req, res) => {
     let { mensaje, historial } = req.body || {};
     mensaje = String(mensaje || '').slice(0, 300).trim();
     if (!mensaje) return res.status(400).json({ error: 'Falta el mensaje.' });
+
+    // Tope por IP y por día en la base (el limitador de arriba es en memoria: en Vercel cada instancia arranca de cero). Cada mensaje gasta la
+    // clave de Groq de la plataforma. Si el limitador falla deja pasar y lo avisa en el log (lib/limite.js).
+    const tope = await consumirTopeDia('ia:demo:ip', req.ip || 'desconocida', TOPES_IA.demoIpDia);
+    if (!tope.ok) return res.status(429).json({ error: 'Probaste bastante el demo por hoy. Volvé mañana o creá tu cuenta para probar Akira con tu negocio.' });
 
     const histLimpio = (Array.isArray(historial) ? historial : [])
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')

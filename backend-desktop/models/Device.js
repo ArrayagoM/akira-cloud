@@ -33,6 +33,18 @@ const DeviceSchema = new mongoose.Schema(
 
     // Versión de la app instalada en este equipo (la informa el heartbeat).
     version:     { type: String, default: '' },
+    // Canal por el que se instaló la app: 'store' (Microsoft Store) o 'exe' (instalador directo). Lo informan los equipos nuevos; los viejos quedan en null.
+    canal:       { type: String, default: null },
+    // Último error de licencia que la PC cuenta en el latido (ver lib/version-app.js): solo diagnóstico para el admin, no cambia ningún bloqueo.
+    ultimoErrorLicencia: {
+      type: new mongoose.Schema({
+        motivo:     { type: String },
+        status:     { type: Number, default: null },
+        en:         { type: Date },
+        recibidoEn: { type: Date },
+      }, { _id: false }),
+      default: null,
+    },
     // Resumen opcional del negocio (solo contadores; ver lib/resumen-negocio.js). Solo existe si el
     // usuario activó "ver mi negocio desde la web" en la app; al desactivarlo se borra.
     resumen:     { type: mongoose.Schema.Types.Mixed, default: null },

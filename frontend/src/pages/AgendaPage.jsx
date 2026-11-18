@@ -5,8 +5,11 @@ import toast from 'react-hot-toast';
 import {
   CalendarDays, Clock, DollarSign, Phone, User, RefreshCw,
   BedDouble, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Wrench, Trash2,
-  Hourglass, X, Bell,
+  Hourglass, X, Bell, Plus, Pencil,
 } from 'lucide-react';
+import TurnoFormModal from '../components/agenda/TurnoFormModal';
+import DiaPorPuestos from '../components/agenda/DiaPorPuestos';
+import { hayParalelo, nombreDePuesto } from '../lib/turnoManual';
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 const MESES      = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -436,7 +439,11 @@ export default function AgendaPage() {
   const [cancelando, setCancelando] = useState(null); // id del turno que se está cancelando
   const [profesionales, setProfesionales] = useState([]);
   const [filtroProf, setFiltroProf] = useState('');
+  // Turnos a mano y puestos. Si la app de la PC es una versión anterior (sin /turnos/puestos), el botón "Nuevo turno" no aparece.
+  const [puestosInfo, setPuestosInfo] = useState(null);
+  const [modalTurno, setModalTurno] = useState(null); // null = cerrado; { turno: null } = nuevo; { turno } = ver/editar
 
+  useEffect(() => { api.get('/turnos/puestos').then((r) => { if (Array.isArray(r.data?.puestos)) setPuestosInfo(r.data); }).catch(() => {}); }, []);
   useEffect(() => { api.get('/app/profesionales').then((r) => setProfesionales((r.data.profesionales || []).filter((p) => p.activo))).catch(() => {}); }, []);
   const asignarProfesional = async (turnoId, profesionalId) => {
     try { await api.post('/app/profesionales/asignar', { turnoId, profesionalId: profesionalId || null }); await fetchAgenda(); }
@@ -444,14 +451,16 @@ export default function AgendaPage() {
   };
 
   const cancelarTurno = async (turnoId) => {
-    if (!window.confirm('¿Cancelar este turno? Esta acción no se puede deshacer.')) return;
+    if (!window.confirm('¿Cancelar este turno? Esta acción no se puede deshacer.')) return false;
     setCancelando(turnoId);
     try {
       await api.delete(`/turnos/${turnoId}`);
       toast.success('Turno cancelado');
       await fetchAgenda(); // recargar
+      return true;
     } catch {
       toast.error('Error al cancelar el turno');
+      return false;
     } finally {
       setCancelando(null);
     }
@@ -471,7 +480,13 @@ export default function AgendaPage() {
 
   useEffect(() => { fetchAgenda(); }, []);
 
+  const alGuardarTurno = async () => {
+    await fetchAgenda();
+    api.get('/turnos/puestos').then((r) => { if (Array.isArray(r.data?.puestos)) setPuestosInfo(r.data); }).catch(() => {});
+  };
+
   const tipoNegocio = data?.tipoNegocio || 'turnos';
+  const puedeCrearManual = tipoNegocio !== 'alojamiento' && !!puestosInfo; // alojamiento tiene su propia lógica de reservas
   const confirmadas = data?.confirmadas || [];
   const pendientes  = data?.pendientes  || [];
   const logs        = data?.logs        || [];
@@ -534,6 +549,38 @@ export default function AgendaPage() {
     setSelectedDate(hoy);
   };
 
+  // Si el día tiene turnos en más de un puesto, se muestran agrupados por puesto (solo en rubros con turnos, no en alojamiento).
+  const paralelo = tipoNegocio !== 'alojamiento' && hayParalelo(selectedEvents);
+
+  // Una tarjeta de turno con lo de siempre (cancelar, asignar profesional) y el acceso a ver / editar el detalle.
+  const renderTurno = (r) => (
+    <>
+      <EventCard r={r} tipoNegocio={tipoNegocio} onCancelar={cancelarTurno} cancelando={cancelando} />
+      {tipoNegocio !== 'alojamiento' && r._id && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 pb-1 pt-1.5 text-xs text-gray-500">
+          {puedeCrearManual && (
+            <button type="button" onClick={() => setModalTurno({ turno: r })}
+              className="min-h-[44px] -ml-2 px-2 rounded-lg text-gray-300 hover:text-white hover:bg-white/5 flex items-center gap-1.5">
+              <Pencil size={12} /> Ver y editar
+            </button>
+          )}
+          {r.puesto && !paralelo && <span className="text-gray-500">Puesto: {nombreDePuesto(r.puesto)}</span>}
+          {r.origen === 'manual' && <span className="text-gray-600">Cargado a mano</span>}
+          {profesionales.length > 0 && r._estado === 'confirmado' && (
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full" style={{ background: profesionales.find((p) => p._id === r.profesionalId)?.color || '#4b5563' }} />
+              <label htmlFor={`atiende-${r._id}`}>Atiende</label>
+              <select id={`atiende-${r._id}`} value={r.profesionalId || ''} onChange={(e) => asignarProfesional(r._id, e.target.value)} className="min-h-[44px] rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs text-white outline-none">
+                <option value="">Sin asignar</option>
+                {profesionales.map((p) => <option key={p._id} value={p._id}>{p.nombre}</option>)}
+              </select>
+            </span>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   const labelTipo =
     tipoNegocio === 'alojamiento' ? 'Reservas y check-ins' :
     tipoNegocio === 'servicios'   ? 'Servicios programados' :
@@ -552,10 +599,18 @@ export default function AgendaPage() {
             </h1>
             <p className="text-gray-500 text-sm mt-0.5">{labelTipo}</p>
           </div>
-          <button onClick={fetchAgenda} disabled={loading}
-            className="btn-secondary text-xs flex items-center gap-1.5">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Actualizar
-          </button>
+          <div className="flex items-center gap-2">
+            {puedeCrearManual && !loading && !error && (
+              <button type="button" onClick={() => setModalTurno({ turno: null })}
+                className="btn-primary text-sm min-h-[44px] flex items-center gap-1.5">
+                <Plus size={15} /> Nuevo turno
+              </button>
+            )}
+            <button onClick={fetchAgenda} disabled={loading}
+              className="btn-secondary text-xs min-h-[44px] flex items-center gap-1.5">
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
         </div>
 
         {loading && <Spinner />}
@@ -669,27 +724,19 @@ export default function AgendaPage() {
                   <CalendarDays size={28} className="text-gray-700 mx-auto mb-2" />
                   <p className="text-gray-600 text-sm">Sin eventos este día</p>
                   <p className="text-gray-700 text-xs mt-1">
-                    El bot agenda automáticamente cuando los clientes confirman
+                    El bot agenda automáticamente cuando los clientes confirman{puedeCrearManual ? ', o podés cargar uno vos con "Nuevo turno"' : ''}
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {selectedEvents.map((r, i) => (
-                    <div key={r._id || i}>
-                      <EventCard r={r} tipoNegocio={tipoNegocio} onCancelar={cancelarTurno} cancelando={cancelando} />
-                      {profesionales.length > 0 && tipoNegocio !== 'alojamiento' && r._estado === 'confirmado' && r._id && (
-                        <div className="flex items-center gap-2 px-3.5 pb-1 pt-1.5 text-xs text-gray-500">
-                          <span className="w-2 h-2 rounded-full" style={{ background: profesionales.find((p) => p._id === r.profesionalId)?.color || '#4b5563' }} />
-                          Atiende
-                          <select value={r.profesionalId || ''} onChange={(e) => asignarProfesional(r._id, e.target.value)} className="rounded-md bg-black/30 border border-white/10 px-2 py-1 text-xs text-white outline-none">
-                            <option value="">Sin asignar</option>
-                            {profesionales.map((p) => <option key={p._id} value={p._id}>{p.nombre}</option>)}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                paralelo ? (
+                  <DiaPorPuestos eventos={selectedEvents} renderTurno={renderTurno} />
+                ) : (
+                  <div className="space-y-2">
+                    {selectedEvents.map((r, i) => (
+                      <div key={r._id || i}>{renderTurno(r)}</div>
+                    ))}
+                  </div>
+                )
               )}
             </div>
 
@@ -729,6 +776,19 @@ export default function AgendaPage() {
           </>
         )}
       </div>
+
+      {modalTurno && (
+        <TurnoFormModal
+          turno={modalTurno.turno}
+          fechaInicial={selectedDate}
+          puestosInfo={puestosInfo}
+          profesionales={profesionales}
+          onPuestos={setPuestosInfo}
+          onClose={() => setModalTurno(null)}
+          onGuardado={alGuardarTurno}
+          onCancelarTurno={async (id) => { if (await cancelarTurno(id)) setModalTurno(null); }}
+        />
+      )}
     </Layout>
   );
 }

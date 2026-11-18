@@ -20,6 +20,21 @@ const estado = {
   ultimoEstado: null, // { plan, features, slotsMax, vigente, expira }
 };
 
+// Versión de la app y canal de instalación (store = Microsoft Store, exe = instalador). Viajan como headers OPCIONALES: el backend
+// los puede ignorar (uno viejo no los lee) y sirven para saber qué versión/canal está teniendo cada problema.
+let versionApp;
+function versionDeApp() {
+  if (versionApp === undefined) {
+    try { versionApp = String(require('../../package.json').version || '').slice(0, 32); } catch { versionApp = ''; }
+  }
+  return versionApp;
+}
+const canalDeApp = () => (process.windowsStore ? 'store' : 'exe');
+function cabecerasCliente() {
+  const v = versionDeApp();
+  return { 'x-akira-cliente': 'escritorio', ...(v ? { 'x-akira-version': v } : {}), 'x-akira-canal': canalDeApp() };
+}
+
 function configurar({ serverUrl, sessionToken, deviceId }) {
   if (serverUrl) estado.serverUrl = serverUrl;
   if (sessionToken) estado.sessionToken = sessionToken;
@@ -45,7 +60,7 @@ function request(pathname, method, body, extraHeaders) {
         method,
         headers: {
           'Content-Type': 'application/json',
-          'x-akira-cliente': 'escritorio',
+          ...cabecerasCliente(),
           ...(estado.sessionToken ? { Authorization: `Bearer ${estado.sessionToken}` } : {}),
           ...(extraHeaders || {}),
           ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
@@ -142,4 +157,4 @@ function licenciaCacheVigente() {
   return !!estado.licenseToken && Date.now() < estado.licenseTokenExp;
 }
 
-module.exports = { configurar, request, activar, heartbeat, resumenVivo, renovarSesion, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };
+module.exports = { configurar, request, cabecerasCliente, activar, heartbeat, resumenVivo, renovarSesion, features, quotaCheck, getEstado, restaurarEstado, licenciaCacheVigente };

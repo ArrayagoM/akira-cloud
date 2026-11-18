@@ -15,6 +15,8 @@ const WaitlistEntry = require('../../bot-engine/models/WaitlistEntry');
 const Documento = require('../../bot-engine/models/Documento');
 const CtaCte = require('../../bot-engine/models/CtaCte');
 const ctacteLib = require('../../gestion/ctacte');
+const turnosManual = require('../../gestion/turnos-manual');
+const credenciales = require('../../security/credentials-store');
 const ausenciasLib = require('../../bot-engine/services/bot/ausencias.service');
 const programasLib = require('../../programas');
 const licenseClient = require('../../license/license-client');
@@ -120,6 +122,8 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
 
       // Argentina es UTC-3 fijo (sin cambio horario)
       const arISO = (d, part) => new Date(new Date(d).getTime() - 3 * 3600000).toISOString().slice(...(part === 'date' ? [0, 10] : [11, 16]));
+      // Puesto = calendario del turno; vacío si es el general (el del bot). Campos nuevos, solo aditivos.
+      const calGeneral = turnosManual.calendarioGeneral(config, credenciales.decrypt);
       const mapTurno = (t) => ({
         nombre: t.clienteNombre || 'Sin nombre', telefono: t.clienteTelefono || '', email: t.clienteEmail || '',
         fecha: arISO(t.fechaInicio, 'date'), hora: arISO(t.fechaInicio, 'time'), horaFin: arISO(t.fechaFin, 'time'),
@@ -127,6 +131,10 @@ module.exports = function crearRouter({ botService, requerirSesion, userDataDir 
         totalPrecio: t.pago?.monto || 0, total: t.pago?.monto || 0,
         estado: t.estado, turnoId: String(t._id), _id: String(t._id),
         profesionalId: t.profesionalId || '', profesionalNombre: t.profesionalNombre || '',
+        titulo: t.resumen || '', detalle: t.descripcion || '', origen: t.origen || '',
+        puesto: turnosManual.esGeneral(t.calendarId, calGeneral) ? '' : String(t.calendarId),
+        duracionMin: Math.max(0, turnosManual.duracionDe(t.fechaInicio, t.fechaFin) || 0),
+        precioInformativo: t.precioInformativo ?? null, sincronizadoGoogle: !!t.googleEventId,
       });
 
       const confirmadas = turnos.filter((t) => t.estado === 'confirmado').map(mapTurno);

@@ -20,6 +20,7 @@ const S = require('../lib/seguridad-cuentas');
 const { consumir, consumirTodos, mensajeEspera } = require('../lib/limite');
 const { crearCuentas } = require('../services/cuentas.service');
 const R = require('../lib/referidos');
+const { responderError } = require('../lib/errores');
 
 // Alta con verificación de email (lógica en services/cuentas.service.js).
 // Interruptores de emergencia por variable de entorno: VERIFICACION_EMAIL=off (si el correo no funciona), REGISTRO_TOKEN=off.
@@ -212,7 +213,7 @@ router.post('/generar-codigo', requireAuth, async (req, res) => {
     logger.info(`[Auth] Código referido generado para ${req.user.email}: ${codigo}`);
     res.json({ codigoReferido: codigo });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Auth generar-codigo', err);
   }
 });
 
@@ -309,7 +310,7 @@ router.put(
 router.get('/baja-novedades', async (req, res) => {
   const pagina = (titulo, texto) => res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Akira Cloud</title><body style="margin:0;background:#050505;font-family:-apple-system,Segoe UI,sans-serif;color:#e5e5e5;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px"><div style="max-width:420px;text-align:center"><div style="font-size:40px">🤖</div><h2 style="color:#fff">${titulo}</h2><p style="color:#aaa;line-height:1.5">${texto}</p><a href="https://akiracloud.lat" style="color:#00e87b">Ir a Akira Cloud</a></div></body>`);
   try {
-    const { id, p } = require('jsonwebtoken').verify(String(req.query.t || ''), process.env.JWT_SECRET);
+    const { id, p } = require('jsonwebtoken').verify(String(req.query.t || ''), process.env.JWT_SECRET, { algorithms: ['HS256'] });
     if (p !== 'baja-novedades') throw new Error('token inválido');
     await User.findByIdAndUpdate(id, { novedadesActivas: false });
     return pagina('Listo, no te enviaremos más novedades', 'Seguís recibiendo los avisos importantes de tu cuenta (pagos, recuperar contraseña).');
@@ -366,7 +367,7 @@ function stateDeEscritorio(req) {
 function puertoDeEscritorio(req) {
   if (!req.query.state) return null;
   try {
-    const { dp } = jwt.verify(String(req.query.state), process.env.JWT_SECRET);
+    const { dp } = jwt.verify(String(req.query.state), process.env.JWT_SECRET, { algorithms: ['HS256'] });
     return Number.isInteger(dp) ? dp : null;
   } catch {
     return null;

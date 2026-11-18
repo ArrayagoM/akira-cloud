@@ -8,6 +8,8 @@ const Suggestion = require('../models/Suggestion');
 const Config     = require('../models/Config');
 const { analizarSugerencia } = require('../services/suggestion.service');
 const logger     = require('../config/logger');
+const { responderError } = require('../lib/errores');
+const { consumirTopeDia, TOPES_IA } = require('../lib/topes-ia');
 
 // ── POST /api/suggestions — usuario envía una sugerencia ──────
 router.post('/',
@@ -23,6 +25,10 @@ router.post('/',
       const hoy = new Date(); hoy.setHours(0,0,0,0);
       const count = await Suggestion.countDocuments({ userId: req.user._id, createdAt: { $gte: hoy } });
       if (count >= 5) return res.status(429).json({ error: 'Máximo 5 sugerencias por día. ¡Gracias por tu entusiasmo!' });
+      // Mismo tope pero atómico (en la base): varios pedidos a la vez no se lo saltean, y cada sugerencia gasta un análisis de IA.
+      // Si el limitador falla deja pasar (ver lib/limite.js).
+      const tope = await consumirTopeDia('ia:sug:u', String(req.user._id), TOPES_IA.sugerenciasUsuarioDia);
+      if (!tope.ok) return res.status(429).json({ error: 'Máximo 5 sugerencias por día. ¡Gracias por tu entusiasmo!' });
 
       // Crear con estado analizando
       const sug = await Suggestion.create({
@@ -73,7 +79,7 @@ router.get('/mias', requireAuth, async (req, res) => {
       .sort({ createdAt: -1 }).limit(20).lean();
     res.json({ sugerencias: sugs });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Suggestion GET /mias', err);
   }
 });
 
@@ -102,7 +108,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
 
     res.json({ sugerencias: sugs, total, stats });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Suggestion GET /', err);
   }
 });
 
@@ -117,7 +123,7 @@ router.patch('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (!sug) return res.status(404).json({ error: 'No encontrada' });
     res.json({ ok: true, sugerencia: sug });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Suggestion PATCH /:id', err);
   }
 });
 

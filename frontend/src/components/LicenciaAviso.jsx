@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useSocket } from '../hooks/useSocket';
 import { useAuth } from '../context/AuthContext';
+import { detalleSesionExpirada } from '../lib/textosSesion';
 
 // Solo en la versión de escritorio: avisa cuando la licencia pausa el bot
 // (suscripción vencida, equipo desactivado, demasiado tiempo sin conexión)
@@ -17,7 +18,7 @@ const BLOQUEOS = {
 };
 const AVISOS = {
   sin_conexion: ['Sin conexión con Akira.', 'El bot sigue funcionando; si pasan 72 horas sin conexión se pausa.'],
-  sesion_expirada: ['Tu sesión venció.', 'Volvé a ingresar con tu contraseña para que el bot siga validando su licencia. Desde ahora la sesión se renueva sola mientras uses Akira.'],
+  sesion_expirada: ['Tu sesión venció.', null], // el detalle depende de cómo entró el usuario (Google, Facebook o contraseña)
 };
 
 export default function LicenciaAviso() {
@@ -61,7 +62,8 @@ export default function LicenciaAviso() {
   const aviso = !bloqueo && e.aviso ? AVISOS[e.aviso] : null;
   if (!bloqueo && !aviso) return null;
 
-  const [titulo, detalle, renovar] = bloqueo || [...aviso, false];
+  const [titulo, detalleBase, renovar] = bloqueo || [...aviso, false];
+  const detalle = detalleBase ?? (e.aviso === 'sesion_expirada' ? detalleSesionExpirada(user?.auth_provider) : '');
   const color = bloqueo ? '#f43f5e' : '#f59e0b';
   const Icono = bloqueo ? PauseCircle : e.aviso === 'sesion_expirada' ? LogIn : WifiOff;
 
@@ -74,7 +76,7 @@ export default function LicenciaAviso() {
         {detalle && <p style={{ color: 'var(--text2)' }}>{detalle}</p>}
       </div>
       {renovar && <Link to="/planes" className="btn-primary text-sm px-3 py-1.5 rounded-lg">Renovar plan</Link>}
-      {!bloqueo && e.aviso === 'sesion_expirada' && <button onClick={volverAIngresar} className="btn-primary text-sm px-3 py-1.5 rounded-lg">Volver a ingresar</button>}
+      {!bloqueo && e.aviso === 'sesion_expirada' && <button onClick={volverAIngresar} className="btn-primary text-sm px-3 py-1.5 rounded-lg">Volver a iniciar sesión</button>}
     </div>
   );
 }

@@ -28,8 +28,6 @@ export default defineConfig({
         manualChunks: {
           vendor:  ['react', 'react-dom', 'react-router-dom'],
           icons:   ['lucide-react'],
-          socket:  ['socket.io-client'],
-          ui:      ['react-hot-toast', 'qrcode.react'],
         },
       },
     },

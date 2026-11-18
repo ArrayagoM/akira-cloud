@@ -148,6 +148,28 @@ async function run() {
   const sinHist = await BotCliente.findOneAndUpdate({ userId: 'u8', jid: 'b@s.whatsapp.net' }, { nombre: 'Pedro 2' }, { new: true, select: '-historial' });
   assert(sinHist.nombre === 'Pedro 2' && sinHist.historial === undefined, 'findOneAndUpdate respeta la opción select');
 
+  // ── operadores de consulta: regresión de los que usa el código + error claro para los desconocidos ──
+  for (const [i, n] of [['a', 1], ['b', 2], ['c', 3], ['d', 4]]) await BotCliente.create({ userId: 'uop', jid: i + '@s.whatsapp.net', nombre: 'Op ' + i, visitas: n });
+  const nombresDe = async (q) => (await BotCliente.find({ userId: 'uop', ...q }).sort({ visitas: 1 }).lean()).map((d) => d.nombre.slice(3)).join('');
+  assert(await nombresDe({ visitas: { $ne: 2 } }) === 'acd', 'operadores: $ne');
+  assert(await nombresDe({ visitas: { $in: [1, 4] } }) === 'ad', 'operadores: $in');
+  assert(await nombresDe({ visitas: { $nin: [1, 4] } }) === 'bc', 'operadores: $nin');
+  assert(await nombresDe({ visitas: { $lt: 3 } }) === 'ab' && await nombresDe({ visitas: { $lte: 3 } }) === 'abc', 'operadores: $lt y $lte');
+  assert(await nombresDe({ visitas: { $gt: 2 } }) === 'cd' && await nombresDe({ visitas: { $gte: 2 } }) === 'bcd', 'operadores: $gt y $gte');
+  assert(await nombresDe({ visitas: { $gt: 1, $lt: 4 } }) === 'bc', 'operadores: varios sobre el mismo campo se combinan (rango)');
+  assert(await nombresDe({ visitas: { $exists: true } }) === 'abcd' && await nombresDe({ inexistente: { $exists: false } }) === 'abcd' && await nombresDe({ visitas: { $exists: false } }) === '', 'operadores: $exists');
+  assert(await nombresDe({ nombre: { $regex: 'op [bc]', $options: 'i' } }) === 'bc', 'operadores: $regex con $options');
+  assert(await nombresDe({ $or: [{ visitas: 1 }, { visitas: 4 }] }) === 'ad' && await nombresDe({ $and: [{ visitas: { $gt: 1 } }, { visitas: { $lt: 4 } }] }) === 'bc', 'operadores: $or y $and');
+  const rechaza = async (promesa) => { try { await promesa; return null; } catch (e) { return String(e.message); } };
+  const e1 = await rechaza(BotCliente.find({ userId: 'uop', visitas: { $foo: 1 } }).lean());
+  assert(e1 && /no soportado/.test(e1) && /\$foo/.test(e1), 'un operador desconocido lanza un error claro (antes devolvía todo)');
+  assert(!!(await rechaza(BotCliente.findOne({ userId: 'uop', visitas: { $elemMatch: { a: 1 } } }))), 'también en findOne ($elemMatch no está soportado)');
+  assert(!!(await rechaza(BotCliente.countDocuments({ userId: 'uop', $nor: [{ visitas: 1 }] }))), 'un operador desconocido a nivel raíz ($nor) también lanza error');
+  assert(!!(await rechaza(BotCliente.find({ userId: 'uop', visitas: { subcampo: 1 } }).lean())), 'una igualdad de subdocumento (clave sin "$") ya no matchea todo en silencio');
+  const e2 = await rechaza(BotCliente.deleteMany({ userId: 'uop', visitas: { $foo: 1 } }));
+  assert(e2 && (await BotCliente.countDocuments({ userId: 'uop' })) === 4, 'deleteMany con un operador desconocido falla y NO borra nada');
+  assert(!!(await rechaza(BotCliente.updateMany({ userId: 'uop', visitas: { $foo: 1 } }, { $set: { nombre: 'X' } }))) && (await nombresDe({})) === 'abcd', 'updateMany con un operador desconocido falla y NO modifica nada');
+
   console.log('\n✅ Todos los tests de mongoose-lite pasaron.\n');
   store.cerrar();
 }

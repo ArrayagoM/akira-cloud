@@ -11,6 +11,8 @@ const botManager = require('../services/bot.manager');
 const { requireAuth, requireAdmin, generarJWT } = require('../middleware/auth');
 const logger     = require('../config/logger');
 const R          = require('../lib/referidos');
+const { responderError } = require('../lib/errores');
+const { escaparRegex } = require('../lib/regex-seguro');
 
 // Todas las rutas requieren auth + admin
 router.use(requireAuth, requireAdmin);
@@ -31,12 +33,16 @@ router.get('/ingresos', async (req, res) => {
     const Pago = require('../models/Pago');
     const { armarPlanes } = require('../lib/cobro');
     const [pagos, usuarios] = await Promise.all([
-      Pago.find({}).sort({ fecha: -1 }).limit(5000).lean(),
+      Pago.find({}).select('userId email plan periodo monto descuentoReferido estado fecha').sort({ fecha: -1 }).limit(5000).lean(),   // solo lo que usa lib/ingresos.js
       User.find({ plan: { $in: ['basico', 'pro', 'agencia'] }, planExpira: { $gt: new Date() } }).select('email plan planPeriodo planExpira').lean(),
     ]);
     res.json(require('../lib/ingresos').resumir({ pagos, usuarios, planes: armarPlanes() }));
   } catch (e) { logger.error('[Admin] ingresos: ' + e.message); res.status(500).json({ error: 'No se pudieron calcular los ingresos' }); }
 });
+
+// Tope de filas que se leen para el resumen de descargas (las más nuevas primero). Con ~400 días de historia (los registros se borran solos)
+// y la cantidad de descargas actual queda muy lejos; si algún día se pasa, el "histórico" y la "primera descarga" del panel serían de las últimas 50.000.
+const TOPE_DESCARGAS = 50000;
 
 // Descargas del instalador (Windows, Mac, Android) y el embudo: registrados → descargaron → instalaron
 router.get('/descargas', async (req, res) => {
@@ -44,7 +50,7 @@ router.get('/descargas', async (req, res) => {
     const dias = Math.min(365, Math.max(1, parseInt(req.query.dias, 10) || 30));
     const Descarga = require('../models/Descarga');
     const [lista, usuarios, equipos, conEquipo] = await Promise.all([
-      Descarga.find({}).select('plataforma origen visitante fecha').lean(),
+      Descarga.find({}).select('plataforma origen visitante fecha').sort({ fecha: -1 }).limit(TOPE_DESCARGAS).lean(),
       User.countDocuments({}),
       Device.countDocuments({}),
       Device.distinct('userId'),
@@ -106,7 +112,7 @@ router.get('/dashboard', async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /dashboard', err);
   }
 });
 
@@ -130,7 +136,7 @@ router.post('/email-prueba', async (req, res) => {
     });
     res.status(ok ? 200 : 502).json({ ok, para: req.user.email, error: ok ? undefined : ultimoErrorEmail() });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    responderError(res, 'Admin POST /email-prueba', err, { extra: { ok: false } });
   }
 });
 
@@ -170,7 +176,7 @@ router.post('/email-novedades', async (req, res) => {
     }
     res.json({ ok: true, enviados, fallidos, pendientes: Math.max(0, pendientes - enviados - fallidos), error: ultimoError });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    responderError(res, 'Admin POST /email-novedades', err, { extra: { ok: false } });
   }
 });
 
@@ -209,7 +215,7 @@ router.get('/emails', async (req, res) => {
       filas,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /emails', err);
   }
 });
 
@@ -234,7 +240,7 @@ router.post('/emails/reconstruir', async (req, res) => {
     }
     res.json({ ok: true, creados });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /emails/reconstruir', err);
   }
 });
 
@@ -269,7 +275,7 @@ router.get('/users', async (req, res) => {
 
     res.json({ users, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /users', err);
   }
 });
 
@@ -313,6 +319,34 @@ router.post('/users/:id/verificar-email', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'No se pudo cambiar' }); }
 });
 
+// Equipos (instalaciones de escritorio) de un usuario, SOLO LECTURA, para diagnosticar quién usa qué versión y por qué canal.
+// Se arma campo por campo: nunca se devuelve el deviceId, la huella de la máquina ni ningún otro dato interno del equipo.
+router.get('/users/:id/devices', async (req, res) => {
+  try {
+    if (!/^[a-f0-9]{24}$/i.test(String(req.params.id))) return res.status(400).json({ error: 'Id de usuario inválido' });
+    const equipos = await Device.find({ userId: req.params.id })
+      .select('nombre version canal activadoEn ultimoHeartbeat estadoBot revocado ultimoErrorLicencia')
+      .sort({ ultimoHeartbeat: -1 }).limit(50).lean();
+    res.json({
+      devices: equipos.map((d) => ({
+        id: String(d._id),
+        nombre: d.nombre || '',
+        version: d.version || '',
+        canal: d.canal || null,
+        activadoEn: d.activadoEn || null,
+        ultimoHeartbeat: d.ultimoHeartbeat || null,
+        estadoBot: d.estadoBot || null,
+        revocado: d.revocado === true,
+        ultimoErrorLicencia: d.ultimoErrorLicencia
+          ? { motivo: d.ultimoErrorLicencia.motivo, status: d.ultimoErrorLicencia.status ?? null, en: d.ultimoErrorLicencia.en || null, recibidoEn: d.ultimoErrorLicencia.recibidoEn || null }
+          : null,
+      })),
+    });
+  } catch (err) {
+    responderError(res, 'Admin GET /users/:id/devices', err);
+  }
+});
+
 router.get('/users/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).lean();
@@ -323,7 +357,7 @@ router.get('/users/:id', async (req, res) => {
 
     res.json({ user, logs });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /users/:id', err);
   }
 });
 
@@ -358,7 +392,7 @@ router.put('/users/:id', [
 
     res.json({ user: user.toJSON() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin PUT /users/:id', err);
   }
 });
 
@@ -417,7 +451,7 @@ router.post('/users/:id/activar-plan', [
 
     res.json({ ok: true, user: user.toJSON(), expira });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/activar-plan', err);
   }
 });
 
@@ -443,7 +477,7 @@ router.post('/users/:id/block', [
     logger.warn(`[Admin] 🚨 Usuario ${req.params.id} bloqueado por ${req.user.email}: ${motivo}`);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/block', err);
   }
 });
 
@@ -462,7 +496,7 @@ router.post('/users/:id/unblock', async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/unblock', err);
   }
 });
 
@@ -481,6 +515,8 @@ router.post('/users/:id/password', [
 
     user.password = req.body.nuevaPassword;
     await user.save();
+    // Igual que el cambio de contraseña normal (auth.routes.js): se cierran todas las sesiones abiertas de esa cuenta.
+    await User.findByIdAndUpdate(user._id, { $inc: { tokenVersion: 1 } });
 
     await Log.registrar({
       userId: req.user._id,
@@ -491,7 +527,7 @@ router.post('/users/:id/password', [
 
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/password', err);
   }
 });
 
@@ -505,7 +541,7 @@ router.post('/bots/healthcheck', async (req, res) => {
     await Log.registrar({ userId: req.user._id, tipo: 'bot_healthcheck', nivel: 'info', mensaje: `Admin forzó healthcheck global de bots` });
     res.json({ ok: true, ts: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /bots/healthcheck', err);
   }
 });
 
@@ -519,7 +555,7 @@ router.post('/bots/:id/stop', async (req, res) => {
     await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Admin detuvo bot de ${req.params.id}` });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /bots/:id/stop', err);
   }
 });
 
@@ -538,7 +574,7 @@ router.post('/bots/:id/restart', async (req, res) => {
     await Log.registrar({ userId: req.user._id, tipo: 'admin_action', mensaje: `Admin reinició bot de ${uid}` });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /bots/:id/restart', err);
   }
 });
 
@@ -563,7 +599,7 @@ router.post('/users/:id/promote', async (req, res) => {
 
     res.json({ ok: true, user: user.toJSON() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/promote', err);
   }
 });
 
@@ -583,7 +619,7 @@ router.post('/promote-self', async (req, res) => {
     );
     res.json({ ok: true, msg: `Promovido a admin: ${user.email}`, user: user.toJSON() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /promote-self', err);
   }
 });
 
@@ -617,7 +653,7 @@ router.post('/users/:id/tester', async (req, res) => {
 
     res.json({ ok: true, esTester: user.esTester });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /users/:id/tester', err);
   }
 });
 
@@ -640,7 +676,7 @@ router.get('/referidos', async (req, res) => {
     // Una fila por referente: su alias/CVU, cuántos pagaron (y cuántos siguen con suscripción paga) y cuánto se le debe
     res.json({ referidos, total: referidos.length, totalPendiente, referentes: R.agruparPorReferente(referidos) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /referidos', err);
   }
 });
 
@@ -671,7 +707,7 @@ router.post('/referidos/referente/:id/pagar', async (req, res) => {
     await Log.registrar({ userId: req.user._id, tipo: 'admin_action', nivel: 'info', mensaje: `Admin marcó como pagadas ${r.cantidad} comisiones de referidos de ${u.email} ($${r.monto})` });
     res.json({ ok: true, ...r });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /referidos/referente/:id/pagar', err);
   }
 });
 
@@ -700,7 +736,7 @@ router.post('/referidos/:id/pagar', async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin POST /referidos/:id/pagar', err);
   }
 });
 
@@ -723,7 +759,7 @@ router.get('/users/:id/bot-diagnostic', async (req, res) => {
       ultimosLogs,
       user,
     ] = await Promise.all([
-      WAAuth.find({ _id: { $regex: `^${uid}:` } }).select('_id').lean(),
+      WAAuth.find({ _id: { $regex: `^${escaparRegex(uid, 60)}:` } }).select('_id').lean(),
       BotCliente.countDocuments({ userId: uid }),
       BotCliente.countDocuments({ userId: uid, silenciado: true }),
       Config.findOne({ userId: uid }).select('keyGroq miNombre negocio').lean(),
@@ -763,7 +799,7 @@ router.get('/users/:id/bot-diagnostic', async (req, res) => {
       ultimosLogs,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /users/:id/bot-diagnostic', err);
   }
 });
 
@@ -785,7 +821,7 @@ router.get('/logs', async (req, res) => {
     if (tipo)   query.tipo   = tipo;
     if (userId) query.userId = userId;
     if (desde)  query.createdAt = { $gte: new Date(desde) };
-    if (buscar) query.mensaje = { $regex: buscar, $options: 'i' };
+    if (buscar) query.mensaje = { $regex: escaparRegex(buscar), $options: 'i' };   // texto escrito por el admin: se busca tal cual, sin símbolos de regex
 
     const [logs, total] = await Promise.all([
       Log.find(query)
@@ -799,7 +835,7 @@ router.get('/logs', async (req, res) => {
 
     res.json({ logs, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /logs', err);
   }
 });
 
@@ -846,7 +882,7 @@ router.get('/bots/active', async (req, res) => {
 
     res.json({ count: bots.length, conectados, iniciando, caidos, bots });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    responderError(res, 'Admin GET /bots/active', err);
   }
 });
 

@@ -16,9 +16,39 @@ const { obtenerDeviceId } = require('../device');
 
 const CADA_MS = 15 * 60 * 1000;
 
+// Un 403 SIN motivo reconocible (cuerpo vacío o raro: típico de un firewall, un antivirus o un error de despliegue) no frena los bots
+// hasta que se repite esta cantidad de veces seguidas. Los 403 reales del servidor (equipo revocado / suscripción vencida) bloquean YA.
+const SEGUIDOS_403_PARA_BLOQUEAR = 3;
+
 const estado = { bloqueada: false, motivo: null, aviso: null, ultimoCheckOk: null, ultimoIntento: null };
-let ctx = null; // { userDataDir, botService, emitir }
+let ctx = null; // { userDataDir, botService, emitir, log }
 let timer = null;
+let seguidos403 = 0;    // 403 sin motivo conocido, uno atrás de otro
+let ultimoError = null; // { motivo, status, en }: se manda al servidor con el próximo latido bueno y se limpia
+
+const registrar = (...a) => { try { (ctx?.log || console.log)(...a); } catch { /* el registro nunca debe romper el latido */ } };
+
+// Motivo normalizado de un fallo del latido (sin datos sensibles): sin_internet | timeout | servidor | sesion | bloqueo | desconocido
+function motivoDeFallo(err) {
+  const status = Number(err && err.status) || 0;
+  if (status === 403) return 'bloqueo';
+  if (status === 401) return 'sesion';
+  if (status >= 400) return 'servidor'; // 5xx (y cualquier otro código raro del servidor o de un intermediario)
+  const code = String((err && err.code) || '');
+  const msg = String((err && err.message) || '');
+  if (code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT' || /timeout|timed out/i.test(msg)) return 'timeout';
+  if (/^(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ENETDOWN|EPIPE)$/.test(code) || /ENOTFOUND|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|getaddrinfo/i.test(msg)) return 'sin_internet';
+  return 'desconocido';
+}
+
+// ¿El 403 trae un motivo que da el propio servidor? → { motivo } para bloquear YA; si no, null.
+// Formas reales (backend-desktop/routes/licenses.routes.js): { revocado: true } | { vigente: false } | y el middleware auth: { error: 'Cuenta bloqueada...' }.
+function bloqueoConfirmado(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (b.revocado === true || b.motivo === 'equipo_revocado') return { motivo: 'equipo_revocado' };
+  if (b.vigente === false || b.motivo === 'suscripcion_vencida' || /cuenta bloqueada/i.test(String(b.error || ''))) return { motivo: 'suscripcion_vencida' };
+  return null;
+}
 
 const publicar = () => {
   const s = sessionStore.leer(ctx.userDataDir);
@@ -60,7 +90,11 @@ async function tick() {
 
   try {
     const extra = await ctx.datosHeartbeat?.(s.userId).catch(() => ({})) || {};
-    const e = await licenseClient.heartbeat(extra);
+    // Si el latido anterior falló, se cuenta el motivo en este (el servidor viejo ignora la clave `ultimoError`).
+    const aEnviar = ultimoError || null;
+    const e = await licenseClient.heartbeat(aEnviar ? { ...extra, ultimoError: aEnviar } : extra);
+    if (ultimoError === aEnviar) ultimoError = null;
+    seguidos403 = 0;
     offlineGrace.guardar(ctx.userDataDir, e);
     estado.ultimoCheckOk = estado.ultimoIntento;
     estado.aviso = null;
@@ -70,7 +104,25 @@ async function tick() {
     }
     publicar();
   } catch (err) {
-    if (err.status === 403) return bloquear(err.body?.revocado ? 'equipo_revocado' : 'suscripcion_vencida');
+    const motivoFallo = motivoDeFallo(err);
+    ultimoError = { motivo: motivoFallo, status: Number(err && err.status) || null, en: new Date().toISOString() };
+    if (err && err.status !== 403 && err.status) seguidos403 = 0; // otra respuesta del servidor: ya no son 403 "seguidos"
+    if (err && err.status === 403) {
+      const conf = bloqueoConfirmado(err.body);
+      if (conf) {
+        seguidos403 = 0;
+        registrar(`[licencia] latido fallo: status=403 motivo=bloqueo (confirmado: ${conf.motivo}) -> se bloquea`);
+        return bloquear(conf.motivo);
+      }
+      seguidos403++;
+      if (seguidos403 >= SEGUIDOS_403_PARA_BLOQUEAR) {
+        registrar(`[licencia] latido fallo: status=403 motivo=bloqueo (sin motivo del servidor, ${seguidos403} seguidos) -> se bloquea`);
+        return bloquear('suscripcion_vencida');
+      }
+      registrar(`[licencia] latido fallo: status=403 motivo=bloqueo (sin motivo del servidor, ${seguidos403}/${SEGUIDOS_403_PARA_BLOQUEAR}) -> todavia no se bloquea`);
+    } else {
+      registrar(`[licencia] latido fallo: status=${(err && err.status) || '-'} motivo=${motivoFallo}${err && err.code ? ' code=' + err.code : ''}`);
+    }
 
     // 401 (sesión vencida), sin internet o servidor caído → gracia
     const g = offlineGrace.evaluar(ctx.userDataDir);
@@ -82,8 +134,8 @@ async function tick() {
 
 // Al abrir la app: valida primero y, si corresponde, reactiva los bots activos
 // sin que nadie abra la ventana.
-async function iniciar({ userDataDir, botService, emitir, datosHeartbeat }) {
-  ctx = { userDataDir, botService, emitir, datosHeartbeat };
+async function iniciar({ userDataDir, botService, emitir, datosHeartbeat, log }) {
+  ctx = { userDataDir, botService, emitir, datosHeartbeat, log };
   const s = sessionStore.leer(userDataDir);
   if (!s) return;
 
@@ -107,4 +159,7 @@ function pedirLatido(demoraMs = 2000) {
 
 function detener() { if (timer) clearInterval(timer); if (pedido) { clearTimeout(pedido); pedido = null; } }
 
-module.exports = { iniciar, detener, pedirLatido, _tick: tick, estado: () => ({ ...estado, plan: licenseClient.getEstado()?.plan || null, expira: licenseClient.getEstado()?.expira || null }) };
+// Diagnóstico (solo lectura): fallos 403 seguidos sin motivo y último error pendiente de informar al servidor.
+const diagnostico = () => ({ seguidos403, ultimoError: ultimoError ? { ...ultimoError } : null });
+
+module.exports = { iniciar, detener, pedirLatido, diagnostico, _tick: tick, estado: () => ({ ...estado, plan: licenseClient.getEstado()?.plan || null, expira: licenseClient.getEstado()?.expira || null }) };

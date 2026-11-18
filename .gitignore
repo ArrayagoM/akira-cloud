@@ -8,3 +8,21 @@ dist/
 backend/akira-cloud.env
 
 .vercel
+
+# --- Secretos y basura: que un "git add -A" no los suba nunca ---
+# Script de migración con una URI de Mongo con clave escrita adentro (no se versiona)
+scripts/migrar-atlas-a-local.js
+# Archivos de variables de entorno (la plantilla .env.example sí se versiona)
+*.env
+.env.*
+!.env.example
+# Certificados y claves
+*.pem
+*.pfx
+*.p12
+*.key
+# Temporales
+*.tmp
+backend/services/akira.bot.tmp
+# Carpetas de trabajo de Claude Code
+.claude/worktrees/

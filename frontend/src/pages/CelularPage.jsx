@@ -2,9 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, Activity, BarChart3, Settings, RefreshCw, Bell, LogOut, Share, Plus, Smartphone, Loader2, Eye, EyeOff, Camera } from 'lucide-react';
 import CargarProducto from '../components/celular/CargarProducto';
+import DialogoConfirmar from '../components/celular/DialogoConfirmar';
+import useSondeo from '../components/celular/useSondeo';
+import { CLAVE_BORRADOR } from '../lib/productoCelular';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { describirBot, hace, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ETIQUETAS } from '../lib/estadoMovil';
+import { describirBot, hace, accionesDisponibles, lineasResumen, vigenciaResumen, avisoResumen, ordenesRecientes, ordenesPendientes, estadoEfectivoOrden, mensajeOrden, leerOrdenGuardada, instantaneaOffline, CLAVE_ULTIMO_ESTADO, VENCE_ORDEN_MS, AVISO_ORDEN_LENTA_MS } from '../lib/estadoMovil';
 import { activarAvisos, desactivarAvisos, avisosActivos, soportaAvisos, esIPhone, estaInstalada } from '../services/avisosWeb';
 
 // App del celular de Akira, dentro de la web: se instala en la pantalla de inicio (iPhone y Android) y sirve para
@@ -14,7 +17,7 @@ import { activarAvisos, desactivarAvisos, avisosActivos, soportaAvisos, esIPhone
 const TONO = { ok: '#00e87b', aviso: '#f59e0b', error: '#f43f5e', neutro: '#94a3b8' };
 
 function Marco({ children }) {
-  return <div className="min-h-screen" style={{ background: 'var(--bg, #070b10)', color: 'var(--text, #e8f0f8)' }}>{children}</div>;
+  return <div className="min-h-screen min-h-dvh" style={{ background: 'var(--bg, #070b10)', color: 'var(--text, #e8f0f8)' }}>{children}</div>;
 }
 
 function Ingreso() {
@@ -47,7 +50,7 @@ function Ingreso() {
             <label className="block text-xs uppercase tracking-wide mb-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Contraseña</label>
             <div className="relative">
               <input type={ver ? 'text' : 'password'} autoComplete="current-password" required value={clave} onChange={(e) => setClave(e.target.value)} className="input-base pr-10" placeholder="••••••••" />
-              <button type="button" onClick={() => setVer((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2" aria-label={ver ? 'Ocultar contraseña' : 'Mostrar contraseña'} style={{ color: 'var(--text2, #9aa8b8)' }}>{ver ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+              <button type="button" onClick={() => setVer((v) => !v)} className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center" aria-label={ver ? 'Ocultar contraseña' : 'Mostrar contraseña'} style={{ color: 'var(--text2, #9aa8b8)' }}>{ver ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </div>
           </div>
           {error && <p className="text-sm" style={{ color: '#f43f5e' }} role="alert">{error}</p>}
@@ -59,68 +62,132 @@ function Ingreso() {
   );
 }
 
+// El interruptor se ve de 52x30, pero el botón que se toca mide 52x44 (mínimo cómodo para el dedo).
 function Interruptor({ activo, deshabilitado, onCambio, etiqueta }) {
   return (
     <button type="button" role="switch" aria-checked={activo} aria-label={etiqueta} disabled={deshabilitado} onClick={() => onCambio(!activo)}
-      className="relative shrink-0 rounded-full transition-colors" style={{ width: 52, height: 30, background: activo ? '#00e87b' : '#2a3648', opacity: deshabilitado ? 0.5 : 1 }}>
-      <span className="absolute rounded-full bg-white transition-all" style={{ width: 24, height: 24, top: 3, left: activo ? 25 : 3 }} />
+      className="relative shrink-0 rounded-full" style={{ width: 52, height: 44, background: 'transparent', opacity: deshabilitado ? 0.5 : 1 }}>
+      <span className="absolute rounded-full transition-colors" style={{ left: 0, top: 7, width: 52, height: 30, background: activo ? '#00e87b' : '#2a3648' }} />
+      <span className="absolute rounded-full bg-white transition-all" style={{ width: 24, height: 24, top: 10, left: activo ? 25 : 3 }} />
     </button>
   );
 }
 
-function PC({ pc, alCambiar }) {
+// La orden en curso se recuerda en esta pestaña (sessionStorage) para seguirla si se recarga la página.
+const claveOrden = (deviceId) => `akira.celular.orden.${deviceId}`;
+const leerOrden = (deviceId) => { try { return leerOrdenGuardada(sessionStorage.getItem(claveOrden(deviceId))); } catch { return null; } };
+const guardarOrden = (deviceId, o) => { try { if (o) sessionStorage.setItem(claveOrden(deviceId), JSON.stringify(o)); else sessionStorage.removeItem(claveOrden(deviceId)); } catch { /* sin almacenamiento: la orden se sigue igual mientras no se recargue */ } };
+const TONO_NOTA = { ok: '#00e87b', error: '#f87171', info: undefined };
+// Pide confirmación solo lo que apaga el bot o cambia lo que le dice a los clientes. Reanudar y desactivar vacaciones van directo.
+const CONFIRMAN = ['bot-pausar', 'vacaciones-on'];
+
+function PC({ pc, ahora, alCambiar, alOrden }) {
   const info = describirBot(pc);
   const color = TONO[info.tono] || TONO.neutro;
   const acc = accionesDisponibles(pc);
-  const [trabajando, setTrabajando] = useState(null);
-  const [nota, setNota] = useState('');
+  const [orden, setOrden] = useState(() => leerOrden(pc.deviceId)); // { id, tipo, en } de la orden que esperamos
+  const [trabajando, setTrabajando] = useState(() => { const o = leerOrden(pc.deviceId); return o && Date.now() - o.en < AVISO_ORDEN_LENTA_MS ? o.tipo : null; });
+  const [nota, setNota] = useState({ texto: '', tipo: 'info' });
+  const [confirmar, setConfirmar] = useState(null);
   const vivo = useRef(true);
   useEffect(() => { vivo.current = true; return () => { vivo.current = false; }; }, []);
 
+  // Le avisa a la pantalla que hay una orden esperando (para consultar más seguido mientras tanto).
+  useEffect(() => { alOrden(pc.deviceId, orden ? orden.en : null); return () => alOrden(pc.deviceId, null); }, [orden]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const terminar = (estado, edad) => {
+    guardarOrden(pc.deviceId, null); setOrden(null); setTrabajando(null);
+    setNota(mensajeOrden(orden.tipo, estado, edad));
+    if (estado === 'hecho') alCambiar();
+  };
+  // Sigue la orden: cada vez que llega un estado nuevo del servidor mira cómo quedó. Si el servidor ya no la lista (pasaron más de 5 órdenes), la consulta puntual.
+  useEffect(() => {
+    if (!orden) return undefined;
+    const edad = Date.now() - orden.en;
+    const resolver = (estadoServidor) => {
+      if (!vivo.current) return;
+      const estado = estadoServidor === 'pendiente' && edad > VENCE_ORDEN_MS + 5000 ? 'vencido' : estadoServidor; // la PC tuvo 10 min y no la retiró
+      if (estado !== 'pendiente') { terminar(estado, edad); return; }
+      if (edad >= AVISO_ORDEN_LENTA_MS) setTrabajando(null); // los botones se liberan, pero la orden se sigue mirando
+      setNota(mensajeOrden(orden.tipo, 'pendiente', edad));
+    };
+    const c = (pc.comandos || []).find((x) => x.id === orden.id);
+    if (c) { resolver(estadoEfectivoOrden(c, ahora)); return undefined; }
+    let activo = true;
+    api.get(`/mobile/comandos/${encodeURIComponent(orden.id)}`, { params: { deviceId: pc.deviceId } })
+      .then((r) => { if (activo) resolver(estadoEfectivoOrden({ estado: r.data && r.data.estado }, ahora)); })
+      .catch((e) => { if (activo && vivo.current && e.response?.status === 404) terminar('desconocido', edad); /* otro error (sin conexión): se reintenta en la próxima consulta */ });
+    return () => { activo = false; };
+  }, [pc.comandos, orden]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const ejecutar = async (tipo) => {
-    setNota(''); setTrabajando(tipo);
+    setNota({ texto: '', tipo: 'info' }); setTrabajando(tipo);
     try {
       const { data } = await api.post('/mobile/comandos', { deviceId: pc.deviceId, tipo });
-      const id = data.comando.id;
-      setNota('Enviado. Esperando a tu PC (puede tardar hasta 1 minuto)…');
-      for (let i = 0; i < 30 && vivo.current; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const c = await api.get(`/mobile/comandos/${encodeURIComponent(id)}`, { params: { deviceId: pc.deviceId } }).then((r) => r.data).catch(() => null);
-        if (c?.estado === 'hecho') { setNota('✅ Listo: ' + ETIQUETAS[tipo].toLowerCase() + '.'); alCambiar(); return; }
-        if (c && ['fallo', 'vencido', 'cancelado'].includes(c.estado)) { setNota(c.estado === 'vencido' ? 'La PC no respondió a tiempo, así que no se hizo nada. Probá de nuevo.' : 'No se pudo completar. Probá de nuevo.'); return; }
-      }
-      if (vivo.current) setNota('Tu PC todavía no respondió. Si sigue sin hacerlo, la orden vence sola en unos minutos.');
+      const nueva = { id: data.comando.id, tipo, en: Date.now() };
+      guardarOrden(pc.deviceId, nueva); alOrden(pc.deviceId, nueva.en);
+      if (vivo.current) { setOrden(nueva); setNota(mensajeOrden(tipo, 'pendiente', 0)); }
+      alCambiar(); // trae la orden a la lista y acelera las consultas
     } catch (e) {
-      setNota(e.response?.data?.codigo === 'CELULAR_DESACTIVADO' ? 'Primero activalo en Akira (PC) → Inicio → “Controlar desde la app del celular”.' : (e.response?.data?.error || 'No se pudo enviar la orden.'));
-    } finally { if (vivo.current) setTrabajando(null); }
+      if (vivo.current) { setTrabajando(null); setNota({ texto: e.response?.data?.codigo === 'CELULAR_DESACTIVADO' ? 'Primero activalo en Akira (PC) → Inicio → “Controlar desde la app del celular”.' : (e.response?.data?.error || 'No se pudo enviar la orden. Revisá tu internet y probá de nuevo.'), tipo: 'error' }); }
+    }
   };
+  const pedir = (tipo) => { if (CONFIRMAN.includes(tipo)) setConfirmar(tipo); else ejecutar(tipo); };
+  const ordenes = ordenesRecientes(pc, ahora);
+  const sub = { color: 'var(--text2, #9aa8b8)' };
 
   return (
     <div className="card mb-4" style={{ borderColor: color + '55' }}>
       <div className="flex items-center justify-between"><p className="font-bold">{pc.nombre}</p><span className="text-xs" style={{ color: 'var(--muted, #64748b)' }}>{pc.version ? `v${pc.version}` : ''}</span></div>
       <div className="mt-3 mb-2"><span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: color + '22', color }}>{info.titulo.toUpperCase()}</span></div>
       <p className="text-[15px] leading-relaxed">{info.detalle}</p>
-      <p className="text-xs mt-2" style={{ color: 'var(--text2, #9aa8b8)' }}>Última señal de la PC: {hace(pc.ultimoHeartbeat)}</p>
+      <p className="text-xs mt-2" style={sub}>Última señal de la PC: {hace(pc.ultimoHeartbeat)}</p>
 
-      {!pc.controlRemoto && pc.online && <p className="text-xs mt-3" style={{ color: '#f59e0b' }}>Para pausar, reanudar o cargar productos desde acá, activá “Controlar desde la app del celular” en Akira (PC) → Inicio.</p>}
+      {!pc.controlRemoto && pc.online && <p className="text-xs mt-3" style={{ color: '#f59e0b' }}>Para apagar, reanudar o cargar productos desde acá, activá “Controlar desde la app del celular” en Akira (PC) → Inicio.</p>}
       {pc.controlRemoto && (
         <div className="mt-4 space-y-3">
-          {acc.puedePausar && <button className="btn-secondary w-full justify-center" disabled={!!trabajando} onClick={() => ejecutar('bot-pausar')}>{trabajando === 'bot-pausar' ? <Loader2 size={15} className="animate-spin" /> : 'Pausar el bot'}</button>}
-          {acc.puedeReanudar && <button className="btn-primary w-full justify-center" disabled={!!trabajando} onClick={() => ejecutar('bot-reanudar')}>{trabajando === 'bot-reanudar' ? <Loader2 size={15} className="animate-spin" /> : 'Reanudar el bot'}</button>}
+          {acc.puedePausar && <button className="btn-secondary w-full justify-center" style={{ minHeight: 44 }} disabled={!!trabajando} onClick={() => pedir('bot-pausar')}>{trabajando === 'bot-pausar' ? <Loader2 size={15} className="animate-spin" /> : 'Apagar el bot'}</button>}
+          {acc.puedeReanudar && <button className="btn-primary w-full justify-center" style={{ minHeight: 44 }} disabled={!!trabajando} onClick={() => pedir('bot-reanudar')}>{trabajando === 'bot-reanudar' ? <Loader2 size={15} className="animate-spin" /> : 'Reanudar el bot'}</button>}
           {pc.online && (
             <div className="flex items-center justify-between gap-3 pt-3" style={{ borderTop: '1px solid var(--border, #1e2a3a)' }}>
-              <span><span className="block text-[15px] font-semibold">Modo vacaciones</span><span className="block text-xs" style={{ color: 'var(--text2, #9aa8b8)' }}>El bot avisa que no toma reservas por ahora.</span></span>
-              <Interruptor activo={!!pc.vacaciones} deshabilitado={!!trabajando} etiqueta="Modo vacaciones" onCambio={(v) => ejecutar(v ? 'vacaciones-on' : 'vacaciones-off')} />
+              <span><span className="block text-[15px] font-semibold">Modo vacaciones</span><span className="block text-xs" style={sub}>El bot avisa que no toma reservas por ahora.</span></span>
+              <Interruptor activo={!!pc.vacaciones} deshabilitado={!!trabajando} etiqueta="Modo vacaciones" onCambio={(v) => pedir(v ? 'vacaciones-on' : 'vacaciones-off')} />
             </div>
           )}
         </div>
       )}
-      {!!nota && <p className="text-sm mt-3" style={{ color: 'var(--text2, #9aa8b8)' }} role="status">{nota}</p>}
+      {!!nota.texto && <p className="text-sm mt-3" style={{ color: TONO_NOTA[nota.tipo] || sub.color, fontWeight: nota.tipo === 'error' ? 600 : undefined }} role={nota.tipo === 'error' ? 'alert' : 'status'}>{nota.texto}</p>}
+
+      {ordenes.length > 0 && (
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--border, #1e2a3a)' }}>
+          <p className="text-xs font-bold uppercase tracking-wide mb-2" style={sub}>Últimas órdenes</p>
+          <ul className="space-y-2">
+            {ordenes.map((o) => (
+              <li key={o.id} className="flex items-center justify-between gap-3">
+                <span className="min-w-0"><span className="block text-sm truncate">{o.texto}</span>{!!o.hora && <span className="block text-xs" style={sub}>{o.hora}</span>}</span>
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full shrink-0" style={{ background: (TONO[o.tono] || TONO.neutro) + '22', color: TONO[o.tono] || TONO.neutro }}>{o.etiqueta}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {confirmar === 'bot-pausar' && (
+        <DialogoConfirmar titulo="¿Apagar el bot?" textoConfirmar="Apagar el bot" peligro alCancelar={() => setConfirmar(null)} alConfirmar={() => { setConfirmar(null); ejecutar('bot-pausar'); }}>
+          <p>El bot deja de contestar a <b>todos tus clientes</b> hasta que lo reanudes. Mientras esté apagado, los mensajes que lleguen no se responden.</p>
+          <p className="mt-2">Para que vuelva a atender, tocá “Reanudar el bot”: se puede hacer desde acá.</p>
+        </DialogoConfirmar>
+      )}
+      {confirmar === 'vacaciones-on' && (
+        <DialogoConfirmar titulo="¿Activar el modo vacaciones?" textoConfirmar="Activar vacaciones" alCancelar={() => setConfirmar(null)} alConfirmar={() => { setConfirmar(null); ejecutar('vacaciones-on'); }}>
+          <p>El bot sigue conectado, pero le avisa a los clientes que por ahora no toma reservas. Lo desactivás cuando quieras con este mismo interruptor.</p>
+        </DialogoConfirmar>
+      )}
     </div>
   );
 }
 
-function PestañaEstado({ estado, cargando, error, recargar, usuario }) {
+function PestañaEstado({ estado, cargando, error, recargar, usuario, alOrden }) {
   const pcs = estado?.pcs || [];
   return (
     <div>
@@ -131,7 +198,7 @@ function PestañaEstado({ estado, cargando, error, recargar, usuario }) {
       {!error && !cargando && estado && pcs.length === 0 && (
         <div className="card"><p className="font-bold">Todavía no hay ninguna PC</p><p className="text-sm mt-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Instalá Akira en tu computadora con Windows (<Link to="/descargar" style={{ color: '#00e87b' }}>akiracloud.lat/descargar</Link>) e iniciá sesión con esta misma cuenta. Después vas a verla acá.</p></div>
       )}
-      {pcs.map((pc) => <PC key={pc.deviceId} pc={pc} alCambiar={recargar} />)}
+      {pcs.map((pc) => <PC key={pc.deviceId} pc={pc} ahora={new Date((estado && estado.ahora) || Date.now())} alCambiar={recargar} alOrden={alOrden} />)}
     </div>
   );
 }
@@ -230,29 +297,53 @@ function PestañaAjustes({ usuario, alSalir }) {
   );
 }
 
+const MIRANDO_MS = 60 * 1000; // sin tocar la pantalla por más de esto se considera "en reposo" y se consulta más despacio
+// Al cerrar sesión se borra lo guardado en este celular (último estado conocido y borrador de producto): no tiene que verlo quien entre después.
+const limpiarLocal = () => { try { localStorage.removeItem(CLAVE_ULTIMO_ESTADO); localStorage.removeItem(CLAVE_BORRADOR); } catch { /* sin almacenamiento */ } };
+
 export default function CelularPage() {
   const { user, loading, logout } = useAuth();
   const [pestaña, setPestaña] = useState('estado');
   const [estado, setEstado] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
+  const estadoRef = useRef(null);
+  const ordenesLocales = useRef(new Map()); // deviceId -> cuándo se mandó la orden que se está esperando
+  const ultimaActividad = useRef(Date.now());
 
   const recargar = useCallback(async () => {
     setCargando(true);
-    try { const r = await api.get('/mobile/estado'); setEstado(r.data); setError(''); }
-    catch (e) { setError(e.response?.data?.error || 'No hay conexión con el servidor. Revisá tu internet.'); }
+    try {
+      const r = await api.get('/mobile/estado'); estadoRef.current = r.data; setEstado(r.data); setError('');
+      try { localStorage.setItem(CLAVE_ULTIMO_ESTADO, JSON.stringify(instantaneaOffline(r.data))); } catch { /* sin almacenamiento: solo se pierde el estado sin conexión */ }
+      return true;
+    } catch (e) { setError(e.response?.data?.error || 'No hay conexión con el servidor. Revisá tu internet.'); return false; }
     finally { setCargando(false); }
   }, []);
 
+  // Cuántas consultas y cada cuánto (ver intervaloSondeo): rápido con una orden esperando o si estás tocando la pantalla, lento en reposo,
+  // más lento tras cada error y quieto con la app en segundo plano. Al volver a verla consulta de inmediato.
+  const refrescar = useSondeo(recargar, {
+    activo: !!user,
+    opciones: () => {
+      const ahora = new Date((estadoRef.current && estadoRef.current.ahora) || Date.now());
+      const edades = [...ordenesPendientes(estadoRef.current && estadoRef.current.pcs, ahora).map((o) => o.edadMs), ...Array.from(ordenesLocales.current.values()).map((en) => Date.now() - en)];
+      return { pendiente: edades.length > 0, edadPendienteMs: edades.length ? Math.min(...edades) : 0, mirando: Date.now() - ultimaActividad.current < MIRANDO_MS };
+    },
+  });
+  const alOrden = useCallback((deviceId, en) => { if (en) ordenesLocales.current.set(deviceId, en); else ordenesLocales.current.delete(deviceId); }, []);
+
   useEffect(() => {
     if (!user) return undefined;
-    recargar();
-    // Casi en vivo: cada 10 s mientras la pantalla se ve (la PC manda los cambios apenas ocurren); pausada si la app está en segundo plano.
-    const t = setInterval(() => { if (document.visibilityState !== 'hidden') recargar(); }, 10000);
-    const alVolver = () => { if (document.visibilityState === 'visible') recargar(); };
+    const tocar = () => { ultimaActividad.current = Date.now(); };
+    const alVolver = () => { if (document.visibilityState === 'visible') tocar(); };
+    const eventos = ['pointerdown', 'keydown', 'touchstart', 'scroll'];
+    eventos.forEach((e) => window.addEventListener(e, tocar, { passive: true, capture: true }));
     document.addEventListener('visibilitychange', alVolver);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
-  }, [user, recargar]);
+    return () => { eventos.forEach((e) => window.removeEventListener(e, tocar, { capture: true })); document.removeEventListener('visibilitychange', alVolver); };
+  }, [user]);
+
+  const salir = useCallback(() => { limpiarLocal(); return logout(); }, [logout]);
 
   if (loading) return <Marco><div className="flex justify-center pt-24"><Loader2 className="animate-spin" style={{ color: '#00e87b' }} /></div></Marco>;
   if (!user) return <Ingreso />;
@@ -262,13 +353,13 @@ export default function CelularPage() {
     <Marco>
       <header className="sticky top-0 z-10 flex items-center justify-between px-5 py-3" style={{ background: 'rgba(7,11,16,0.92)', backdropFilter: 'blur(8px)', borderBottom: '1px solid var(--border, #1e2a3a)', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
         <span className="font-bold flex items-center gap-2"><Bot size={18} style={{ color: '#00e87b' }} />Akira <span style={{ color: '#00e87b' }}>Cloud</span></span>
-        {pestaña !== 'ajustes' && <button onClick={recargar} aria-label="Actualizar" className="p-2 -mr-2" style={{ color: 'var(--text2, #9aa8b8)' }}><RefreshCw size={18} className={cargando ? 'animate-spin' : ''} /></button>}
+        {pestaña !== 'ajustes' && <button onClick={refrescar} aria-label="Actualizar" className="w-11 h-11 -mr-3 flex items-center justify-center" style={{ color: 'var(--text2, #9aa8b8)' }}><RefreshCw size={18} className={cargando ? 'animate-spin' : ''} /></button>}
       </header>
       <main className="max-w-lg mx-auto px-5 pt-5 pb-28">
-        {pestaña === 'estado' && <PestañaEstado estado={estado} cargando={cargando} error={error} recargar={recargar} usuario={user} />}
+        {pestaña === 'estado' && <PestañaEstado estado={estado} cargando={cargando} error={error} recargar={refrescar} usuario={user} alOrden={alOrden} />}
         {pestaña === 'resumen' && <PestañaResumen estado={estado} />}
         {pestaña === 'productos' && <CargarProducto estado={estado} />}
-        {pestaña === 'ajustes' && <PestañaAjustes usuario={user} alSalir={logout} />}
+        {pestaña === 'ajustes' && <PestañaAjustes usuario={user} alSalir={salir} />}
       </main>
       <nav className="fixed bottom-0 inset-x-0 flex" style={{ background: 'rgba(7,11,16,0.96)', borderTop: '1px solid var(--border, #1e2a3a)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {TABS.map(({ id, texto, Icono }) => (
