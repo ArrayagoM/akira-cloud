@@ -261,3 +261,13 @@ Corrige AUD-001 #1, #3 y #6. **Backend de producción: sin publicar hasta que el
 - **Archivos.** `frontend/src/lib/menuScroll.js` (nuevo), `frontend/src/components/Layout.jsx` (14 líneas), `desktop/tests/menu-scroll.test.js` (17 comprobaciones).
 - **Límites.** La lógica está probada; la conexión con el menú real solo se confirma en la app (cambiar de perfil estando en Caja, y con un perfil de empleado que tiene menos opciones).
 - **Riesgo.** Bajo.
+
+### CAM-016 — Ideas en la app de escritorio y versión 1.0.38 (18/11/2026)
+- **Causa.** La página "Ideas" (`/sugerencias`) existía solo en la web: el menú de escritorio la escondía y la app local no reenviaba `/api/suggestions` a la nube, así que quien usa la app instalada (casi todos) no tenía cómo dejar ideas para verlas en la pestaña Ideas del admin. Coincide con el "0 ideas enviadas" del radar de usuarios (hipótesis: no se consultó la base).
+- **Cambio.** `server.js` reenvía `/api/suggestions` a la nube igual que `/api/auth`, `/api/subscriptions` y `/api/admin` (el servidor sigue exigiendo sesión; ver y responder ideas sigue siendo solo rol admin). `Layout.jsx` deja de ocultar "Ideas" en el menú de escritorio (solo se oculta la página de descarga). El tope de 5 ideas por usuario y día de CAM-009 acota el costo de la IA que las analiza.
+- **Versión.** `desktop/package.json` pasa de 1.0.36 a **1.0.38**: la 1.0.36 que está en certificación en la Store es un código anterior a CAM-009 a CAM-016, y se evita publicar dos códigos distintos con el mismo número. La 1.0.37 no se usa.
+- **Archivos.** `desktop/main/local-api/server.js` (1 línea), `frontend/src/components/Layout.jsx`, `desktop/package.json`, `desktop/tests/ideas-escritorio.test.js` (nuevo, 10 comprobaciones).
+- **No se tocó.** El servidor de ideas (`suggestions.routes.js`), la página `SugerenciasPage.jsx`, el panel admin.
+- **Pruebas.** El test levanta una "nube" falsa y comprueba lo que recibe (POST, GET `/mias`, PATCH, con y sin sesión) y que `server.js` y el menú tengan el cambio. Verificado quitando cada cambio: el test falla; restaurados, pasa. Las dos últimas comprobaciones leen el código fuente (menos robustas que un test de pantalla).
+- **Límites.** Para que las ideas lleguen, el servidor tiene que ser el actual (el endpoint ya existe en producción). Un perfil de empleado sigue sin ver Ideas (no figura en su menú permitido).
+- **Riesgo.** Bajo. Sin publicar.

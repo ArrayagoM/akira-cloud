@@ -16,7 +16,8 @@ import SesionRenovada from './SesionRenovada';
 import ActualizacionAviso, { VersionApp } from './ActualizacionAviso';
 import { usePerfil, salirPerfil, puedeVerMenu } from '../services/perfil';
 
-// Versión de escritorio (Electron): sin Ideas/soporte, que dependen de la plataforma en la nube. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
+// Versión de escritorio (Electron): sin la página de descarga ni el soporte, que dependen de la plataforma en la nube. Ideas sí: la app de escritorio reenvía /api/suggestions al servidor
+// (local-api/server.js), así quien usa la app instalada también puede dejar sus ideas. El panel Admin sí (solo rol admin): habla con el servidor de licencias.
 const DESKTOP = !!import.meta.env.VITE_DESKTOP;
 
 // `grupo` ordena el menú de la app de escritorio en secciones (en la web no se muestran títulos).
@@ -89,7 +90,7 @@ export default function Layout({ children }) {
 
   const navItems = [
     ...NAV_ITEMS_BASE.filter((i) => (!DESKTOP || puedeVerMenu(perfil, i.to)) && (DESKTOP
-      ? !(i.to === '/sugerencias' || i.to === '/descargar')
+      ? i.to !== '/descargar'
       : !['/agenda', '/clientes', '/chats', '/config', '/documentos', '/catalogo', '/caja', '/deudores', '/proveedores', '/respaldo', '/conocimiento', '/pedidos', '/analisis', '/marketing', '/reportes', '/comprobantes', '/equipo', '/vender', '/profesionales', '/sucursales', '/integraciones', '/ayuda'].includes(i.to))), // en la web esas pantallas viven en la app de escritorio
     ...(user?.rol === 'admin' && (!perfil || perfil.rol === 'propietario') ? [{ to: '/admin', icon: Shield, label: 'Admin' }] : []),
   ];

@@ -124,6 +124,7 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
   app.use('/api/auth', aNube);
   app.use('/api/subscriptions', aNube);
   app.use('/api/admin', aNube); // panel de administración: vive en la nube (solo rol admin)
+  app.use('/api/suggestions', aNube); // ideas de los usuarios: viven en la nube (el servidor exige sesión; ver y responder es solo rol admin)
 
   // ── Lo que corre local ─────────────────────────────────────────
   const deps = { botService, requerirSesion: sesion.requerirSesion, userDataDir, appHooks, servicioRespaldo: appHooks.servicioRespaldo, servicioResumenDiario: appHooks.servicioResumenDiario, servicioCelular: appHooks.servicioCelular, servicioDifusion: appHooks.servicioDifusion, servicioRecurrentes: appHooks.servicioRecurrentes, servicioWebhooks: appHooks.servicioWebhooks, servicioMcp: appHooks.servicioMcp, servicioMarketing: appHooks.servicioMarketing, servicioExportacion: appHooks.servicioExportacion, estadoImport: () => estadoImp, ejecutarImport };
