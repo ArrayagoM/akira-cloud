@@ -336,18 +336,24 @@ const OAuthCode = require('../models/OAuthCode');
 
 // Guardado en Mongo (no en memoria): en Vercel el callback y el canje del
 // código corren en invocaciones distintas, sin memoria compartida.
-async function crearCodigoOAuth(token) {
+// `desafio` (opcional) lo manda solo la app de Android: el canje exige el `verifier` que lo genera (PKCE), así un
+// código robado en el celular por otra app no sirve. Web y escritorio no lo usan y siguen igual.
+async function crearCodigoOAuth(token, desafio) {
   const code = crypto.randomBytes(32).toString('hex');
-  await OAuthCode.create({ code, token, expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
+  await OAuthCode.create({ code, token, ...(desafio ? { challenge: desafio } : {}), expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
   return code;
 }
 
 router.get('/oauth-token', async (req, res) => {
-  const { code } = req.query;
+  const { code, verifier } = req.query;
   if (!code || typeof code !== 'string') return res.status(400).json({ error: 'Falta el código' });
   // findOneAndDelete = un solo uso, atómico
   const entry = await OAuthCode.findOneAndDelete({ code });
   if (!entry || entry.expiresAt < new Date()) {
+    return res.status(401).json({ error: 'Código inválido o expirado' });
+  }
+  // Código de la app de Android: hay que presentar el verifier que dio origen al desafío (el código ya quedó gastado).
+  if (entry.challenge && !verificadorCoincide(verifier, entry.challenge)) {
     return res.status(401).json({ error: 'Código inválido o expirado' });
   }
   res.json({ token: entry.token });
@@ -374,10 +380,36 @@ function puertoDeEscritorio(req) {
   }
 }
 
+// ── Flujo de la app de Android ───────────────────────────────
+// La app abre el navegador en /google?mobile_challenge=<sha256 hex del verifier> y vuelve por el esquema akira://oauth.
+// El desafío viaja en `state` (firmado). Solo se redirige a ese esquema fijo, nunca a una dirección que mande el cliente.
+const REDIRECCION_APP_MOVIL = 'akira://oauth';
+const DESAFIO_MOVIL = /^[a-f0-9]{64}$/;
+function stateDeMovil(req) {
+  const desafio = String(req.query.mobile_challenge || '');
+  if (!DESAFIO_MOVIL.test(desafio)) return undefined;
+  return jwt.sign({ mc: desafio }, process.env.JWT_SECRET, { expiresIn: '10m' });
+}
+function desafioDeMovil(req) {
+  if (!req.query.state) return null;
+  try {
+    const { mc } = jwt.verify(String(req.query.state), process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    return typeof mc === 'string' && DESAFIO_MOVIL.test(mc) ? mc : null;
+  } catch {
+    return null;
+  }
+}
+function verificadorCoincide(verifier, desafio) {
+  if (typeof verifier !== 'string' || verifier.length < 32 || verifier.length > 256) return false;
+  const calculado = Buffer.from(crypto.createHash('sha256').update(verifier).digest('hex'));
+  const esperado = Buffer.from(String(desafio));
+  return calculado.length === esperado.length && crypto.timingSafeEqual(calculado, esperado);
+}
+
 function iniciarOAuth(proveedor, scope) {
   return (req, res, next) => {
     const opts = { session: false, scope };
-    const state = stateDeEscritorio(req);
+    const state = stateDeEscritorio(req) || stateDeMovil(req);
     if (state) opts.state = state;
     passport.authenticate(proveedor, opts)(req, res, next);
   };
@@ -394,8 +426,10 @@ function callbackOAuth(proveedor, etiqueta) {
     const token = generarJWT(req.user._id, userFull?.tokenVersion ?? 0, { expiresIn: puerto ? (process.env.DESKTOP_JWT_EXPIRES_IN || '30d') : undefined });
     await User.findByIdAndUpdate(req.user._id, { ultimoLogin: new Date(), $inc: { loginCount: 1 } });
     await Log.registrar({ userId: req.user._id, tipo: 'auth_login', mensaje: `Login ${etiqueta} (desktop)`, ip: req.ip });
-    const code = await crearCodigoOAuth(token);
+    const desafio = puerto ? null : desafioDeMovil(req);
+    const code = await crearCodigoOAuth(token, desafio);
     if (puerto) return res.redirect(`http://127.0.0.1:${puerto}/callback?code=${code}`);
+    if (desafio) return res.redirect(`${REDIRECCION_APP_MOVIL}?code=${code}`);
     res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?code=${code}`);
   };
   return [autenticar, finalizar];

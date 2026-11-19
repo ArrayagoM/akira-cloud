@@ -10,6 +10,7 @@ const mongoose = require('mongoose');
 const OAuthCodeSchema = new mongoose.Schema({
   code: { type: String, required: true, unique: true },
   token: { type: String, required: true },
+  challenge: { type: String }, // solo códigos de la app de Android (PKCE): sha256 hex del verifier
   expiresAt: { type: Date, required: true, index: { expires: 0 } }, // TTL: Mongo lo borra al vencer
 });
 

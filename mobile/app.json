@@ -3,7 +3,7 @@
     "name": "Akira",
     "slug": "akira-cloud",
     "scheme": "akira",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -20,6 +20,7 @@
     },
     "android": {
       "package": "lat.akiracloud.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-foreground.png",
         "backgroundImage": "./assets/adaptive-background.png",
@@ -29,7 +30,8 @@
     "web": { "favicon": "./assets/favicon.png", "bundler": "metro" },
     "plugins": [
       "expo-secure-store",
-      ["expo-notifications", { "icon": "./assets/notification-icon.png", "color": "#00e87b" }]
+      ["expo-notifications", { "icon": "./assets/notification-icon.png", "color": "#00e87b" }],
+      "expo-web-browser"
     ]
   }
 }
