@@ -73,6 +73,29 @@ router.get('/estado', requireAuth, async (req, res) => {
   } catch (e) { logger.error('[Mobile] estado: ' + e.message); res.status(500).json({ error: 'No se pudo leer el estado' }); }
 });
 
+// GET /api/mobile/datos?tipo=agenda|caja|clientes|catalogo → los datos del negocio que cada PC subió (solo si el usuario lo activó en la PC).
+// Solo de la cuenta que pregunta; se descifran acá y no se guardan en ningún otro lado.
+router.get('/datos', requireAuth, async (req, res) => {
+  try {
+    const DN = require('../lib/datos-negocio');
+    const tipo = String(req.query.tipo || '');
+    if (!DN.TIPOS.includes(tipo)) return res.status(400).json({ error: 'Tipo de dato inválido' });
+    const ahora = new Date();
+    mirando.marcarMirando(Device, req.user._id, ahora);
+    const pcs = await misPCs(req.user._id);
+    const docs = await require('../models/DatosNegocio').find({ userId: req.user._id, tipo }).select('+cifrado');
+    const { decrypt } = require('../services/crypto.service');
+    const salida = [];
+    for (const pc of pcs) {
+      const d = docs.find((x) => x.deviceId === pc.deviceId); if (!d) continue;
+      let datos = null; try { datos = JSON.parse(decrypt(d.cifrado)); } catch { datos = null; }
+      if (datos) salida.push({ deviceId: pc.deviceId, nombre: pc.nombre || 'Mi PC', actualizadoEn: new Date(d.actualizadoEn).toISOString(), datos });
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ tipo, pcs: salida, ahora: ahora.toISOString() });
+  } catch (e) { logger.error('[Mobile] datos: ' + e.message); res.status(500).json({ error: 'No se pudieron leer los datos' }); }
+});
+
 // POST /api/mobile/comandos { deviceId, tipo } — la PC lo retira en ~1 min (si el control remoto está activado)
 router.post('/comandos', requireAuth, async (req, res) => {
   try {

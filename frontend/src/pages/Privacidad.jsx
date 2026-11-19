@@ -27,7 +27,7 @@ export default function Privacidad() {
       {/* Content */}
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '48px 24px 80px' }}>
         <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8, color: 'var(--text)' }}>Política de Privacidad</h1>
-        <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 40 }}>Última actualización: 28 de marzo de 2025</p>
+        <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 40 }}>Última actualización: 19 de noviembre de 2026</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 32, lineHeight: 1.75, fontSize: 15, color: 'var(--text-secondary, #c4c4c4)' }}>
 
@@ -36,7 +36,8 @@ export default function Privacidad() {
             <ul>
               <li><strong>Datos de cuenta:</strong> nombre, dirección de correo electrónico y contraseña cifrada al registrarte.</li>
               <li><strong>Datos de uso de la licencia:</strong> la versión instalada, el estado del bot (conectado o no) y la fecha de la última señal de vida del programa, para validar tu suscripción y avisarte si el bot se desconecta.</li>
-              <li><strong>Datos del negocio que quedan en tu computadora:</strong> tus clientes, conversaciones, turnos, caja, catálogo y documentos se guardan en la PC donde instalás Akira, no en nuestros servidores. Las claves que cargás (por ejemplo, de MercadoPago o de Groq) se cifran con el almacén de claves de Windows.</li>
+              <li><strong>Datos del negocio que quedan en tu computadora:</strong> tus clientes, conversaciones, turnos, caja, catálogo y documentos se guardan en la PC donde instalás Akira, no en nuestros servidores (salvo lo que vos elijas ver desde el celular, ver el punto siguiente). Las claves que cargás (por ejemplo, de MercadoPago o de Groq) se cifran con el almacén de claves de Windows.</li>
+              <li><strong>Datos de tu negocio para verlos desde el celular (opcional, apagado por defecto):</strong> solo si lo activás en el Dashboard de la app de la PC (“Ver los datos de mi negocio en el celular”), la app sube a tu cuenta una copia de lo que elijas: agenda (turnos de los próximos días), caja del mes, clientes y deudores, y catálogo con stock. Esa copia incluye nombres, teléfonos y montos de tus clientes. Se guarda cifrada, solo se muestra cuando iniciás sesión con tu cuenta en la app del celular o en la web, y no aparece en el panel de administración. Se borra al apagar la opción, al desactivar el equipo, y sola si pasan 30 días sin que tu PC la actualice. Vos sos quien decide qué datos compartir y podés cambiarlo cuando quieras. Es solo de lectura: desde el celular no se puede modificar nada de tu PC con esta opción.</li>
               <li><strong>Datos de Google Calendar:</strong> solo si autorizás la integración, accedemos a tu calendario para crear y gestionar eventos según las instrucciones configuradas. No almacenamos el contenido de tus eventos.</li>
               <li><strong>Datos de WhatsApp Business:</strong> metadatos de mensajes necesarios para operar el bot (remitente, timestamp). No almacenamos conversaciones privadas completas.</li>
               <li><strong>Datos de pago:</strong> las transacciones son procesadas por MercadoPago. No almacenamos datos de tarjetas.</li>

@@ -148,6 +148,7 @@ const EMPLEADO = [
 ];
 // Lo que se NIEGA al encargado (todo lo demás lo puede)
 const ENCARGADO_NO = [
+  /^\/api\/app\/datos-celular(\/|$)/, // sube nombres y montos de clientes a la cuenta: lo decide solo el propietario
   /^\/api\/app\/webhooks(\/|$)/, /^\/api\/app\/mcp(\/|$)/, /^\/api\/app\/uso$/, /^\/api\/app\/exportacion(\/|$)/, /^\/api\/app\/respaldo(\/|$)/, /^\/api\/app\/perfiles(\/|$)(?!yo$)/, /^\/api\/subscriptions(\/|$)/, /^\/api\/admin(\/|$)/, /^\/api\/sync(\/|$)/, /^\/api\/app\/resumen-web$/,
   /^\/api\/bot\/(keys|google|accounts|reset-session)(\/|$)/,
 ];

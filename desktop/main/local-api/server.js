@@ -170,6 +170,27 @@ async function iniciar({ userDataDir, serverUrl, frontendDir, nombreEquipo, botS
     res.json({ activo: resumenWeb.activo(userDataDir) });
   });
 
+  // ── "Ver los datos de mi negocio en el celular" (opcional, apagado por defecto; sube nombres y montos de clientes) ──
+  const estadoDatosCelular = () => { const dc = require('../datos-celular'); return { activo: dc.activo(userDataDir), tipos: dc.tipos(userDataDir), disponibles: dc.TIPOS.map((id) => ({ id, etiqueta: dc.ETIQUETAS[id] })) }; };
+  app.get('/api/app/datos-celular', sesion.requerirSesion, (_req, res) => res.json(estadoDatosCelular()));
+  app.put('/api/app/datos-celular', sesion.requerirSesion, async (req, res) => {
+    const dc = require('../datos-celular'); const lc = require('../license/license-client');
+    const b = req.body || {};
+    if (b.activo !== undefined && typeof b.activo !== 'boolean') return res.status(400).json({ error: 'Valor inválido' });
+    if (b.tipos !== undefined && dc.sanearTipos(b.tipos) === null) return res.status(400).json({ error: 'Elección inválida' });
+    const antes = { activo: dc.activo(userDataDir), tipos: dc.tipos(userDataDir) };
+    const despues = { activo: typeof b.activo === 'boolean' ? b.activo : antes.activo, tipos: b.tipos !== undefined ? dc.sanearTipos(b.tipos) : antes.tipos };
+    if (despues.activo && despues.tipos.length === 0) return res.status(400).json({ error: 'Elegí al menos un dato para compartir. Si no querés compartir nada, apagá la opción.' });
+    dc.guardar(userDataDir, { activo: despues.activo, tipos: despues.tipos });
+    // Lo que se apaga se borra del servidor: la opción entera, o solo los tipos que el usuario sacó.
+    if (antes.activo && !despues.activo) lc.borrarDatosNegocio().catch(() => {});
+    else if (antes.activo && despues.activo) { const quitados = antes.tipos.filter((t) => !despues.tipos.includes(t)); if (quitados.length) lc.borrarDatosNegocio(quitados).catch(() => {}); }
+    // Se aplica enseguida: al activar o cambiar la elección se sube lo que corresponda sin esperar los plazos.
+    appHooks.datosCelularVivo?.reiniciarEstado();
+    appHooks.datosCelularVivo?.tick().catch(() => {});
+    res.json(estadoDatosCelular());
+  });
+
   // ── Actualizaciones de la app (solo con sesión iniciada) ──
   const versionInstalada = require('electron').app?.getVersion?.() || '';
   app.get('/api/app/actualizacion', sesion.requerirSesion, (_req, res) => {

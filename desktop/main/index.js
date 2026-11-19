@@ -357,11 +357,27 @@ if (!bloqueo) {
       log,
     });
     appHooks.resumenVivo.iniciar();
+
+    // Datos del negocio para ver desde el celular (OPCIONAL, apagado por defecto; ver datos-celular.js): sube lo que el usuario eligió.
+    const datosCelular = require('./datos-celular');
+    appHooks.datosCelularVivo = require('./datos-celular-vivo').crearServicio({
+      activo: () => datosCelular.enviaAlgo(userDataDir),
+      tipos: () => datosCelular.tipos(userDataDir),
+      obtenerUserId: () => require('./license/session-store').leer(userDataDir)?.userId || null,
+      calcular: async (uid, elegidos) => {
+        const cfg = await require('./bot-engine/models/Config').findOne({ userId: String(uid) }).lean();
+        return datosCelular.calcular(uid, elegidos, { general: require('./gestion/turnos-manual').calendarioGeneral(cfg, require('./security/credentials-store').decrypt) });
+      },
+      huella: datosCelular.huella,
+      enviar: (datos) => require('./license/license-client').datosNegocio(datos),
+      log,
+    });
+    appHooks.datosCelularVivo.iniciar();
   }).catch((e) => log('[arranque] FALLÓ', e));
 
   app.on('window-all-closed', () => { /* vive en la bandeja */ });
   app.on('activate', () => { mostrarVentana(); }); // Mac: clic en el ícono del Dock
   app.on('child-process-gone', (_e, d) => log('[child-process-gone]', d));
   app.on('before-quit', () => { app.isQuitting = true; log('[salida] before-quit'); });
-  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.resumenVivo?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); appHooks.servicioMcp?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
+  app.on('will-quit', () => { actualizador?.detener(); appHooks.servicioRespaldo?.detener(); appHooks.servicioResumenDiario?.detener(); appHooks.resumenVivo?.detener(); appHooks.datosCelularVivo?.detener(); appHooks.servicioCelular?.detener(); appHooks.servicioResenas?.detener(); appHooks.servicioRecurrentes?.detener(); appHooks.servicioExportacion?.detener(); appHooks.servicioMcp?.detener(); require('./license/guardian').detener(); localApi?.cerrar(); store.cerrar(); });
 }

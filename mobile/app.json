@@ -3,7 +3,7 @@
     "name": "Akira",
     "slug": "akira-cloud",
     "scheme": "akira",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "lat.akiracloud.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-foreground.png",
         "backgroundImage": "./assets/adaptive-background.png",

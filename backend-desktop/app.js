@@ -105,6 +105,8 @@ app.use('/api/email/webhook', express.raw({ type: '*/*', limit: '200kb' }), requ
 
 // Productos cargados desde el celular (llevan una foto ya reducida): tope propio, solo para esta ruta. El resto sigue en 10 KB.
 app.use('/api/mobile/productos', express.json({ limit: '1800kb' }));
+// Datos del negocio que la PC sube para verlos en el celular (agenda, caja, clientes, catálogo): tope propio, solo para esta ruta.
+app.use('/api/licenses/datos', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // El primer mongoSanitize (arriba) corre antes de leer el cuerpo y no lo limpia: este segundo sí, ya con el body leído. allowDots: solo saca

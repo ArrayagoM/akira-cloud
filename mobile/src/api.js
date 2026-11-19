@@ -68,5 +68,7 @@ export const leerComando = (id, deviceId) => pedir(`/mobile/comandos/${encodeURI
 export const registrarCelular = (datos) => pedir('/mobile/registrar', { metodo: 'POST', cuerpo: datos });
 export const quitarCelular = (pushToken) => pedir('/mobile/desregistrar', { metodo: 'POST', cuerpo: { pushToken } });
 export const probarNotificacion = () => pedir('/mobile/prueba', { metodo: 'POST', cuerpo: {} });
+// Datos del negocio que la PC subió (solo si el usuario lo activó en la PC): tipo = agenda | caja | clientes | catalogo.
+export const leerDatos = (tipo) => pedir(`/mobile/datos?tipo=${encodeURIComponent(tipo)}`);
 export const leerAlertas = () => pedir('/auth/alertas');
 export const guardarAlertas = (cambios) => pedir('/auth/alertas', { metodo: 'PUT', cuerpo: cambios });

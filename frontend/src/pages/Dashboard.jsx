@@ -10,6 +10,7 @@ import { Play, Square, RefreshCw, MessageSquare, Calendar, DollarSign, Wifi, Wif
 import InstalarApp from '../components/InstalarApp';
 import ReferralCard from '../components/ReferralCard';
 import ResumenWebCard from '../components/ResumenWebCard';
+import DatosCelularCard from '../components/DatosCelularCard';
 import AlertasCard from '../components/AlertasCard';
 import ResumenDiarioCard from '../components/ResumenDiarioCard';
 import PrimerosPasos from '../components/PrimerosPasos';
@@ -489,6 +490,7 @@ export default function Dashboard() {
         <AlertasCard />
         <CelularCard />
         <ResumenWebCard />
+        <DatosCelularCard />
 
         {/* ── Panel multi-cuenta Agencia ── */}
         {isAgencia && (

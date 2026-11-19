@@ -23,7 +23,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node tests/estado.test.js && node tests/google.test.js"
+    "test": "node tests/estado.test.js && node tests/google.test.js && node tests/negocio.test.js"
   },
   "private": true
 }

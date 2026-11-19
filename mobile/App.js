@@ -6,11 +6,13 @@ import { C } from './src/ui';
 import { restaurarSesion, cerrarSesion, leerEstado, alVencerSesion } from './src/api';
 import Login from './src/pantallas/Login';
 import Estado from './src/pantallas/Estado';
+import Negocio from './src/pantallas/Negocio';
 import Resumen from './src/pantallas/Resumen';
 import Ajustes from './src/pantallas/Ajustes';
 
 const PESTANAS = [
   { id: 'estado', etiqueta: 'Estado', icono: '🟢' },
+  { id: 'negocio', etiqueta: 'Negocio', icono: '🗂️' },
   { id: 'resumen', etiqueta: 'Resumen', icono: '📊' },
   { id: 'ajustes', etiqueta: 'Ajustes', icono: '⚙️' },
 ];
@@ -52,6 +54,7 @@ export default function App() {
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         {tab === 'estado' && <Estado estado={estado} cargando={cargando} error={error} recargar={recargar} usuario={sesion} />}
+        {tab === 'negocio' && <Negocio />}
         {tab === 'resumen' && <Resumen estado={estado} cargando={cargando} recargar={recargar} />}
         {tab === 'ajustes' && <Ajustes usuario={sesion} alCerrarSesion={salir} />}
       </View>

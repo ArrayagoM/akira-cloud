@@ -244,12 +244,61 @@ router.post('/deactivate', requireAuth, async (req, res) => {
 
     device.activo = false;
     await device.save();
+    // Los datos del negocio que se habían subido para verlos desde el celular se borran con el equipo.
+    await require('../models/DatosNegocio').deleteMany({ userId: req.user._id, deviceId }).catch(() => {});
 
     await Log.registrar({ userId: req.user._id, tipo: 'config_update', mensaje: `Instalación de escritorio desactivada: ${device.nombre || deviceId.slice(0, 8)}`, ip: req.ip });
     res.json({ ok: true });
   } catch (err) {
     logger.error('[Licenses] deactivate error: ' + err.message);
     res.status(500).json({ error: 'Error al desactivar el dispositivo' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  PUT /api/licenses/datos   { deviceId, datos: { agenda?, caja?, clientes?, catalogo? } }  |  { deviceId, borrar: true }
+//  OPCIONAL (el usuario lo activa en la app de la PC): sube una copia de los datos que eligió ver desde el celular. Acá SÍ hay nombres,
+//  teléfonos y montos de clientes: cada campo se valida (lib/datos-negocio.js), se guarda cifrado y solo lo lee la cuenta dueña.
+//  borrar:true → se borra todo lo de ese equipo (el usuario apagó la opción). quitar:[tipos] → se borran solo esos tipos.
+// ─────────────────────────────────────────────────────────────
+router.put('/datos', requireAuth, async (req, res) => {
+  try {
+    const { deviceId, datos, borrar, quitar } = req.body || {};
+    if (typeof deviceId !== 'string' || !deviceId || deviceId.length > 100) return res.status(400).json({ error: 'Falta deviceId' });
+    const device = await Device.findOne({ userId: req.user._id, deviceId });
+    if (!device || device.revocado || !device.activo) return res.status(403).json({ error: 'Este equipo ya no está activo en tu cuenta', revocado: true });
+    const DatosNegocio = require('../models/DatosNegocio');
+    if (borrar === true) { await DatosNegocio.deleteMany({ userId: req.user._id, deviceId }); return res.json({ ok: true, borrado: true }); }
+    // quitar: ['agenda', …] → el usuario sacó esos tipos de lo que comparte: se borran solo esos (siempre se permite, aunque la suscripción esté vencida).
+    if (Array.isArray(quitar)) {
+      const validos = quitar.filter((t) => require('../lib/datos-negocio').TIPOS.includes(t));
+      if (validos.length) await DatosNegocio.deleteMany({ userId: req.user._id, deviceId, tipo: { $in: validos } });
+      return res.json({ ok: true, quitados: validos });
+    }
+    if (!calcularVigencia(req.user).vigente) return res.status(403).json({ error: 'Suscripción vencida', vigente: false });
+    const { consumir, mensajeEspera } = require('../lib/limite');
+    const tope = await consumir(`datos:${req.user._id}`, { max: 400, ventanaMs: 3600e3 });
+    if (!tope.ok) return res.status(429).json({ error: mensajeEspera(tope.reintentarEnSeg) });
+    if (!datos || typeof datos !== 'object' || Array.isArray(datos)) return res.status(400).json({ error: 'Faltan los datos' });
+
+    const DN = require('../lib/datos-negocio'); const { encrypt } = require('../services/crypto.service');
+    const ahora = new Date(); const guardados = []; const sinCambios = []; const invalidos = [];
+    for (const tipo of DN.TIPOS) {
+      if (datos[tipo] === undefined) continue;
+      const limpio = DN.sanearDatos(tipo, datos[tipo]);
+      if (!limpio) { invalidos.push(tipo); continue; }
+      const h = DN.huella(limpio);
+      const previo = await DatosNegocio.findOne({ userId: req.user._id, deviceId, tipo }).select('hash');
+      if (previo && previo.hash === h) { await DatosNegocio.updateOne({ _id: previo._id }, { $set: { actualizadoEn: ahora } }); sinCambios.push(tipo); continue; }
+      await DatosNegocio.findOneAndUpdate({ userId: req.user._id, deviceId, tipo }, { $set: { cifrado: encrypt(JSON.stringify(limpio)), hash: h, actualizadoEn: ahora } }, { upsert: true });
+      guardados.push(tipo);
+    }
+    if (!guardados.length && !sinCambios.length) return res.status(400).json({ error: 'Datos inválidos', invalidos });
+    const m = require('../lib/mirando');
+    res.json({ ok: true, guardados, sinCambios, invalidos, mirando: m.estaMirando(device, ahora) });
+  } catch (err) {
+    logger.error('[Licenses] datos error: ' + err.message); // nunca se registra el contenido
+    res.status(500).json({ error: 'No se pudieron guardar los datos' });
   }
 });
 
