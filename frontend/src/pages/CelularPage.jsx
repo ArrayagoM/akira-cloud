@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, Activity, BarChart3, Settings, RefreshCw, Bell, LogOut, Share, Plus, Smartphone, Loader2, Eye, EyeOff, Camera } from 'lucide-react';
+import ElegirResumen from '../components/ElegirResumen';
 import CargarProducto from '../components/celular/CargarProducto';
 import DialogoConfirmar from '../components/celular/DialogoConfirmar';
 import useSondeo from '../components/celular/useSondeo';
@@ -203,13 +204,14 @@ function PestañaEstado({ estado, cargando, error, recargar, usuario, alOrden })
   );
 }
 
-function PestañaResumen({ estado }) {
+function PestañaResumen({ estado, recargar }) {
   const pcs = estado?.pcs || [];
   const conResumen = pcs.filter((p) => lineasResumen(p.resumen).length > 0);
   return (
     <div>
       <h2 className="text-xl font-bold">Resumen del negocio</h2>
-      <p className="text-sm mb-4" style={{ color: 'var(--text2, #9aa8b8)' }}>Solo números: nunca se ven ni se envían nombres, chats ni documentos de tus clientes.</p>
+      <p className="text-sm mb-3" style={{ color: 'var(--text2, #9aa8b8)' }}>Solo números: nunca se ven ni se envían nombres, chats ni documentos de tus clientes.</p>
+      <ElegirResumen alCambiar={recargar} />
       {conResumen.length === 0 && <div className="card"><p className="font-bold">Todavía no hay datos para mostrar</p><p className="text-sm mt-1.5" style={{ color: 'var(--text2, #9aa8b8)' }}>Activá “Ver tu negocio desde el celular” en Akira (PC) → Inicio. Es opcional y lo podés apagar cuando quieras.</p></div>}
       {conResumen.map((pc) => {
         const vig = vigenciaResumen(pc.resumen, pc.resumenEn, new Date(estado?.ahora || Date.now()));
@@ -357,7 +359,7 @@ export default function CelularPage() {
       </header>
       <main className="max-w-lg mx-auto px-5 pt-5 pb-28">
         {pestaña === 'estado' && <PestañaEstado estado={estado} cargando={cargando} error={error} recargar={refrescar} usuario={user} alOrden={alOrden} />}
-        {pestaña === 'resumen' && <PestañaResumen estado={estado} />}
+        {pestaña === 'resumen' && <PestañaResumen estado={estado} recargar={refrescar} />}
         {pestaña === 'productos' && <CargarProducto estado={estado} />}
         {pestaña === 'ajustes' && <PestañaAjustes usuario={user} alSalir={salir} />}
       </main>

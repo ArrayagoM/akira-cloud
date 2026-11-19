@@ -14,6 +14,8 @@ import api from '../services/api';
 import { pesos } from '../utils/archivos';
 import { NOVEDADES } from '../data/novedades';
 import { vigenciaResumen, avisoResumen } from '../lib/estadoMovil';
+import { AVISO_SIN_DATO } from '../lib/resumenVer';
+import ElegirResumen from '../components/ElegirResumen';
 
 // Panel de la versión web. El bot, la agenda, los clientes y la configuración viven en la app de
 // escritorio (en la PC del negocio); la web es para la cuenta: plan, equipos, uso, novedades,
@@ -120,6 +122,7 @@ export default function CuentaPanel() {
   const avisoRs = avisoResumen(vigRs, conResumen?.resumenEn);
   const vHoy = (v) => (vigRs.conocido && !vigRs.esDeHoy ? '—' : v);
   const vMes = (v) => (vigRs.conocido && !vigRs.esDelMes ? '—' : v);
+  const hayTarjetasRs = !!rs && ['mensajesHoy', 'turnosHoy', 'ingresosMes', 'gastosMes', 'teDeben', 'debes', 'clientes'].some((k) => rs[k] !== undefined && rs[k] !== null);
   const pctUso = uso && uso.limite ? Math.min(100, Math.round((uso.usados / uso.limite) * 100)) : 0;
   const versionEquipo = devices.map((d) => d.version).filter(Boolean).sort().pop();
   const desactualizada = ultima?.version && versionEquipo && versionEquipo !== ultima.version;
@@ -176,19 +179,23 @@ export default function CuentaPanel() {
               <p className="text-sm font-semibold text-white flex items-center gap-2"><Smartphone size={15} style={{ color: '#00e87b' }} />Tu negocio hoy</p>
               <p className="text-[11px]" style={{ color: 'var(--muted)' }}>Actualizado {hace(conResumen.resumenEn)} · {conResumen.nombre || 'tu PC'}</p>
             </div>
+            <ElegirResumen alCambiar={cargarEquipos} />
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Solo se muestra lo que llegó (el usuario elige qué ver): un dato ausente no se rellena con ceros. */}
               {[
-                [MessageSquare, 'Mensajes hoy', vHoy(rs.mensajesHoy), '#00e87b'], [Calendar, 'Turnos hoy', vHoy(rs.turnosHoy), '#7dd3fc'],
-                [TrendingUp, 'Ingresos del mes', vMes(pesos(rs.ingresosMes)), '#34d399'], [TrendingDown, 'Gastos del mes', vMes(pesos(rs.gastosMes)), '#f87171'],
-                [TrendingUp, 'Resultado del mes', vMes(`${(rs.ingresosMes - rs.gastosMes) < 0 ? '-' : ''}${pesos(Math.abs(rs.ingresosMes - rs.gastosMes))}`), (rs.ingresosMes - rs.gastosMes) >= 0 ? '#34d399' : '#f87171'],
-                [HandCoins, 'Te deben', pesos(rs.teDeben), '#fbbf24'], [Truck, 'Debés', pesos(rs.debes), '#f87171'], [Users, 'Clientes', rs.clientes, '#e5e7eb'],
-              ].map(([I, t, v, c]) => (
+                [['mensajesHoy'], MessageSquare, 'Mensajes hoy', vHoy(rs.mensajesHoy), '#00e87b'], [['turnosHoy'], Calendar, 'Turnos hoy', vHoy(rs.turnosHoy), '#7dd3fc'],
+                [['ingresosMes'], TrendingUp, 'Ingresos del mes', vMes(pesos(rs.ingresosMes)), '#34d399'], [['gastosMes'], TrendingDown, 'Gastos del mes', vMes(pesos(rs.gastosMes)), '#f87171'],
+                [['ingresosMes', 'gastosMes'], TrendingUp, 'Resultado del mes', vMes(`${(rs.ingresosMes - rs.gastosMes) < 0 ? '-' : ''}${pesos(Math.abs(rs.ingresosMes - rs.gastosMes))}`), (rs.ingresosMes - rs.gastosMes) >= 0 ? '#34d399' : '#f87171'],
+                [['teDeben'], HandCoins, 'Te deben', pesos(rs.teDeben), '#fbbf24'], [['debes'], Truck, 'Debés', pesos(rs.debes), '#f87171'], [['clientes'], Users, 'Clientes', rs.clientes, '#e5e7eb'],
+              ].filter(([claves]) => claves.every((k) => rs[k] !== undefined && rs[k] !== null)).map(([, I, t, v, c]) => (
                 <div key={t} className="rounded-lg border border-white/10 p-2.5">
                   <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--text2)' }}><I size={12} style={{ color: c }} />{t}</div>
                   <p className="text-lg font-bold mt-0.5" style={{ color: c }}>{v ?? '—'}</p>
                 </div>
               ))}
             </div>
+            {!hayTarjetasRs && rs.documentosPendientes === 0 && <p className="text-xs" style={{ color: 'var(--text2)' }}>No tenés documentos sin revisar.</p>}
+            {!hayTarjetasRs && !(rs.documentosPendientes >= 0) && <p className="text-xs" style={{ color: 'var(--text2)' }}>{AVISO_SIN_DATO}</p>}
             {avisoRs && <p className="text-xs mt-3 font-semibold" style={{ color: '#fbbf24' }}>{avisoRs}</p>}
             {rs.documentosPendientes > 0 && <p className="text-xs mt-3 flex items-center gap-1.5" style={{ color: '#fbbf24' }}><FileText size={13} />Tenés {rs.documentosPendientes} documento(s) sin revisar en la app.</p>}
             <p className="text-[11px] mt-3" style={{ color: 'var(--muted)' }}>Son solo números que tu PC envía mientras tenga activado "Ver tu negocio desde el celular". Podés apagarlo cuando quieras desde el Dashboard de la app y se borra de acá.</p>

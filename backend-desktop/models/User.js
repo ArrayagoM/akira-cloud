@@ -120,6 +120,9 @@ const UserSchema = new mongoose.Schema(
       push:  { type: Boolean, default: true }, // notificaciones al celular (app móvil)
     },
 
+    // Qué números del resumen del negocio quiere VER (ids de lib/resumen-negocio.js GRUPOS). Sin definir = todos.
+    resumenVer: { type: [String], default: undefined },
+
     // Emails de novedades (instalador, actualizaciones). false = pidió la baja.
     novedadesActivas: { type: Boolean, default: true },
     novedadesEnviadas: { type: Object, default: undefined }, // campaña → fecha de envío (evita duplicados)

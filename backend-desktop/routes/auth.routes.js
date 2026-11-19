@@ -199,6 +199,25 @@ router.put('/alertas', requireAuth, async (req, res) => {
   res.json({ email: u?.alertas?.email !== false, push: u?.alertas?.push !== false });
 });
 
+// ───────────────────────────────────────────────────────
+//  GET/PUT /api/auth/resumen-ver — qué números del resumen del negocio quiere ver el usuario (web, celular y .apk).
+//  Sin elección guardada se ven todos. La PC sigue mandando lo mismo: esto solo decide qué se muestra.
+// ───────────────────────────────────────────────────────
+const RV = require('../lib/resumen-negocio');
+const respuestaResumenVer = (u) => ({
+  grupos: RV.sanearGrupos(u?.resumenVer) ?? RV.IDS_GRUPOS,
+  elegido: Array.isArray(u?.resumenVer),
+  disponibles: RV.IDS_GRUPOS.map((id) => ({ id, etiqueta: RV.GRUPOS[id].etiqueta })),
+});
+router.get('/resumen-ver', requireAuth, (req, res) => res.json(respuestaResumenVer(req.user)));
+router.put('/resumen-ver', requireAuth, async (req, res) => {
+  const g = RV.sanearGrupos(req.body?.grupos);
+  if (g === null || (req.body.grupos || []).some((x) => !RV.IDS_GRUPOS.includes(x))) return res.status(400).json({ error: 'Elección inválida' });
+  if (!g.length) return res.status(400).json({ error: 'Elegí al menos un dato para ver. Si no querés ver nada, desactivá la opción en la app de la PC.' });
+  const u = await User.findByIdAndUpdate(req.user._id, { resumenVer: g }, { new: true });
+  res.json(respuestaResumenVer(u));
+});
+
 // ─────────────────────────────────────────────────────────────
 //  POST /api/auth/generar-codigo — genera codigoReferido si el usuario no tiene uno
 // ─────────────────────────────────────────────────────────────

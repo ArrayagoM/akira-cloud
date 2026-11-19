@@ -6,6 +6,7 @@
 
 const crypto = require('crypto');
 const { evaluarEstadoBot } = require('./estado-bot');
+const { filtrarResumen } = require('./resumen-negocio');
 
 const TIPOS = ['bot-pausar', 'bot-reanudar', 'vacaciones-on', 'vacaciones-off'];
 const VENCE_MS = 10 * 60 * 1000;      // la PC tiene 10 min para retirarlo
@@ -55,7 +56,7 @@ function confirmar(device, hechos = [], ahora = new Date()) {
 }
 
 // Estado que ve la app móvil para una PC.
-function resumirEstado(device, ahora = new Date()) {
+function resumirEstado(device, ahora = new Date(), { grupos } = {}) {
   const ult = device.ultimoHeartbeat ? new Date(device.ultimoHeartbeat) : null;
   const online = !!ult && ahora.getTime() - ult.getTime() <= PC_SIN_SENAL_MS;
   const est = device.estadoBot || null;
@@ -75,7 +76,7 @@ function resumirEstado(device, ahora = new Date()) {
     online, ultimoHeartbeat: ult ? ult.toISOString() : null,
     bot, motivo, vacaciones: est?.vacaciones === true,
     cuentas: (est?.slots || []).map((s) => ({ slot: s.slot, conectado: s.conectado, deseado: s.deseado })),
-    resumen: device.resumen || null, resumenEn: device.resumenEn ? new Date(device.resumenEn).toISOString() : null,
+    resumen: filtrarResumen(device.resumen || null, grupos), resumenEn: device.resumenEn ? new Date(device.resumenEn).toISOString() : null,
     controlRemoto: device.celularActivo === true,
     comandos: (device.comandos || []).slice(-5).map(({ id, tipo, estado, creadoEn }) => ({ id, tipo, estado, creadoEn })),
   };

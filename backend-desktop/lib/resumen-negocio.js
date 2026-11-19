@@ -20,6 +20,39 @@ function sanearResumen(r) {
   return salida;
 }
 
+// ── Qué números quiere VER cada usuario ──────────────────────────────────────────────────────────────────────
+// La PC manda todos los contadores permitidos (los que el usuario aceptó al activar "Ver tu negocio desde el celular"); cada usuario
+// elige cuáles se le MUESTRAN en la web, en la app del celular y en el .apk. El filtro se aplica acá, al responder, así que sirve
+// igual para las versiones ya instaladas. Sin elección guardada (undefined) se muestra todo, como siempre.
+const GRUPOS = {
+  mensajes:   { etiqueta: 'Mensajes de hoy', campos: ['mensajesHoy'] },
+  turnos:     { etiqueta: 'Turnos de hoy y del mes', campos: ['turnosHoy', 'turnosMes'] },
+  caja:       { etiqueta: 'Caja: ingresos, gastos y resultado del mes', campos: ['ingresosMes', 'gastosMes'] },
+  deudas:     { etiqueta: 'Lo que te deben y lo que debés', campos: ['teDeben', 'debes'] },
+  clientes:   { etiqueta: 'Cantidad de clientes', campos: ['clientes'] },
+  documentos: { etiqueta: 'Documentos sin revisar', campos: ['documentosPendientes'] },
+};
+const IDS_GRUPOS = Object.keys(GRUPOS);
+
+// Devuelve la lista limpia (solo grupos que existen, sin repetidos, en el orden de siempre) o null si no es una lista válida.
+function sanearGrupos(g) {
+  if (!Array.isArray(g)) return null;
+  if (g.some((x) => typeof x !== 'string')) return null;
+  const pedidos = new Set(g);
+  return IDS_GRUPOS.filter((id) => pedidos.has(id));
+}
+
+// grupos: undefined/null (sin elección guardada) → el resumen tal cual. Con lista → solo esos contadores (más el mes). No modifica el original.
+function filtrarResumen(resumen, grupos) {
+  if (!resumen || typeof resumen !== 'object') return resumen || null;
+  const elegidos = sanearGrupos(grupos);
+  if (grupos === undefined || grupos === null || elegidos === null) return resumen;
+  const salida = {};
+  if (resumen.mes !== undefined) salida.mes = resumen.mes;
+  for (const id of elegidos) for (const k of GRUPOS[id].campos) if (resumen[k] !== undefined) salida[k] = resumen[k];
+  return salida;
+}
+
 const sanearVersion = (v) => (typeof v === 'string' && /^\d{1,3}(\.\d{1,4}){1,3}$/.test(v.trim()) ? v.trim() : null);
 
-module.exports = { sanearResumen, sanearVersion, CAMPOS };
+module.exports = { sanearResumen, sanearVersion, CAMPOS, GRUPOS, IDS_GRUPOS, sanearGrupos, filtrarResumen };

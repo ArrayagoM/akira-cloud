@@ -262,6 +262,9 @@ router.get('/mine', requireAuth, async (req, res) => {
   const devices = await Device.find({ userId: req.user._id, activo: true, revocado: false })
     .select('deviceId nombre activadoEn ultimoHeartbeat version resumen resumenEn estadoBot estadoBotEn')
     .lean();
+  // Cada usuario elige qué números del resumen ve (lib/resumen-negocio.js); sin elección guardada se muestra todo.
+  const { filtrarResumen } = require('../lib/resumen-negocio');
+  for (const d of devices) if (d.resumen) d.resumen = filtrarResumen(d.resumen, req.user.resumenVer);
   res.json({ devices, limite: dispositivosMaxDePlan(planEfectivo(req.user)) });
 });
 
