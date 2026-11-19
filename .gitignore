@@ -26,3 +26,9 @@ scripts/migrar-atlas-a-local.js
 backend/services/akira.bot.tmp
 # Carpetas de trabajo de Claude Code
 .claude/worktrees/
+
+# Claves de firma de la app de Android: NUNCA al repositorio (ver docs/ANDROID-FIRMA-Y-ACTUALIZACION.md)
+*.p12
+*.jks
+*.keystore
+LEEME-SECRETOS.txt

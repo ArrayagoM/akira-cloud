@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { C } from './src/ui';
 import { restaurarSesion, cerrarSesion, leerEstado, alVencerSesion } from './src/api';
 import Login from './src/pantallas/Login';
+import AvisoActualizacion from './src/AvisoActualizacion';
 import Estado from './src/pantallas/Estado';
 import Negocio from './src/pantallas/Negocio';
 import Resumen from './src/pantallas/Resumen';
@@ -45,13 +46,15 @@ export default function App() {
   }, [sesion, recargar]);
 
   if (sesion === undefined) return <View style={s.centro}><ActivityIndicator color={C.verde} /></View>;
-  if (!sesion) return (<SafeAreaProvider><StatusBar style="light" /><Login alIngresar={() => restaurarSesion().then(setSesion)} /></SafeAreaProvider>);
+  // También en la pantalla de ingreso: quien no puede entrar con una versión vieja tiene que enterarse de que hay una nueva.
+  if (!sesion) return (<SafeAreaProvider><StatusBar style="light" /><SafeAreaView style={s.raiz}><AvisoActualizacion /><Login alIngresar={() => restaurarSesion().then(setSesion)} /></SafeAreaView></SafeAreaProvider>);
 
   const salir = async () => { await cerrarSesion(); setSesion(null); setEstado(null); setTab('estado'); };
   return (
     <SafeAreaProvider>
     <SafeAreaView style={s.raiz}>
       <StatusBar style="light" />
+      <AvisoActualizacion />
       <View style={{ flex: 1 }}>
         {tab === 'estado' && <Estado estado={estado} cargando={cargando} error={error} recargar={recargar} usuario={sesion} />}
         {tab === 'negocio' && <Negocio />}

@@ -28,6 +28,18 @@ router.get('/web-push/clave', (_req, res) => {
   res.json({ disponible: true, clave: process.env.VAPID_PUBLIC_KEY });
 });
 
+// GET /api/mobile/android — última versión de la app de Android (sin sesión: la app lo consulta antes de entrar).
+// La app compara su versionCode con este y, si hay una más nueva, ofrece actualizarse (ver mobile/src/actualizar.js).
+router.get('/android', async (_req, res) => {
+  try {
+    const v = await require('../lib/android-ultima').ultimaAndroid();
+    const base = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+    res.set('Cache-Control', 'public, max-age=300');
+    if (!v) return res.json({ disponible: false });
+    res.json({ disponible: true, versionCode: v.versionCode, versionName: v.versionName, sizeMB: v.sizeMB, notas: v.notas, firmaEstable: v.firmaEstable, sha256: v.sha256, url: `${base}/api/desktop/download-android` });
+  } catch (e) { logger.error('[Mobile] android: ' + e.message); res.json({ disponible: false }); }
+});
+
 // POST /api/mobile/registrar { pushToken, plataforma, nombre }  ó  { suscripcion, nombre } (app web instalada)
 router.post('/registrar', requireAuth, async (req, res) => {
   try {

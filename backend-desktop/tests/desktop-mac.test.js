@@ -2,6 +2,8 @@
 'use strict';
 process.env.FRONTEND_URL = 'https://akiracloud.lat';
 const router = require('../routes/desktop.routes');
+const AU = require('../lib/android-ultima');
+AU.fijarConsulta(async () => null); // la prueba no sale a internet: sin versión armada por GitHub, solo cuenta la variable de entorno
 function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  ✅ ' + m); }
 async function llamar(ruta, query = {}) {
   const capa = router.stack.find((l) => l.route && l.route.path === ruta && l.route.methods.get);
@@ -45,5 +47,15 @@ assert(a.json.android.disponible === true && a.json.android.url === 'https://aki
 assert(a.json.mac.disponible === true && a.json.plataforma === 'windows', 'Windows y Mac siguen igual');
 d = (await llamar('/download-android'));
 assert(d.status === 302 && d.redirigido === process.env.DESKTOP_ANDROID_URL, 'la descarga redirige al archivo');
+// ── Android: la última versión armada por GitHub manda sobre la variable de entorno ──
+AU.fijarConsulta(async () => AU.normalizarVersion({ versionCode: 120, versionName: '1.0.3', sizeMB: 71.4, firmaEstable: true }));
+a = (await llamar('/latest'));
+assert(a.json.android.disponible === true && a.json.android.version === '1.0.3' && a.json.android.sizeMB === 71.4 && a.json.android.url === 'https://akiracloud.lat/api/desktop/download-android', 'con una versión armada por GitHub, Android ofrece esa (con su versión y tamaño)');
+d = (await llamar('/download-android'));
+assert(d.status === 302 && d.redirigido === AU.URL_APK && d.redirigido.startsWith('https://github.com/ArrayagoM/akira-cloud/releases/download/'), 'la descarga va a la dirección fija del repositorio oficial, no a la variable de entorno vieja');
+delete process.env.DESKTOP_ANDROID_URL;
+assert((await llamar('/latest')).json.android.disponible === true && (await llamar('/download-android')).status === 302, 'y ya no hace falta cargar ninguna variable de entorno a mano');
+AU.fijarConsulta(async () => null);
+assert((await llamar('/latest')).json.android.disponible === false && (await llamar('/download-android')).status === 404, 'si GitHub no responde y no hay variable, Android figura como no disponible (sin romper nada)');
 console.log('\n✅ Todos los tests de descarga (Mac y Android) pasaron.\n');
 })().catch((e) => { console.error(e.message); process.exit(1); });

@@ -70,5 +70,7 @@ export const quitarCelular = (pushToken) => pedir('/mobile/desregistrar', { meto
 export const probarNotificacion = () => pedir('/mobile/prueba', { metodo: 'POST', cuerpo: {} });
 // Datos del negocio que la PC subió (solo si el usuario lo activó en la PC): tipo = agenda | caja | clientes | catalogo.
 export const leerDatos = (tipo) => pedir(`/mobile/datos?tipo=${encodeURIComponent(tipo)}`);
+// Última versión de la app de Android (sin sesión: sirve también en la pantalla de ingreso).
+export const leerUltimaVersionApp = () => pedir('/mobile/android', { conSesion: false });
 export const leerAlertas = () => pedir('/auth/alertas');
 export const guardarAlertas = (cambios) => pedir('/auth/alertas', { metodo: 'PUT', cuerpo: cambios });

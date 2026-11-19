@@ -45,8 +45,10 @@ const urlAndroid = () => {
   return /^https:\/\//i.test(u) ? u : null;
 };
 
-router.get('/latest', (_req, res) => {
+router.get('/latest', async (_req, res) => {
   const base = (process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  // El .apk de Android: si el armado de GitHub dejó una versión (release "android-actual"), esa es la que se ofrece, sin tocar variables de entorno.
+  const apk = await require('../lib/android-ultima').ultimaAndroid().catch(() => null);
   res.set('Cache-Control', 'public, max-age=300');
   res.json({
     disponible: !!urlInstalador(),
@@ -60,9 +62,10 @@ router.get('/latest', (_req, res) => {
     ...versionesDeEntorno(),
     // Mac: solo se ofrece lo que ya está subido (cada enlace sale de una variable de entorno).
     android: {
-      disponible: !!urlAndroid(),
-      url: urlAndroid() ? `${base}/api/desktop/download-android` : null,
-      sizeMB: parseInt(process.env.DESKTOP_ANDROID_SIZE_MB, 10) || null,
+      disponible: !!apk || !!urlAndroid(),
+      url: apk || urlAndroid() ? `${base}/api/desktop/download-android` : null,
+      sizeMB: (apk && apk.sizeMB) || parseInt(process.env.DESKTOP_ANDROID_SIZE_MB, 10) || null,
+      version: apk ? apk.versionName : null,
     },
     mac: {
       disponible: !!(urlMac('arm64') || urlMac('x64')),
@@ -74,7 +77,9 @@ router.get('/latest', (_req, res) => {
 });
 
 router.get('/download-android', async (req, res) => {
-  const u = urlAndroid();
+  // Primero la última versión armada por GitHub (dirección fija del repositorio oficial); si no hay, la variable de entorno de siempre.
+  const apk = await require('../lib/android-ultima').ultimaAndroid().catch(() => null);
+  const u = apk ? apk.urlApk : urlAndroid();
   if (!u) return res.status(404).json({ error: 'La app de Android todavía no está disponible' });
   await contar(req, 'android');
   res.redirect(302, u);
