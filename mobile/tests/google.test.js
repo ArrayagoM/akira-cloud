@@ -43,6 +43,7 @@ const lock = JSON.parse(leer('package-lock.json')).packages;
 assert(lock['node_modules/expo-web-browser'] && lock['node_modules/expo-crypto'], 'y también en package-lock.json (el armado usa npm ci: si faltaran, falla)');
 const login = leer('src', 'pantallas', 'Login.js');
 assert(/titulo="Continuar con Google"/.test(login) && /iniciarConGoogle/.test(login), 'la pantalla de ingreso tiene el botón "Continuar con Google"');
+assert(/Esta cuenta entra con Google/.test(login) && /OAuth/.test(login), 'si la cuenta es de Google y prueba con contraseña, le dice que toque el botón de Google (no "contraseña incorrecta")');
 assert(!/Creá una contraseña desde/.test(login), 'ya no pide crear una contraseña para entrar con Google');
 const api = leer('src', 'api.js');
 assert(/openAuthSessionAsync\(urlInicio\(URL_BASE, desafio\), REDIRECCION\)/.test(api) && /sha256|SHA256/i.test(api), 'api.js abre el navegador con el desafío SHA-256 y espera la vuelta a akira://oauth');

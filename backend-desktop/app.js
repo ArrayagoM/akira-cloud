@@ -78,6 +78,9 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   'https://akiracloud.lat',
   'https://www.akiracloud.lat',
+  // Dirección anterior de la misma web (proyecto de Vercel 'akira-cloud'): sigue sirviendo el sitio y hay gente con ella guardada o instalada.
+  // Sin esto el ingreso devolvía 500 desde ahí. Es nuestro propio origen, coincidencia exacta como los demás.
+  'https://akira-cloud.vercel.app',
   // los orígenes de desarrollo solo valen fuera de producción
   ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://localhost:5173']),
 ].filter(Boolean).map((o) => String(o).replace(/\/+$/, ''));

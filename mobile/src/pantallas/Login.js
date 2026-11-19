@@ -13,7 +13,7 @@ export default function Login({ alIngresar }) {
   const entrar = async () => {
     setError(''); setCargando(true);
     try { await iniciarSesion(email, pass); alIngresar(); }
-    catch (e) { setError(e.status === 401 ? 'Email o contraseña incorrectos.' : e.message); }
+    catch (e) { setError(e.status === 401 ? (/OAuth/i.test(e.message) ? 'Esta cuenta entra con Google. Tocá “Continuar con Google”.' : 'Email o contraseña incorrectos.') : e.message); }
     finally { setCargando(false); }
   };
 
